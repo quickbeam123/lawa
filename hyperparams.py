@@ -4,3 +4,5 @@
 
 import torch
 
+CLAUSE_NUM_FEATURES = 10
+CLAUSE_INTERAL_SIZE = 16

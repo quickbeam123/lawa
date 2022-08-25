@@ -11,16 +11,141 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import torch
+from torch import Tensor
 
 torch.set_num_threads(1)
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Set, Optional
 
 import numpy as np
 
-def load_one(filename):
-  print("Loading",filename)
+import sys, random
 
-  with open(filename,'r') as f:
+import hyperparams as HP
+
+EVENT_ADD = 0
+EVENT_SEL = 1
+EVENT_REM = 2
+
+def load_one(filename):
+  clauses = {} # id -> (feature_vec)
+  journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+  proof_flas = set()
+
+  with open(sys.argv[1],"r") as f:
     for line in f:
-      print(line[:-1])
+      if line.startswith("i: "):
+        spl = line.split()
+        id = int(spl[1])
+        features = tuple(map(float,spl[2:]))
+        assert len(features) == HP.CLAUSE_NUM_FEATURES
+        # print(id,features)
+        assert id not in clauses
+        clauses[id] = features
+      elif line.startswith("a: "):
+        spl = line.split()
+        id = int(spl[1])
+        journal.append((id,EVENT_ADD))
+      elif line.startswith("s: "):
+        spl = line.split()
+        id = int(spl[1])
+        journal.append((id,EVENT_SEL))
+      elif line.startswith("r: "):
+        spl = line.split()
+        id = int(spl[1])
+        journal.append((id,EVENT_REM))
+      elif line[0] in "123456789":
+        spl = line.split(".")
+        id = int(spl[0])
+        proof_flas.add(id)
+    
+  # print(clauses,journal,proof_flas)
+  return (clauses,journal,proof_flas)
+
+class Embed(torch.nn.Module):
+  weight: Tensor
+  
+  def __init__(self, dim : int):
+    super().__init__()
+    
+    self.weight = torch.nn.parameter.Parameter(torch.Tensor(dim))
+    self.reset_parameters()
+  
+  def reset_parameters(self):
+    torch.nn.init.normal_(self.weight)
+
+  def forward(self) -> Tensor:
+    return self.weight
+
+def get_initial_model():
+  clause_embedder = torch.nn.Sequential(
+    torch.nn.Linear(HP.CLAUSE_NUM_FEATURES,HP.CLAUSE_INTERAL_SIZE),
+    torch.nn.ReLU(),
+    torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
+
+  clause_key = Embed(HP.CLAUSE_INTERAL_SIZE)
+
+  return torch.nn.ModuleList([clause_embedder,clause_key])
+
+# this is destructive on the model modules (best load from checkpoint file first)
+def export_model(model,name):
+
+  # eval mode and no gradient
+  for part in model:    
+    part.eval()
+    for param in part.parameters():
+      param.requires_grad = False
+
+  class NeuralPassiveClauseContainer(torch.nn.Module):
+    clause_vals : Dict[int, float]
+    clauses : Dict[int, int] # using it as a set
+
+    def __init__(self,clause_embedder : torch.nn.Module,clause_key : torch.nn.Module):
+      super().__init__()
+
+      self.clause_embedder = clause_embedder
+      self.clause_key = clause_key
+
+      self.clause_vals = {}
+      self.clauses = {}
+    
+    @torch.jit.export
+    def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
+      tFeatures : Tensor = torch.tensor(features)
+      tInternal : Tensor = self.clause_embedder(tFeatures)
+      val = torch.dot(tInternal,self.clause_key.weight).item()
+      self.clause_vals[id] = val
+
+      # print("Got",id,"of val",val)
+
+    @torch.jit.export
+    def add(self,id: int):
+      self.clauses[id] = 0 # whatever value
+
+      # print("Adding",id)
+    
+    @torch.jit.export
+    def remove(self,id: int):
+      del self.clauses[id]
+
+      # print("Removing",id)
+
+    @torch.jit.export
+    def popSelected(self) -> int:
+      min : Optional[float] = None
+      candidates : List[int] = []
+      for id in self.clauses:
+        val = self.clause_vals[id]
+        if min is None or val < min:
+          candidates = [id]
+          min = val
+        elif val == min:
+          candidates.append(id)
+
+      id = candidates[torch.randint(0, len(candidates), (1,)).item()]
+      del self.clauses[id]
+      return id
+
+  module = NeuralPassiveClauseContainer(*model)
+  script = torch.jit.script(module)
+  script.save(name)
