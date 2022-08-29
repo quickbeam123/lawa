@@ -23,6 +23,67 @@ import sys, random
 
 import hyperparams as HP
 
+# basically, a functionality similar to "scan_results_..." except it's home-grown here
+def scan_result_folder(foldername):
+  results = {} # probname -> (result, time, mega_instr, activations)
+
+  root, dirs, files = next(os.walk(foldername)) # just take the log files immediately under solver_folder
+  for filename in files:    
+    longname = os.path.join(root, filename)
+
+    if filename == "meta.info":
+      continue
+
+    assert filename.endswith(".p.log")
+    assert filename.startswith("Problems_")
+
+    probname = filename[13:-6]
+
+    with open(longname, "r") as f:
+      status = None
+      time = None
+      instructions = 0
+      activations = 0
+
+      for line in f:
+        # vampiric part:
+        if (line.startswith("% SZS status Timeout for") or line.startswith("% SZS status GaveUp") or
+            line.startswith("% Time limit reached!") or line.startswith("% Refutation not found, incomplete strategy") or
+            line.startswith("% Instruction limit reached!") or 
+            line.startswith("% Refutation not found, non-redundant clauses discarded") or
+            line.startswith("Unsupported amount of allocated memory:") or 
+            line.startswith("Memory limit exceeded!")):          
+          status = "---"
+    
+        if line.startswith("% SZS status Unsatisfiable") or line.startswith("% SZS status Theorem") or line.startswith("% SZS status ContradictoryAxioms"):
+          status = "uns"
+
+        if line.startswith("% SZS status Satisfiable") or line.startswith("% SZS status CounterSatisfiable"):
+          status = "sat"
+    
+        if line.startswith("Parsing Error on line"):
+          status = "err"
+
+        if line.startswith("% Time elapsed:"):
+          time = float(line.split()[-2])
+                              
+        if line.startswith("% Instructions burned:"):
+          # "% Instructions burned: 361 (million)"
+          instructions = int(line.split()[-2])
+    
+        if line.startswith("% Activations started:"):
+          activations = int(line.split()[-1])
+  
+      assert probname not in results
+      results[probname] = (status,time,instructions,activations)
+
+      # print(probname,status,time,instructions,activations)
+
+      if status is None:
+        print("Weird",longname)
+
+  return results
+
 EVENT_ADD = 0
 EVENT_SEL = 1
 EVENT_REM = 2

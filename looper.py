@@ -34,6 +34,23 @@ if __name__ == "__main__":
 
   optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)        
 
+  # a helper container for easier iteration over both training and testing folders
+  missions = [("train",train_probs),("test",test_probs)]
+
+  # before we start looping, let's evaluate plain awr vampire, to see if we are possibly doing better 
+  baselines = {}
+  for (mission,prob_list_file) in missions:
+    baseline_dir = os.path.join(exper_dir,"baseline_"+mission)
+    # what_to_run = './run_in_parallel_plus_local.sh {} {} ./run_lawa_vampire.sh {} "-p off" {}'.format(parallelism,prob_list_file,vampire,baseline_dir)
+    # os.system(what_to_run)
+    baselines[mission] = IC.scan_result_folder(baseline_dir)
+
+  for mission,results in baselines.items():
+    # print(results)
+    print(mission,len([probname for probname,(status,time,instructions,activations) in results.items() if status == "uns"]),"/",len(results))
+
+  exit(0)
+
   loop = 0
   assert loop_count > 0
   while True:
@@ -52,9 +69,9 @@ if __name__ == "__main__":
     IC.export_model(torch.load(parts_model_file_path),script_model_file_path)
 
     successes = {}
-    for (mission,prob_list_file) in [("train",train_probs),("test",test_probs)]:
+    for (mission,prob_list_file) in missions:
       sub_dir = os.path.join(cur_dir,mission)
-      what_to_run = './run_in_parallel_plus_local.sh {} {} ./run_lawa_vampire.sh {} "-npcc {}" {}'.format(parallelism,prob_list_file,vampire,script_model_file_path,sub_dir)
+      what_to_run = './run_in_parallel_plus_local.sh {} {} ./run_lawa_vampire.sh {} "-spt on -npcc {}" {}'.format(parallelism,prob_list_file,vampire,script_model_file_path,sub_dir)
       os.system(what_to_run)
 
       # get successes
