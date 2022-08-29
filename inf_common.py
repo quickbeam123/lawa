@@ -32,6 +32,8 @@ def load_one(filename):
   journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
   proof_flas = set()
 
+  num_sels = 0
+
   with open(filename,"r") as f:
     for line in f:
       if line.startswith("i: "):
@@ -50,6 +52,7 @@ def load_one(filename):
         spl = line.split()
         id = int(spl[1])
         journal.append((id,EVENT_SEL))
+        num_sels += 1
       elif line.startswith("r: "):
         spl = line.split()
         id = int(spl[1])
@@ -60,7 +63,10 @@ def load_one(filename):
         proof_flas.add(id)
     
   # print(clauses,journal,proof_flas)
-  return (clauses,journal,proof_flas)
+  if len(clauses) == 0 or num_sels == 0:
+    return None
+  else:
+    return (filename,clauses,journal,proof_flas)
 
 class Embed(torch.nn.Module):
   weight: Tensor
@@ -157,6 +163,9 @@ class LearningModel(torch.nn.Module):
       clauses,journal,proof_flas):
     super(LearningModel,self).__init__()
 
+    # print(clause_embedder,clause_key)
+    # print(clauses,journal,proof_flas)
+
     self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
     self.clause_key = clause_key           # the key for multiplying an embedding to get a clause logits    
     self.clauses = clauses                 # id -> (feature_vec)
@@ -167,12 +176,60 @@ class LearningModel(torch.nn.Module):
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
     id2idx = {}
-    for i,(id,features) in enumerate(sorted(self.clauses)):
+    for i,(id,features) in enumerate(sorted(self.clauses.items())):
       id2idx[id] = i
-      clause_list.append(features)
+      clause_list.append(torch.tensor(features))
     feature_vecs = torch.stack(clause_list)
 
+    # in bulk for all the clauses
+    embeddings = self.clause_embedder(feature_vecs)
+    # since we are not doing LSTM (yet), the multiplication by key can happen emmediately as well
+    # (and is probably kind of redundant in the architecture)
+    logits = torch.matmul(embeddings,self.clause_key.weight)
     
+    loss = torch.zeros(1)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    steps = 0
+    passive = set()
+    for (id, event) in self.journal:
+      if event == EVENT_ADD:
+        passive.add(id)
+      elif event == EVENT_REM:
+        passive.remove(id)
+      else:
+        assert event == EVENT_SEL
+        # we ignore what the selection was by the agent 
+        # and instead assert the (multi-choice) ground truth
+
+        passive_list = sorted(passive)
+
+        # print(passive_list)
+
+        indices = torch.tensor([id2idx[id] for id in passive_list])
+
+        # print(indices)
+
+        sub_logits = torch.index_select(logits,0,indices)
+
+        # print(sub_logits)
+
+        pst = 1.0/len(passive & self.proof_flas)
+        targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
+
+        # print(targets)
+
+        loss += criterion(sub_logits,targets)
+        steps += 1
+
+    return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)
+    
+
+
+
+
+
+
 
 
 

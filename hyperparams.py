@@ -9,5 +9,5 @@ CLAUSE_NUM_FEATURES = 10
 CLAUSE_INTERAL_SIZE = 16
 
 # Optimizer
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.1
 WEIGHT_DECAY = 0.0 # Corresponds to L2 regularization
