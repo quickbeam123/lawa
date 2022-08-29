@@ -32,7 +32,7 @@ def load_one(filename):
   journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
   proof_flas = set()
 
-  with open(sys.argv[1],"r") as f:
+  with open(filename,"r") as f:
     for line in f:
       if line.startswith("i: "):
         spl = line.split()
