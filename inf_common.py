@@ -149,3 +149,30 @@ def export_model(model,name):
   module = NeuralPassiveClauseContainer(*model)
   script = torch.jit.script(module)
   script.save(name)
+
+class LearningModel(torch.nn.Module):
+  def __init__(self,
+      clause_embedder : torch.nn.Module,
+      clause_key: torch.nn.Module,      
+      clauses,journal,proof_flas):
+    super(LearningModel,self).__init__()
+
+    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
+    self.clause_key = clause_key           # the key for multiplying an embedding to get a clause logits    
+    self.clauses = clauses                 # id -> (feature_vec)
+    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.proof_flas = proof_flas           # set of the good ids
+
+  def forward(self):
+    # let's a get a big matrix of feature_vec's, one for each clause (id)
+    clause_list = []
+    id2idx = {}
+    for i,(id,features) in enumerate(sorted(self.clauses)):
+      id2idx[id] = i
+      clause_list.append(features)
+    feature_vecs = torch.stack(clause_list)
+
+    
+
+
+
