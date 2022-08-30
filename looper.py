@@ -37,6 +37,7 @@ if __name__ == "__main__":
   # a helper container for easier iteration over both training and testing folders
   missions = [("train",train_probs),("test",test_probs)]
 
+  '''
   # before we start looping, let's evaluate plain awr vampire, to see if we are possibly doing better 
   baselines = {}
   for (mission,prob_list_file) in missions:
@@ -50,6 +51,7 @@ if __name__ == "__main__":
     print(mission,len([probname for probname,(status,time,instructions,activations) in results.items() if status == "uns"]),"/",len(results))
 
   exit(0)
+  '''
 
   loop = 0
   assert loop_count > 0
@@ -107,8 +109,9 @@ if __name__ == "__main__":
     random.shuffle(results)
     # SGD style (one step per problem)
     factor = 1.0/len(training_data)
+    print("  training",end="")
     for i,(filename,clauses,journal,proof_flas) in enumerate(training_data):
-      print("  ",i,filename)
+      print(".",end="")
       
       optimizer.zero_grad()
       lm = IC.LearningModel(*model,clauses,journal,proof_flas)
@@ -117,4 +120,5 @@ if __name__ == "__main__":
       loss *= factor # scale down by the number of problems we trained on
       loss.backward()
       optimizer.step()
+    print()
       

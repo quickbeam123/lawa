@@ -196,20 +196,32 @@ def export_model(model,name):
       del self.clauses[id]
 
       # print("Removing",id)
-
+    
     @torch.jit.export
-    def popSelected(self) -> int:
-      min : Optional[float] = None
-      candidates : List[int] = []
-      for id in self.clauses:
-        val = self.clause_vals[id]
-        if min is None or val < min:
-          candidates = [id]
-          min = val
-        elif val == min:
-          candidates.append(id)
+    def popSelected(self, temp : float) -> int:
+      if temp == 0.0: # the greedy selection (argmax)
+        min : Optional[float] = None
+        candidates : List[int] = []
+        for id in self.clauses:
+          val = self.clause_vals[id]
+          if min is None or val < min:
+            candidates = [id]
+            min = val
+          elif val == min:
+            candidates.append(id)
+        id = candidates[torch.randint(0, len(candidates), (1,)).item()]
+      else: # softmax selection (taking temp into account)
+        ids : List[int] = []
+        vals : List[float] = []
+        for id in self.clauses:
+          val = self.clause_vals[id]
+          ids.append(id)
+          vals.append(val)
 
-      id = candidates[torch.randint(0, len(candidates), (1,)).item()]
+        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp)
+        idx = torch.multinomial(distrib,1).item()
+        id = ids[idx]
+      
       del self.clauses[id]
       return id
 
