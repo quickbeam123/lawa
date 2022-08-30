@@ -49,7 +49,7 @@ def scan_result_folder(foldername):
         # vampiric part:
         if (line.startswith("% SZS status Timeout for") or line.startswith("% SZS status GaveUp") or
             line.startswith("% Time limit reached!") or line.startswith("% Refutation not found, incomplete strategy") or
-            line.startswith("% Instruction limit reached!") or 
+            "% Instruction limit reached!" in line or 
             line.startswith("% Refutation not found, non-redundant clauses discarded") or
             line.startswith("Unsupported amount of allocated memory:") or 
             line.startswith("Memory limit exceeded!")):          
