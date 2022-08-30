@@ -218,7 +218,7 @@ def export_model(model,name):
           ids.append(id)
           vals.append(val)
 
-        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp)
+        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp,dim=1)
         idx = torch.multinomial(distrib,1).item()
         id = ids[idx]
       
