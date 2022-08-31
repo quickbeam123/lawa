@@ -195,7 +195,7 @@ def get_initial_model():
     clause_embedder = torch.nn.Identity()
   else:
     layer_list = [torch.nn.Linear(num_features(),HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
-    for _ in HP.NUM_LAYERS - 1:  
+    for _ in range(HP.NUM_LAYERS-1):
       layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
       layer_list.append(torch.nn.ReLU())
     clause_embedder = torch.nn.Sequential(*layer_list)
@@ -252,7 +252,7 @@ def export_model(model,name):
       if temp == 0.0: # the greedy selection (argmax)
         min : Optional[float] = None
         candidates : List[int] = []
-        for id in self.clauses:
+        for id in sorted(self.clauses):
           val = self.clause_vals[id]
           if min is None or val < min:
             candidates = [id]
@@ -263,7 +263,7 @@ def export_model(model,name):
       else: # softmax selection (taking temp into account)
         ids : List[int] = []
         vals : List[float] = []
-        for id in self.clauses:
+        for id in sorted(self.clauses):
           val = self.clause_vals[id]
           ids.append(id)
           vals.append(val)

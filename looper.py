@@ -149,7 +149,7 @@ if __name__ == "__main__":
     jobs_for_eval = []
     metas = []
     for mission in MISSIONS:
-      for temperature in ["0.0","0.5","1.0","1.5","2.0"]:
+      for temperature in ["0.0","0.5","1.0"]:
         result_file_name = "{}_t{}.pt".format(mission,temperature)
         opts1 = "-i 5000 -p off"
         opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
@@ -175,7 +175,7 @@ if __name__ == "__main__":
       # compare_to_baselines(results,baselines[mission])
 
       if mission == "train":
-        jobs_for_training.append((successes,"-i 500000 -spt on"+opts2,True))
+        jobs_for_training.append((successes,"-i 50000 -spt on"+opts2,True))
     
     loop += 1
     # traning the model here (in the final loop, there is just eval)

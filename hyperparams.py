@@ -24,12 +24,12 @@ FEATURES_BRICH : Final[int] = 5
 FEATURES_ALL : Final[int] = 6
 FEATURES_BALL : Final[int] = 7
 
-FEATURE_SUBSET : Final[int] = FEATURES_AW
+FEATURE_SUBSET : Final[int] = FEATURES_RICH
 
 # todo: think of normalization / regularization ...
 
 # Architecture
-NUM_LAYERS : Final[int] = 0  # 0 means - just multiply by key at the end (which needs to be of size num_features())
+NUM_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the end (which needs to be of size num_features())
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
