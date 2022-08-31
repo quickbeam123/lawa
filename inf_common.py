@@ -17,91 +17,38 @@ torch.set_num_threads(1)
 
 from typing import Dict, List, Tuple, Set, Optional
 
+from multiprocessing import Pool
+import subprocess
+
 import numpy as np
 
 import sys, random
 
 import hyperparams as HP
 
-# basically, a functionality similar to "scan_results_..." except it's home-grown here
-def scan_result_folder(foldername):
-  results = {} # probname -> (result, time, mega_instr, activations)
+def process_one(task):
+  (prob,opts,ltd,res_idx) = task
 
-  root, dirs, files = next(os.walk(foldername)) # just take the log files immediately under solver_folder
-  for filename in files:    
-    longname = os.path.join(root, filename)
+  to_run = ["./run_lawa_vampire.sh",prob,opts]
 
-    if filename == "meta.info":
-      continue
+  # print(" ".join(to_run))
 
-    assert filename.endswith(".p.log")
-    assert filename.startswith("Problems_")
+  output = subprocess.getoutput(" ".join(to_run))
 
-    probname = filename[13:-6]
+  if ltd:
+    clauses = {} # id -> (feature_vec)
+    journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    proof_flas = set()
 
-    with open(longname, "r") as f:
-      status = None
-      time = None
-      instructions = 0
-      activations = 0
+    num_sels = 0
 
-      for line in f:
-        # vampiric part:
-        if (line.startswith("% SZS status Timeout for") or line.startswith("% SZS status GaveUp") or
-            line.startswith("% Time limit reached!") or line.startswith("% Refutation not found, incomplete strategy") or
-            "% Instruction limit reached!" in line or 
-            line.startswith("% Refutation not found, non-redundant clauses discarded") or
-            line.startswith("Unsupported amount of allocated memory:") or 
-            line.startswith("Memory limit exceeded!")):          
-          status = "---"
-    
-        if line.startswith("% SZS status Unsatisfiable") or line.startswith("% SZS status Theorem") or line.startswith("% SZS status ContradictoryAxioms"):
-          status = "uns"
-
-        if line.startswith("% SZS status Satisfiable") or line.startswith("% SZS status CounterSatisfiable"):
-          status = "sat"
-    
-        if line.startswith("Parsing Error on line"):
-          status = "err"
-
-        if line.startswith("% Time elapsed:"):
-          time = float(line.split()[-2])
-                              
-        if line.startswith("% Instructions burned:"):
-          # "% Instructions burned: 361 (million)"
-          instructions = int(line.split()[-2])
-    
-        if line.startswith("% Activations started:"):
-          activations = int(line.split()[-1])
-  
-      assert probname not in results
-      results[probname] = (status,time,instructions,activations)
-
-      # print(probname,status,time,instructions,activations)
-
-      if status is None:
-        print("Weird",longname)
-
-  return results
-
-EVENT_ADD = 0
-EVENT_SEL = 1
-EVENT_REM = 2
-
-def load_one(filename):
-  clauses = {} # id -> (feature_vec)
-  journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-  proof_flas = set()
-
-  num_sels = 0
-
-  with open(filename,"r") as f:
-    for line in f:
+    for line in output.split("\n"):
+      # print(line)
       if line.startswith("i: "):
         spl = line.split()
         id = int(spl[1])
-        features = tuple(map(float,spl[2:]))
-        assert len(features) == HP.CLAUSE_NUM_FEATURES
+        features = process_features(list(map(float,spl[2:])))
+        assert len(features) == num_features()
         # print(id,features)
         assert id not in clauses
         clauses[id] = features
@@ -118,16 +65,112 @@ def load_one(filename):
         spl = line.split()
         id = int(spl[1])
         journal.append((id,EVENT_REM))
-      elif line[0] in "123456789":
+      elif line and line[0] in "123456789":
         spl = line.split(".")
         id = int(spl[0])
         proof_flas.add(id)
-    
-  # print(clauses,journal,proof_flas)
-  if len(clauses) == 0 or num_sels == 0:
-    return None
+
+    if len(proof_flas) == 0:
+      print("Proof not found for",(prob,opts))
+
+    if len(clauses) == 0 or num_sels == 0 or len(proof_flas) == 0:
+      return (res_idx,prob,None)
+    else:
+      return (res_idx,prob,(clauses,journal,proof_flas)) 
   else:
-    return (filename,clauses,journal,proof_flas)
+    status = None
+    instructions = 0
+    activations = 0
+
+    for line in output.split("\n"):
+      # print("  ",line)
+      if line.startswith("%"):
+        if line.startswith("% Activations started:"):
+          activations = int(line.split()[-1])
+        if line.startswith("% Instructions burned:"):
+          instructions = int(line.split()[-2])
+        if line.startswith("% SZS status"):
+          if "Satisfiable" in line or "CounterSatisfiable" in line:
+            status = "sat"
+          elif "Theorem" in line or "Unsatisfiable" in line or "ContradictoryAxioms" in line:
+            status = "uns"
+
+    return (res_idx,prob,(status,instructions,activations))
+
+class Evaluator:
+  def __init__(self, numcpu : int):
+    self.pool = Pool(processes = numcpu)
+
+  def close(self):
+    self.pool.close()
+
+  # gets a list of "jobs", each being a triple of 
+  # (list_of_problems, vampire_options, load_traing_data : Bool)
+  # returns a list of the same lenght of result dicts
+  # either 1) as done by scan_and_store scripts - for load_traing_data False
+  # or     2) like load_one - for load_traing_data True
+  def perform(self,jobs,parallelly=True):
+    tasks = []    
+    for i,(probs,opts,ltd) in enumerate(jobs):
+      for prob in probs:
+        tasks.append((prob,opts,ltd,i))
+
+    if parallelly:
+      computed = self.pool.map(process_one, tasks, chunksize = 1)
+    else:
+      computed = []
+      for task in tasks:
+        computed.append(process_one(task))
+
+    results = [{} for _ in jobs]
+    for (res_idx,prob,data) in computed:
+      results[res_idx][prob] = data
+
+    return results
+
+EVENT_ADD = 0
+EVENT_SEL = 1
+EVENT_REM = 2
+
+def num_features():
+  if HP.FEATURE_SUBSET == HP.FEATURES_AW:
+    return 2
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BAW:
+    return 3
+  elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
+    return 4
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BPLAIN:
+    return 5
+  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
+    return 6
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BRICH:
+    return 7
+  elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
+    return 10
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BALL:
+    return 11
+
+def process_features(full_features : List[float]) -> List[float]:
+  f = full_features
+  if HP.FEATURE_SUBSET == HP.FEATURES_AW:
+    return [f[0],f[2]]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BAW:
+    return [1.0,f[0],f[2]]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
+    return f[0:4]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BPLAIN:
+    return [1.0]+f[0:4]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
+    return f[0:6]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BRICH:
+    return [1.0]+f[0:6]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
+    return f
+  elif HP.FEATURE_SUBSET == HP.FEATURES_BALL:
+    return [1.0]+f
+  else:
+    assert False
+    return []
 
 class Embed(torch.nn.Module):
   weight: Tensor
@@ -138,6 +181,9 @@ class Embed(torch.nn.Module):
     self.weight = torch.nn.parameter.Parameter(torch.Tensor(dim))
     self.reset_parameters()
   
+  def __repr__(self):
+    return "Embed: "+str(self.weight.data)
+
   def reset_parameters(self):
     torch.nn.init.normal_(self.weight)
 
@@ -145,12 +191,16 @@ class Embed(torch.nn.Module):
     return self.weight
 
 def get_initial_model():
-  clause_embedder = torch.nn.Sequential(
-    torch.nn.Linear(HP.CLAUSE_NUM_FEATURES,HP.CLAUSE_INTERAL_SIZE),
-    torch.nn.ReLU(),
-    torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
-
-  clause_key = Embed(HP.CLAUSE_INTERAL_SIZE)
+  if HP.NUM_LAYERS == 0:
+    clause_embedder = torch.nn.Identity()
+  else:
+    layer_list = [torch.nn.Linear(num_features(),HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
+    for _ in HP.NUM_LAYERS - 1:  
+      layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
+      layer_list.append(torch.nn.ReLU())
+    clause_embedder = torch.nn.Sequential(*layer_list)
+  
+  clause_key = Embed(HP.CLAUSE_INTERAL_SIZE if HP.NUM_LAYERS > 0 else num_features() )
 
   return torch.nn.ModuleList([clause_embedder,clause_key])
 
@@ -178,7 +228,7 @@ def export_model(model,name):
     
     @torch.jit.export
     def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
-      tFeatures : Tensor = torch.tensor(features)
+      tFeatures : Tensor = torch.tensor(process_features(features))
       tInternal : Tensor = self.clause_embedder(tFeatures)
       val = torch.dot(tInternal,self.clause_key.weight).item()
       self.clause_vals[id] = val
@@ -218,7 +268,7 @@ def export_model(model,name):
           ids.append(id)
           vals.append(val)
 
-        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp,dim=1)
+        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp,dim=0)
         idx = torch.multinomial(distrib,1).item()
         id = ids[idx]
       
@@ -305,4 +355,116 @@ class LearningModel(torch.nn.Module):
 
 
 
+
+
+
+
+
+
+
+
+
+# OLD STUFF BELOW HERE
+
+# basically, a functionality similar to "scan_results_..." except it's home-grown here
+def scan_result_folder(foldername):
+  results = {} # probname -> (result, time, mega_instr, activations)
+
+  root, dirs, files = next(os.walk(foldername)) # just take the log files immediately under solver_folder
+  for filename in files:    
+    longname = os.path.join(root, filename)
+
+    if filename == "meta.info":
+      continue
+
+    assert filename.endswith(".p.log")
+    assert filename.startswith("Problems_")
+
+    probname = filename[13:-6]
+
+    with open(longname, "r") as f:
+      status = None
+      time = None
+      instructions = 0
+      activations = 0
+
+      for line in f:
+        # vampiric part:
+        if (line.startswith("% SZS status Timeout for") or line.startswith("% SZS status GaveUp") or
+            line.startswith("% Time limit reached!") or line.startswith("% Refutation not found, incomplete strategy") or
+            "% Instruction limit reached!" in line or 
+            line.startswith("% Refutation not found, non-redundant clauses discarded") or
+            line.startswith("Unsupported amount of allocated memory:") or 
+            line.startswith("Memory limit exceeded!")):          
+          status = "---"
+    
+        if line.startswith("% SZS status Unsatisfiable") or line.startswith("% SZS status Theorem") or line.startswith("% SZS status ContradictoryAxioms"):
+          status = "uns"
+
+        if line.startswith("% SZS status Satisfiable") or line.startswith("% SZS status CounterSatisfiable"):
+          status = "sat"
+    
+        if line.startswith("Parsing Error on line"):
+          status = "err"
+
+        if line.startswith("% Time elapsed:"):
+          time = float(line.split()[-2])
+                              
+        if line.startswith("% Instructions burned:"):
+          # "% Instructions burned: 361 (million)"
+          instructions = int(line.split()[-2])
+    
+        if line.startswith("% Activations started:"):
+          activations = int(line.split()[-1])
+  
+      assert probname not in results
+      results[probname] = (status,time,instructions,activations)
+
+      # print(probname,status,time,instructions,activations)
+
+      if status is None:
+        print("Weird",longname)
+
+  return results
+
+def load_one(filename):
+  clauses = {} # id -> (feature_vec)
+  journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+  proof_flas = set()
+
+  num_sels = 0
+
+  with open(filename,"r") as f:
+    for line in f:      
+      if line.startswith("i: "):
+        spl = line.split()
+        id = int(spl[1])
+        features = process_features(list(map(float,spl[2:])))
+        assert len(features) == num_features()
+        # print(id,features)
+        assert id not in clauses
+        clauses[id] = features
+      elif line.startswith("a: "):
+        spl = line.split()
+        id = int(spl[1])
+        journal.append((id,EVENT_ADD))
+      elif line.startswith("s: "):
+        spl = line.split()
+        id = int(spl[1])
+        journal.append((id,EVENT_SEL))
+        num_sels += 1
+      elif line.startswith("r: "):
+        spl = line.split()
+        id = int(spl[1])
+        journal.append((id,EVENT_REM))
+      elif line[0] in "123456789":
+        spl = line.split(".")
+        id = int(spl[0])
+        proof_flas.add(id)
+    
+  # print(clauses,journal,proof_flas)
+  if len(clauses) == 0 or num_sels == 0:
+    return None
+  else:
+    return (filename,clauses,journal,proof_flas)
 
