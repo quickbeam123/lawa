@@ -13,16 +13,12 @@ from typing import Final, List
 
 # just age and weight
 FEATURES_AW : Final[int] = 0
-FEATURES_BAW : Final[int] = 1
 # features 0 - 3
-FEATURES_PLAIN : Final[int] = 2
-FEATURES_BPLAIN : Final[int] = 3
+FEATURES_PLAIN : Final[int] = 1
 # features 0 - 5
-FEATURES_RICH : Final[int] = 4
-FEATURES_BRICH : Final[int] = 5
+FEATURES_RICH : Final[int] = 2
 # just the whole thing that comes from vampire
-FEATURES_ALL : Final[int] = 6
-FEATURES_BALL : Final[int] = 7
+FEATURES_ALL : Final[int] = 3
 
 FEATURE_SUBSET : Final[int] = FEATURES_RICH
 
@@ -39,6 +35,6 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_SGD
 
-LEARNING_RATE : Final[float] = 0.05
+LEARNING_RATE : Final[float] = 0.001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization

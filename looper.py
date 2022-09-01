@@ -43,9 +43,11 @@ def compare_to_baselines(results,baseline):
     base_dunno = 0.0
     base_better = 0.0
     base_only = 0.0
-    for prob,(status,time,instructions,activations) in results.items():
-      fact = 1.0/len(refres[prob])
-      for (sta,tim,ins,act) in refres[prob]:
+    for prob,(status,instructions,activations) in results.items():
+      # Problems/SWB/SWB093+1.p
+      short_prob_name = prob[13:-2]
+      fact = 1.0/len(refres[short_prob_name])
+      for (sta,tim,ins,act) in refres[short_prob_name]:
         if status == "uns":
           if sta == "uns":
             if activations < act:
@@ -127,7 +129,7 @@ if __name__ == "__main__":
       prob_lists[mission] = [line.rstrip() for line in lines]
   
   # load the reference runs from campaign
-  # baselines = look_for_baselines(campaign_dir)
+  baselines = look_for_baselines(campaign_dir)
 
   loop = 0
   assert loop_count > 0
@@ -152,7 +154,8 @@ if __name__ == "__main__":
     jobs_for_eval = []
     metas = []
     for mission in MISSIONS:
-      for temperature in ["0.0","0.5","1.0"]:
+      # for temperature in ["0.5"]:
+      for temperature in ["0.00","0.25"]: # ,"0.50","0.75","1.00"]:      
         result_file_name = "{}_t{}.pt".format(mission,temperature)
         opts1 = "-i 5000 -p off"
         opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
@@ -161,6 +164,10 @@ if __name__ == "__main__":
 
     jobs_for_training = []
     last_mission = None
+
+    best_solveds = defaultdict(int)
+    best_results = {}
+
     for (result_file_name,mission,temperature,opts1,opts2),results in zip(metas,evaluator.perform(jobs_for_eval)):
       torch.save((opts1+opts2,results), os.path.join(cur_dir,result_file_name))
 
@@ -175,11 +182,19 @@ if __name__ == "__main__":
       print("    t={}  {:10.4f}% = {} / {}".format(temperature,len(successes)/len(results),len(successes),len(results)))
 
       # get the fine-grained results to compare against baseline
-      # compare_to_baselines(results,baselines[mission])
 
       if mission == "train":
         jobs_for_training.append((successes,"-i 50000 -spt on"+opts2,True))
+
+      if len(successes) > best_solveds[mission]:
+        best_solveds[mission] = len(successes)
+        best_results[mission] = results
     
+    print()
+    for mission in MISSIONS:
+      print("  Comparing best",mission,"to baseline")
+      compare_to_baselines(best_results[mission],baselines[mission])
+
     print()
     sys.stdout.flush()
 

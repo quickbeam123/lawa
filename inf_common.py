@@ -14,6 +14,9 @@ import torch
 from torch import Tensor
 
 torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+
+# print(torch.__config__.parallel_info())
 
 from typing import Dict, List, Tuple, Set, Optional
 
@@ -138,39 +141,23 @@ EVENT_REM = 2
 def num_features():
   if HP.FEATURE_SUBSET == HP.FEATURES_AW:
     return 2
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BAW:
-    return 3
   elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
     return 4
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BPLAIN:
-    return 5
   elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
     return 6
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BRICH:
-    return 7
   elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
     return 10
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BALL:
-    return 11
 
 def process_features(full_features : List[float]) -> List[float]:
   f = full_features
   if HP.FEATURE_SUBSET == HP.FEATURES_AW:
     return [f[0],f[2]]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BAW:
-    return [1.0,f[0],f[2]]
   elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
     return f[0:4]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BPLAIN:
-    return [1.0]+f[0:4]
   elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
     return f[0:6]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BRICH:
-    return [1.0]+f[0:6]
   elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
     return f
-  elif HP.FEATURE_SUBSET == HP.FEATURES_BALL:
-    return [1.0]+f
   else:
     assert False
     return []
@@ -235,7 +222,7 @@ def export_model(model,name):
       tInternal : Tensor = self.clause_embedder(tFeatures)
       val = torch.dot(tInternal,self.clause_key.weight).item()
       self.clause_vals[id] = val
-
+      
       # print("Got",id,"of val",val)
 
     @torch.jit.export
