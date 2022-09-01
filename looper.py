@@ -5,7 +5,7 @@ import hyperparams as HP
 
 import torch
 
-import os, sys, shutil, pickle, random, atexit
+import os, sys, shutil, pickle, random, atexit, time
 
 import subprocess
 from collections import defaultdict
@@ -71,11 +71,13 @@ def compare_to_baselines(results,baseline):
 
     print("    {:10.4f}".format(neur_only/total),"neur_only   ",neur_only)
     print("    {:10.4f}".format(neur_better/total),"neur_better ",neur_better)
+    print("    {:10.4f}".format(base_better/total),"base_better ",base_better)
+    print("    {:10.4f}".format(base_only/total),"base_only   ",base_only)
+    print("    ---------------------------")
     print("    {:10.4f}".format(neur_dunno/total),"neur_dunno  ",neur_dunno)
     print("    {:10.4f}".format(same/total),"same        ",same)
     print("    {:10.4f}".format(base_dunno/total),"base_dunno  ",base_dunno)
-    print("    {:10.4f}".format(base_better/total),"base_better ",base_better)
-    print("    {:10.4f}".format(base_only/total),"base_only   ",base_only)
+    print("    ---------------------------")
     print("    {:10.4f}".format(sat_and_shit/total),"sat_and_shit",sat_and_shit)
     print()
 
@@ -150,12 +152,14 @@ if __name__ == "__main__":
     script_model_file_path = os.path.join(cur_dir,"script-model.pt")    
     IC.export_model(torch.load(parts_model_file_path),script_model_file_path)
 
+    start_time = time.time()
+
     seed = random.randint(1,0x7fffff)
     jobs_for_eval = []
     metas = []
     for mission in MISSIONS:
       # for temperature in ["0.5"]:
-      for temperature in ["0.00","0.25"]: # ,"0.50","0.75","1.00"]:      
+      for temperature in ["0.00","0.25","0.50","0.75","1.00"]:
         result_file_name = "{}_t{}.pt".format(mission,temperature)
         opts1 = "-i 5000 -p off"
         opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
@@ -196,6 +200,8 @@ if __name__ == "__main__":
       compare_to_baselines(best_results[mission],baselines[mission])
 
     print()
+    print("Eval took",time.time()-start_time)
+    print()
     sys.stdout.flush()
 
     loop += 1
@@ -203,6 +209,7 @@ if __name__ == "__main__":
     if loop == loop_count:
       break
     
+    start_time = time.time()
     training_data = defaultdict(list) # group the results by problem
     for results in evaluator.perform(jobs_for_training):
       for prob,data in results.items():
@@ -212,8 +219,12 @@ if __name__ == "__main__":
     # save the bulk
     torch.save(training_data, os.path.join(cur_dir,"train_data.pt"))
 
+    print("Data gathering took",time.time()-start_time)
+    print()
+    sys.stdout.flush()
+
     # the actual training
-        
+    start_time = time.time()        
     # SGD style (one step per problem)
     factor = 1.0/len(training_data)
     print("  training",end="")
@@ -233,6 +244,8 @@ if __name__ == "__main__":
         loss *= f # scale down by the number of problems we trained on
         loss.backward()
         optimizer.step()
+    print()
+    print("Training took",time.time()-start_time)
     print()
     sys.stdout.flush()
       

@@ -218,24 +218,29 @@ def export_model(model,name):
     
     @torch.jit.export
     def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
+      # print("NN: Got",id,"with features",features)
+
       tFeatures : Tensor = torch.tensor(process_features(features))
+
+      # print("NN: tFeatures",tFeatures)
+
       tInternal : Tensor = self.clause_embedder(tFeatures)
       val = torch.dot(tInternal,self.clause_key.weight).item()
       self.clause_vals[id] = val
       
-      # print("Got",id,"of val",val)
+      #print("NN: Val:",val)
 
     @torch.jit.export
     def add(self,id: int):
       self.clauses[id] = 0 # whatever value
 
-      # print("Adding",id)
+      # print("NN: Adding",id)
     
     @torch.jit.export
     def remove(self,id: int):
       del self.clauses[id]
 
-      # print("Removing",id)
+      # print("NN: Removing",id)
     
     @torch.jit.export
     def popSelected(self, temp : float) -> int:
@@ -249,7 +254,12 @@ def export_model(model,name):
             min = val
           elif val == min:
             candidates.append(id)
+
+        # print("NN: Cadidates",candidates)
         id = candidates[torch.randint(0, len(candidates), (1,)).item()]
+        
+        # print("NN: picked",id)
+
       else: # softmax selection (taking temp into account)
         ids : List[int] = []
         vals : List[float] = []
@@ -258,10 +268,17 @@ def export_model(model,name):
           ids.append(id)
           vals.append(val)
 
+        # print("NN: Ids",ids)
+
         distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp,dim=0)
+
+        # print("NN: Distrib",distrib)
+
         idx = torch.multinomial(distrib,1).item()
         id = ids[idx]
       
+        # print("NN: picked",id)
+
       del self.clauses[id]
       return id
 
