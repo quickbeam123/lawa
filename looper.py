@@ -100,7 +100,10 @@ if __name__ == "__main__":
   else:
     model = IC.get_initial_model()
 
-  optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)        
+  if HP.OPTIMIZER ==  HP.OPTIMIZER_SGD:
+    optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+  elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
+    optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   evaluator = IC.Evaluator(parallelism)  
   def cleanup():
@@ -177,6 +180,9 @@ if __name__ == "__main__":
       if mission == "train":
         jobs_for_training.append((successes,"-i 50000 -spt on"+opts2,True))
     
+    print()
+    sys.stdout.flush()
+
     loop += 1
     # traning the model here (in the final loop, there is just eval)
     if loop == loop_count:
@@ -213,4 +219,5 @@ if __name__ == "__main__":
         loss.backward()
         optimizer.step()
     print()
+    sys.stdout.flush()
       

@@ -29,11 +29,11 @@ import hyperparams as HP
 def process_one(task):
   (prob,opts,ltd,res_idx) = task
 
-  to_run = ["./run_lawa_vampire.sh",prob,opts]
+  to_run = " ".join(["./run_lawa_vampire.sh",prob,opts])
 
-  # print(" ".join(to_run))
+  # print(to_run)
 
-  output = subprocess.getoutput(" ".join(to_run))
+  output = subprocess.getoutput(to_run)
 
   if ltd:
     clauses = {} # id -> (feature_vec)
@@ -43,6 +43,9 @@ def process_one(task):
     num_sels = 0
 
     for line in output.split("\n"):
+      if "% Instruction limit reached!" in line:
+        assert not proof_flas      
+        break # better than "id appeared again for:" failing just below
       # print(line)
       if line.startswith("i: "):
         spl = line.split()
@@ -50,7 +53,7 @@ def process_one(task):
         features = process_features(list(map(float,spl[2:])))
         assert len(features) == num_features()
         # print(id,features)
-        assert id not in clauses
+        assert id not in clauses, "id appeared again for: "+to_run
         clauses[id] = features
       elif line.startswith("a: "):
         spl = line.split()
@@ -71,7 +74,7 @@ def process_one(task):
         proof_flas.add(id)
 
     if len(proof_flas) == 0:
-      print("Proof not found for",(prob,opts))
+      print("Proof not found for",to_run)
 
     if len(clauses) == 0 or num_sels == 0 or len(proof_flas) == 0:
       return (res_idx,prob,None)
@@ -252,7 +255,7 @@ def export_model(model,name):
       if temp == 0.0: # the greedy selection (argmax)
         min : Optional[float] = None
         candidates : List[int] = []
-        for id in sorted(self.clauses):
+        for id in sorted(self.clauses.keys()):
           val = self.clause_vals[id]
           if min is None or val < min:
             candidates = [id]
@@ -263,7 +266,7 @@ def export_model(model,name):
       else: # softmax selection (taking temp into account)
         ids : List[int] = []
         vals : List[float] = []
-        for id in sorted(self.clauses):
+        for id in sorted(self.clauses.keys()):
           val = self.clause_vals[id]
           ids.append(id)
           vals.append(val)

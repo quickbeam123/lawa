@@ -33,6 +33,12 @@ NUM_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the end (which 
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
-# Optimizer
-LEARNING_RATE : Final[float] = 0.01
+# Optimizer - before, there used to be ADAM only
+OPTIMIZER_SGD = 0
+OPTIMIZER_ADAM = 1
+
+OPTIMIZER = OPTIMIZER_SGD
+
+LEARNING_RATE : Final[float] = 0.05
+MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
