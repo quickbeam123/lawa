@@ -28,9 +28,12 @@ FEATURE_SUBSET : Final[int] = FEATURES_RICH
 # todo: think of normalization / regularization ...
 
 # Architecture
-NUM_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the end (which needs to be of size num_features())
+CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the end (which needs to be of size num_features())
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
+
+INCLUDE_LSMT : Final[bool] = True
+LSMT_LAYERS : Final[int] = 1
 
 # Optimizer - before, there used to be ADAM only
 OPTIMIZER_SGD = 0

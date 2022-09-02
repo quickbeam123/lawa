@@ -181,18 +181,29 @@ class Embed(torch.nn.Module):
     return self.weight
 
 def get_initial_model():
-  if HP.NUM_LAYERS == 0:
+  if HP.CLAUSE_EMBEDDER_LAYERS == 0:
     clause_embedder = torch.nn.Identity()
   else:
     layer_list = [torch.nn.Linear(num_features(),HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
-    for _ in range(HP.NUM_LAYERS-1):
+    for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
       layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
       layer_list.append(torch.nn.ReLU())
     clause_embedder = torch.nn.Sequential(*layer_list)
   
-  clause_key = Embed(HP.CLAUSE_INTERAL_SIZE if HP.NUM_LAYERS > 0 else num_features() )
+  clause_key = Embed(HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features() )
 
-  return torch.nn.ModuleList([clause_embedder,clause_key])
+  parts = [clause_embedder,clause_key]
+
+  if HP.INCLUDE_LSMT:
+    assert HP.CLAUSE_EMBEDDER_LAYERS > 0
+
+    initial_state = Embed(HP.CLAUSE_INTERAL_SIZE)
+    rnn = torch.nn.LSTM(HP.CLAUSE_INTERAL_SIZE, HP.CLAUSE_INTERAL_SIZE, HP.LSMT_LAYERS)
+    
+    parts.append(initial_state)
+    parts.append(rnn)
+      
+  return torch.nn.ModuleList(parts)
 
 # this is destructive on the model modules (best load from checkpoint file first)
 def export_model(model,name):
@@ -276,20 +287,110 @@ def export_model(model,name):
 
         idx = torch.multinomial(distrib,1).item()
         id = ids[idx]
-      
+
         # print("NN: picked",id)
 
       del self.clauses[id]
       return id
 
-  module = NeuralPassiveClauseContainer(*model)
+  class NeuralRecurrentPassiveClauseContainer(torch.nn.Module):
+    clause_embeddings : Dict[int, Tensor]
+    clauses : Dict[int, int] # using it as a set
+
+    def __init__(self,clause_embedder : torch.nn.Module,
+                      initial_key : torch.nn.Module,
+                      initial_state : torch.nn.Module,
+                      rnn : torch.nn.Module):
+      super().__init__()
+
+      self.clause_embedder = clause_embedder
+      self.current_key = initial_key.weight
+      self.current_state = initial_state.weight
+      self.rnn = rnn
+
+      self.clause_embeddings = {}
+      self.clauses = {}
+    
+    @torch.jit.export
+    def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
+      # print("NN: Got",id,"with features",features)
+
+      tFeatures : Tensor = torch.tensor(process_features(features))
+      tEmbed = self.clause_embedder(tFeatures)
+      self.clause_embeddings[id] = tEmbed
+      
+      #print("NN: Embedded:",tEmbed)
+
+    @torch.jit.export
+    def add(self,id: int):
+      self.clauses[id] = 0 # whatever value
+
+      # print("NN: Adding",id)
+    
+    @torch.jit.export
+    def remove(self,id: int):
+      del self.clauses[id]
+
+      # print("NN: Removing",id)
+    
+    @torch.jit.export
+    def popSelected(self, temp : float) -> int:
+      key = self.current_key
+
+      if temp == 0.0: # the greedy selection (argmax)
+        min : Optional[float] = None
+        candidates : List[int] = []
+        for id in sorted(self.clauses.keys()):
+          val = torch.dot(self.clause_embeddings[id],key).item()
+          if min is None or val < min:
+            candidates = [id]
+            min = val
+          elif val == min:
+            candidates.append(id)
+
+        # print("NN: Cadidates",candidates)
+        id = candidates[torch.randint(0, len(candidates), (1,)).item()]
+        
+        # print("NN: picked",id)
+
+      else: # softmax selection (taking temp into account)
+        ids : List[int] = []
+        vals : List[float] = []
+        for id in sorted(self.clauses.keys()):
+          val = torch.dot(self.clause_embeddings[id],key).item()
+          ids.append(id)
+          vals.append(val)
+
+        # print("NN: Ids",ids)
+
+        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp,dim=0)
+
+        # print("NN: Distrib",distrib)
+
+        idx = torch.multinomial(distrib,1).item()
+        id = ids[idx]
+
+        # print("NN: picked",id)
+
+      # update the rnn
+      input = torch.unsqueeze(self.clause_embeddings[id],dim=0)
+      # output can be ignored, it's going to be a singleton with the new key
+      _,(self.current_key,self.current_state) = self.rnn(input,(self.current_key,self.current_state))
+
+      del self.clauses[id]
+      return id
+
+  if HP.INCLUDE_LSMT:
+    module = NeuralRecurrentPassiveClauseContainer(*model)
+  else:
+    module = NeuralPassiveClauseContainer(*model)
   script = torch.jit.script(module)
   script.save(name)
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_embedder : torch.nn.Module,
-      clause_key: torch.nn.Module,      
+      clause_key: torch.nn.Module,
       clauses,journal,proof_flas):
     super(LearningModel,self).__init__()
 
@@ -329,8 +430,6 @@ class LearningModel(torch.nn.Module):
         passive.remove(id)
       else:
         assert event == EVENT_SEL
-        # we ignore what the selection was by the agent 
-        # and instead assert the (multi-choice) ground truth
 
         passive_list = sorted(passive)
 
@@ -361,8 +460,98 @@ class LearningModel(torch.nn.Module):
         steps += 1
         factor *= HP.DISCOUNT_FACTOR
 
+        passive.remove(id)
+
     return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)
     
+class RecurrentLearningModel(torch.nn.Module):
+  def __init__(self,
+      clause_embedder : torch.nn.Module,
+      initial_key : torch.nn.Module,
+      initial_state : torch.nn.Module,
+      rnn : torch.nn.Module,
+      clauses,journal,proof_flas):
+    super(LearningModel,self).__init__()
+
+    # print(clause_embedder,clause_key)
+    # print(clauses,journal,proof_flas)
+
+    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
+    self.initial_key = initial_key         # the key for multiplying the clauses at first selection call (and feeding the rnn as the initial hidden value h0)
+    self.initial_state = initial_state     # the initial content value for the lsmt (c0)
+    self.rnn = rnn                         # our lstm
+    self.clauses = clauses                 # id -> (feature_vec)
+    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.proof_flas = proof_flas           # set of the good ids
+
+  def forward(self):
+    # let's a get a big matrix of feature_vec's, one for each clause (id)
+    clause_list = []
+    id2idx = {}
+    for i,(id,features) in enumerate(sorted(self.clauses.items())):
+      id2idx[id] = i
+      clause_list.append(torch.tensor(features))
+    feature_vecs = torch.stack(clause_list)
+
+    # in bulk for all the clauses
+    embeddings = self.clause_embedder(feature_vecs)
+
+    current_key = self.initial_key.weight
+    current_state = self.initial_state.weight
+
+    loss = torch.zeros(1)
+    factor = 1.0
+
+    steps = 0
+    passive = set()
+    for (id, event) in self.journal:
+      if event == EVENT_ADD:
+        passive.add(id)
+      elif event == EVENT_REM:
+        passive.remove(id)
+      else:
+        assert event == EVENT_SEL
+        # we ignore what the selection was by the agent
+        # and instead assert the (multi-choice) ground truth
+
+        passive_list = sorted(passive)
+
+        # print(passive_list)
+
+        indices = torch.tensor([id2idx[id] for id in passive_list])
+
+        sub_embeddings = torch.index_select(embeddings,0,indices)
+
+        sub_logits = torch.matmul(sub_embeddings,current_key)
+
+        # print(sub_logits)
+
+        num_good = len(passive & self.proof_flas)
+        num_bad =  len(passive) - num_good
+
+        pst = 1.0/num_good
+        targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
+
+        # print(targets)
+
+        if num_good and num_bad:
+          weights = torch.tensor([0.5/num_good if id in self.proof_flas else 0.5/num_bad for id in passive_list])
+          loss += factor*torch.nn.CrossEntropyLoss(weights)(sub_logits,targets)
+        else:
+          loss += factor*torch.nn.CrossEntropyLoss()(sub_logits,targets)
+
+        # update the rnn
+        input = torch.unsqueeze(embeddings[id],dim=0)
+        # output can be ignored, it's going to be a singleton with the new key
+        _,(current_key,current_state) = self.rnn(input,(current_key,current_state))
+
+        steps += 1
+        factor *= HP.DISCOUNT_FACTOR
+
+        passive.remove(id)
+
+    return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)
+
 
 
 

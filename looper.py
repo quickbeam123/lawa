@@ -238,7 +238,10 @@ if __name__ == "__main__":
         print(".",end="")
 
         optimizer.zero_grad()
-        lm = IC.LearningModel(*model,clauses,journal,proof_flas)
+        if HP.INCLUDE_LSMT:
+          lm = IC.RecurrentLearningModel(*model,clauses,journal,proof_flas)
+        else:
+          lm = IC.LearningModel(*model,clauses,journal,proof_flas)
         lm.train()
         loss = lm.forward()
         loss *= f # scale down by the number of problems we trained on
