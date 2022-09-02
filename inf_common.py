@@ -318,7 +318,6 @@ class LearningModel(torch.nn.Module):
     logits = torch.matmul(embeddings,self.clause_key.weight)
     
     loss = torch.zeros(1)
-    criterion = torch.nn.CrossEntropyLoss()
 
     steps = 0
     passive = set()
@@ -344,12 +343,20 @@ class LearningModel(torch.nn.Module):
 
         # print(sub_logits)
 
-        pst = 1.0/len(passive & self.proof_flas)
+        num_good = len(passive & self.proof_flas)
+        num_bad =  len(passive) - num_good
+
+        pst = 1.0/num_good
         targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
 
         # print(targets)
 
-        loss += criterion(sub_logits,targets)
+        if num_good and num_bad:
+          weights = torch.tensor([0.5/num_good if id in self.proof_flas else 0.5/num_bad for id in passive_list])
+          loss += torch.nn.CrossEntropyLoss(weights)(sub_logits,targets)
+        else:
+          loss += torch.nn.CrossEntropyLoss()(sub_logits,targets)
+  
         steps += 1
 
     return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)

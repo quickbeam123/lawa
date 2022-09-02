@@ -161,7 +161,7 @@ if __name__ == "__main__":
       # for temperature in ["0.5"]:
       for temperature in ["0.00","0.25","0.50","0.75","1.00"]:
         result_file_name = "{}_t{}.pt".format(mission,temperature)
-        opts1 = "-i 5000 -p off"
+        opts1 = "-i {} -p off".format(HP.INSTRUCTION_LIMIT)
         opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
         metas.append((result_file_name,mission,temperature,opts1,opts2))
         jobs_for_eval.append((prob_lists[mission],opts1+opts2,False))
@@ -188,7 +188,7 @@ if __name__ == "__main__":
       # get the fine-grained results to compare against baseline
 
       if mission == "train":
-        jobs_for_training.append((successes,"-i 50000 -spt on"+opts2,True))
+        jobs_for_training.append((successes,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
 
       if len(successes) > best_solveds[mission]:
         best_solveds[mission] = len(successes)

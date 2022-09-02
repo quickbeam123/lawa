@@ -2,6 +2,9 @@
 
 from typing import Final, List
 
+# Data gathering
+INSTRUCTION_LIMIT = 5000
+
 # Features
 
 # the features come (unnormalized) as:
@@ -33,8 +36,8 @@ CLAUSE_INTERAL_SIZE : Final[int] = 8
 OPTIMIZER_SGD = 0
 OPTIMIZER_ADAM = 1
 
-OPTIMIZER = OPTIMIZER_SGD
+OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.001
+LEARNING_RATE : Final[float] = 0.0001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
