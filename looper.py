@@ -245,6 +245,8 @@ if __name__ == "__main__":
           lm = IC.LearningModel(*model,clauses,journal,proof_flas)
         lm.train()
         loss = lm.forward()
+        if loss is None:
+          continue
         loss *= f # scale down by the number of problems we trained on
         loss.backward()
         optimizer.step()

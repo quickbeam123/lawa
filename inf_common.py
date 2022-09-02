@@ -423,6 +423,8 @@ class LearningModel(torch.nn.Module):
     loss = torch.zeros(1)
     factor = 1.0
 
+    # print("proof_flas",self.proof_flas)
+
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
@@ -462,10 +464,13 @@ class LearningModel(torch.nn.Module):
         
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
+        else:
+          # print("num_good and num_bad skip")
+          pass
 
         passive.remove(recorded_id)
 
-    return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)
+    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
     
 class RecurrentLearningModel(torch.nn.Module):
   def __init__(self,
@@ -551,6 +556,9 @@ class RecurrentLearningModel(torch.nn.Module):
 
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
+        else:
+          # print("num_good and num_bad skip")
+          pass          
 
         # update the rnn
         input = torch.unsqueeze(embeddings[id2idx[recorded_id]],dim=0)
@@ -559,7 +567,7 @@ class RecurrentLearningModel(torch.nn.Module):
 
         passive.remove(recorded_id)
 
-    return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)
+    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
 
 
 

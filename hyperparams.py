@@ -32,7 +32,7 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
-INCLUDE_LSMT : Final[bool] = True
+INCLUDE_LSMT : Final[bool] = False
 LSMT_LAYERS : Final[int] = 1
 
 # Optimizer - before, there used to be ADAM only
