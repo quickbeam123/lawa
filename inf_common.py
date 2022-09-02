@@ -304,8 +304,9 @@ def export_model(model,name):
       super().__init__()
 
       self.clause_embedder = clause_embedder
-      self.current_key = initial_key.weight
-      self.current_state = initial_state.weight
+      # transpose these two vectors (for better processing by rnn)
+      self.current_key = torch.unsqueeze(initial_key.weight,dim=0)
+      self.current_state = torch.unsqueeze(initial_state.weight,dim=0)
       self.rnn = rnn
 
       self.clause_embeddings = {}
@@ -341,7 +342,7 @@ def export_model(model,name):
         min : Optional[float] = None
         candidates : List[int] = []
         for id in sorted(self.clauses.keys()):
-          val = torch.dot(self.clause_embeddings[id],key).item()
+          val = torch.matmul(key,self.clause_embeddings[id]).item()
           if min is None or val < min:
             candidates = [id]
             min = val
@@ -357,7 +358,7 @@ def export_model(model,name):
         ids : List[int] = []
         vals : List[float] = []
         for id in sorted(self.clauses.keys()):
-          val = torch.dot(self.clause_embeddings[id],key).item()
+          val = torch.matmul(key,self.clause_embeddings[id]).item()
           ids.append(id)
           vals.append(val)
 
@@ -374,6 +375,7 @@ def export_model(model,name):
 
       # update the rnn
       input = torch.unsqueeze(self.clause_embeddings[id],dim=0)
+
       # output can be ignored, it's going to be a singleton with the new key
       _,(self.current_key,self.current_state) = self.rnn(input,(self.current_key,self.current_state))
 
@@ -392,7 +394,7 @@ class LearningModel(torch.nn.Module):
       clause_embedder : torch.nn.Module,
       clause_key: torch.nn.Module,
       clauses,journal,proof_flas):
-    super(LearningModel,self).__init__()
+    super().__init__()
 
     # print(clause_embedder,clause_key)
     # print(clauses,journal,proof_flas)
@@ -423,11 +425,11 @@ class LearningModel(torch.nn.Module):
 
     steps = 0
     passive = set()
-    for (id, event) in self.journal:
+    for (recorded_id, event) in self.journal:
       if event == EVENT_ADD:
-        passive.add(id)
+        passive.add(recorded_id)
       elif event == EVENT_REM:
-        passive.remove(id)
+        passive.remove(recorded_id)
       else:
         assert event == EVENT_SEL
 
@@ -446,21 +448,22 @@ class LearningModel(torch.nn.Module):
         num_good = len(passive & self.proof_flas)
         num_bad =  len(passive) - num_good
 
-        pst = 1.0/num_good
-        targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
-
-        # print(targets)
-
+        # it's a bit weird, but num_good can be zero (avatar closed proof with a different unsat core?)
+        # in any case, while num_good == 0 means division by zero below,
+        # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
         if num_good and num_bad:
+          pst = 1.0/num_good
+          targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
+
+          # print(targets)
+
           weights = torch.tensor([0.5/num_good if id in self.proof_flas else 0.5/num_bad for id in passive_list])
           loss += factor*torch.nn.CrossEntropyLoss(weights)(sub_logits,targets)
-        else:
-          loss += factor*torch.nn.CrossEntropyLoss()(sub_logits,targets)
-  
-        steps += 1
-        factor *= HP.DISCOUNT_FACTOR
+        
+          steps += 1
+          factor *= HP.DISCOUNT_FACTOR
 
-        passive.remove(id)
+        passive.remove(recorded_id)
 
     return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)
     
@@ -471,7 +474,7 @@ class RecurrentLearningModel(torch.nn.Module):
       initial_state : torch.nn.Module,
       rnn : torch.nn.Module,
       clauses,journal,proof_flas):
-    super(LearningModel,self).__init__()
+    super().__init__()
 
     # print(clause_embedder,clause_key)
     # print(clauses,journal,proof_flas)
@@ -496,19 +499,21 @@ class RecurrentLearningModel(torch.nn.Module):
     # in bulk for all the clauses
     embeddings = self.clause_embedder(feature_vecs)
 
-    current_key = self.initial_key.weight
-    current_state = self.initial_state.weight
+    current_key = torch.unsqueeze(self.initial_key.weight,dim=0)
+    current_state = torch.unsqueeze(self.initial_state.weight,dim=0)
 
     loss = torch.zeros(1)
     factor = 1.0
 
+    # print("proof_flas",self.proof_flas)
+
     steps = 0
     passive = set()
-    for (id, event) in self.journal:
+    for (recorded_id, event) in self.journal:
       if event == EVENT_ADD:
-        passive.add(id)
+        passive.add(recorded_id)
       elif event == EVENT_REM:
-        passive.remove(id)
+        passive.remove(recorded_id)
       else:
         assert event == EVENT_SEL
         # we ignore what the selection was by the agent
@@ -522,33 +527,37 @@ class RecurrentLearningModel(torch.nn.Module):
 
         sub_embeddings = torch.index_select(embeddings,0,indices)
 
-        sub_logits = torch.matmul(sub_embeddings,current_key)
+        sub_logits = torch.matmul(sub_embeddings,torch.squeeze((current_key),dim=0))
 
         # print(sub_logits)
 
         num_good = len(passive & self.proof_flas)
         num_bad =  len(passive) - num_good
 
-        pst = 1.0/num_good
-        targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
-
-        # print(targets)
-
+        # it's a bit weird, but num_good can be zero (avatar closed proof with a different unsat core?)
+        # in any case, while num_good == 0 means division by zero below,
+        # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
         if num_good and num_bad:
+          pst = 1.0/num_good
+          targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
+
+          # print(targets)
+          
           weights = torch.tensor([0.5/num_good if id in self.proof_flas else 0.5/num_bad for id in passive_list])
+
+          # print(weights)
+
           loss += factor*torch.nn.CrossEntropyLoss(weights)(sub_logits,targets)
-        else:
-          loss += factor*torch.nn.CrossEntropyLoss()(sub_logits,targets)
+
+          steps += 1
+          factor *= HP.DISCOUNT_FACTOR
 
         # update the rnn
-        input = torch.unsqueeze(embeddings[id],dim=0)
+        input = torch.unsqueeze(embeddings[id2idx[recorded_id]],dim=0)
         # output can be ignored, it's going to be a singleton with the new key
         _,(current_key,current_state) = self.rnn(input,(current_key,current_state))
 
-        steps += 1
-        factor *= HP.DISCOUNT_FACTOR
-
-        passive.remove(id)
+        passive.remove(recorded_id)
 
     return loss/steps if steps > 0 else loss # normalized per problem (the else branch just returns the constant zero)
 

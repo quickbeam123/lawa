@@ -231,6 +231,7 @@ if __name__ == "__main__":
     training_data_in_order = list(training_data.items())
     random.shuffle(training_data_in_order)
     for i,(prob,its_data) in enumerate(training_data_in_order):
+      # print(prob)
       print(">",end="")
       
       f = factor / len(its_data)
