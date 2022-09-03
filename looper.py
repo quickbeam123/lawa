@@ -158,8 +158,7 @@ if __name__ == "__main__":
     jobs_for_eval = []
     metas = []
     for mission in MISSIONS:
-      # for temperature in ["0.5"]:
-      for temperature in ["0.00","0.25","0.50","0.75","1.00"]:
+      for temperature in HP.TEMPERATURES:
         result_file_name = "{}_t{}.pt".format(mission,temperature)
         opts1 = "-i {} -p off".format(HP.INSTRUCTION_LIMIT)
         opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)

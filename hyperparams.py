@@ -5,6 +5,9 @@ from typing import Final, List
 # Data gathering
 INSTRUCTION_LIMIT = 5000
 
+TEMPERATURES = ["0.00","0.25","0.50","0.75","0.50"]
+# TEMPERATURES = ["0.000","0.125","0.250","0.375","0.500"]
+
 # Features
 
 # the features come (unnormalized) as:
@@ -32,7 +35,7 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
-INCLUDE_LSMT : Final[bool] = False
+INCLUDE_LSMT : Final[bool] = True
 LSMT_LAYERS : Final[int] = 1
 
 # Optimizer - before, there used to be ADAM only
@@ -41,7 +44,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.00015
+LEARNING_RATE : Final[float] = 0.0001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
