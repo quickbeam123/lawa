@@ -5,8 +5,8 @@ from typing import Final, List
 # Data gathering
 INSTRUCTION_LIMIT = 5000
 
-TEMPERATURES = ["0.00","0.25","0.50","0.75","0.50"]
-# TEMPERATURES = ["0.000","0.125","0.250","0.375","0.500"]
+# TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
+TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
 
 # Features
 
@@ -35,7 +35,7 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
-INCLUDE_LSMT : Final[bool] = True
+INCLUDE_LSMT : Final[bool] = False
 LSMT_LAYERS : Final[int] = 1
 
 # Optimizer - before, there used to be ADAM only
@@ -50,7 +50,7 @@ WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
 DISCOUNT_FACTOR = 0.999
 
-USE_MIN_FOR_LOSS_REDUCE = True
+USE_MIN_FOR_LOSS_REDUCE = False
 
 # 16 added discount factor
 #
@@ -58,3 +58,5 @@ USE_MIN_FOR_LOSS_REDUCE = True
 # 18 - the same for rnn
 
 # 19 & 20 - like 17 and 18, but with the new (more reasonable and efficient way of doing loss with classes)
+# (typo in TEMPERATURES made it evaluate 0.5 twice - however both runs would have been used for training)
+
