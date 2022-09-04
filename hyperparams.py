@@ -51,4 +51,8 @@ WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 DISCOUNT_FACTOR = 0.999
 
 # 16 added discount factor
+#
 # 17 adding the fix of the bug in learning model which never deleted the selected passive clause
+# 18 - the same for rnn
+
+# 19 & 20 - like 17 and 18, but with the new (more reasonable and efficient way of doing loss with classes)
