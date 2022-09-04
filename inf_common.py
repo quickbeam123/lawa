@@ -546,14 +546,25 @@ class RecurrentLearningModel(torch.nn.Module):
         # in any case, while num_good == 0 means division by zero below,
         # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
         if num_good and num_bad:
-          good_idxs = []
-          for i,id in enumerate(passive_list):
-            if id in self.proof_flas:
-              good_idxs.append(i)
+          if HP.USE_MIN_FOR_LOSS_REDUCE:
+            cecs = []
+            # POZOR: pocita softmax on each invocation!
+            for i,id in enumerate(passive_list):
+              if id in self.proof_flas:
+                cecs.append(cross_entropy(sub_logits,torch.tensor([i])))
+            cec = min(cecs)
 
-          # print(good_idxs)
+          else:
+            good_idxs = []
+            for i,id in enumerate(passive_list):
+              if id in self.proof_flas:
+                good_idxs.append(i)
 
-          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy(sub_logits,torch.tensor(good_idxs))
+            # print(good_idxs)
+
+            cec = cross_entropy(sub_logits,torch.tensor(good_idxs))
+
+          loss += factor*(num_bad/(num_good+num_bad))*cec
 
           steps += 1
           factor *= HP.DISCOUNT_FACTOR

@@ -50,6 +50,8 @@ WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
 DISCOUNT_FACTOR = 0.999
 
+USE_MIN_FOR_LOSS_REDUCE = False
+
 # 16 added discount factor
 #
 # 17 adding the fix of the bug in learning model which never deleted the selected passive clause
