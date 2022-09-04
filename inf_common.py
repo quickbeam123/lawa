@@ -425,8 +425,6 @@ class LearningModel(torch.nn.Module):
 
     # print("proof_flas",self.proof_flas)
 
-    cross_entropy = torch.nn.CrossEntropyLoss()
-
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
@@ -460,11 +458,17 @@ class LearningModel(torch.nn.Module):
           for i,id in enumerate(passive_list):
             if id in self.proof_flas:
               good_idxs.append(i)
-          
+
           # print(good_idxs)
-          
-          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy(sub_logits,torch.tensor(good_idxs))
-        
+
+          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
+          if HP.USE_MIN_FOR_LOSS_REDUCE:
+            cross_entropy = -min(lsm[good_idxs])
+          else:
+            cross_entropy = -sum(lsm[good_idxs])/num_good
+
+          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy
+
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
         else:
@@ -515,8 +519,6 @@ class RecurrentLearningModel(torch.nn.Module):
 
     # print("proof_flas",self.proof_flas)
 
-    cross_entropy = torch.nn.CrossEntropyLoss()
-
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
@@ -546,25 +548,20 @@ class RecurrentLearningModel(torch.nn.Module):
         # in any case, while num_good == 0 means division by zero below,
         # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
         if num_good and num_bad:
+          good_idxs = []
+          for i,id in enumerate(passive_list):
+            if id in self.proof_flas:
+              good_idxs.append(i)
+
+          # print(good_idxs)
+
+          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
           if HP.USE_MIN_FOR_LOSS_REDUCE:
-            cecs = []
-            # POZOR: pocita softmax on each invocation!
-            for i,id in enumerate(passive_list):
-              if id in self.proof_flas:
-                cecs.append(cross_entropy(sub_logits,torch.tensor([i])))
-            cec = min(cecs)
-
+            cross_entropy = -min(lsm[good_idxs])
           else:
-            good_idxs = []
-            for i,id in enumerate(passive_list):
-              if id in self.proof_flas:
-                good_idxs.append(i)
+            cross_entropy = -sum(lsm[good_idxs])/num_good
 
-            # print(good_idxs)
-
-            cec = cross_entropy(sub_logits,torch.tensor(good_idxs))
-
-          loss += factor*(num_bad/(num_good+num_bad))*cec
+          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy
 
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
