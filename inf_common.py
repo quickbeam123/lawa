@@ -425,6 +425,8 @@ class LearningModel(torch.nn.Module):
 
     # print("proof_flas",self.proof_flas)
 
+    cross_entropy = torch.nn.CrossEntropyLoss()
+
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
@@ -454,13 +456,14 @@ class LearningModel(torch.nn.Module):
         # in any case, while num_good == 0 means division by zero below,
         # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
         if num_good and num_bad:
-          pst = 1.0/num_good
-          targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
-
-          # print(targets)
-
-          weights = torch.tensor([0.5/num_good if id in self.proof_flas else 0.5/num_bad for id in passive_list])
-          loss += factor*torch.nn.CrossEntropyLoss(weights)(sub_logits,targets)
+          good_idxs = []
+          for i,id in enumerate(passive_list):
+            if id in self.proof_flas:
+              good_idxs.append(i)
+          
+          # print(good_idxs)
+          
+          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy(sub_logits,torch.tensor(good_idxs))
         
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
@@ -512,6 +515,8 @@ class RecurrentLearningModel(torch.nn.Module):
 
     # print("proof_flas",self.proof_flas)
 
+    cross_entropy = torch.nn.CrossEntropyLoss()
+
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
@@ -529,9 +534,7 @@ class RecurrentLearningModel(torch.nn.Module):
         # print(passive_list)
 
         indices = torch.tensor([id2idx[id] for id in passive_list])
-
         sub_embeddings = torch.index_select(embeddings,0,indices)
-
         sub_logits = torch.matmul(sub_embeddings,torch.squeeze((current_key),dim=0))
 
         # print(sub_logits)
@@ -543,16 +546,14 @@ class RecurrentLearningModel(torch.nn.Module):
         # in any case, while num_good == 0 means division by zero below,
         # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
         if num_good and num_bad:
-          pst = 1.0/num_good
-          targets = torch.tensor([pst if id in self.proof_flas else 0.0 for id in passive_list])
+          good_idxs = []
+          for i,id in enumerate(passive_list):
+            if id in self.proof_flas:
+              good_idxs.append(i)
 
-          # print(targets)
-          
-          weights = torch.tensor([0.5/num_good if id in self.proof_flas else 0.5/num_bad for id in passive_list])
+          # print(good_idxs)
 
-          # print(weights)
-
-          loss += factor*torch.nn.CrossEntropyLoss(weights)(sub_logits,targets)
+          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy(sub_logits,torch.tensor(good_idxs))
 
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
