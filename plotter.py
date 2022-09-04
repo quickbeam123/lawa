@@ -70,9 +70,11 @@ if __name__ == "__main__":
 
       handles.append(h)
 
+    ax1.set_ylim(ymin=0)
+
     plt.legend(handles = handles, loc='upper left') # loc = 'best' is rumored to be unpredictable
 
-    plt.savefig(mission+"_plot.png",dpi=250)
+    plt.savefig("{}_{}_plot.png".format(os.path.basename(sys.argv[1]),mission),dpi=250)
     plt.close(fig)
 
 

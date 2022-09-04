@@ -50,7 +50,7 @@ WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
 DISCOUNT_FACTOR = 0.999
 
-USE_MIN_FOR_LOSS_REDUCE = False
+USE_MIN_FOR_LOSS_REDUCE = True
 
 # 16 added discount factor
 #
