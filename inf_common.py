@@ -189,19 +189,22 @@ def get_initial_model():
       layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
       layer_list.append(torch.nn.ReLU())
     clause_embedder = torch.nn.Sequential(*layer_list)
-  
-  clause_key = Embed(HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features() )
-
-  parts = [clause_embedder,clause_key]
+      
+  parts = [clause_embedder]
 
   if HP.INCLUDE_LSMT:
     assert HP.CLAUSE_EMBEDDER_LAYERS > 0
 
+    initial_key = Embed(HP.CLAUSE_INTERAL_SIZE)
     initial_state = Embed(HP.CLAUSE_INTERAL_SIZE)
     rnn = torch.nn.LSTM(HP.CLAUSE_INTERAL_SIZE, HP.CLAUSE_INTERAL_SIZE, HP.LSMT_LAYERS)
     
+    parts.append(initial_key)
     parts.append(initial_state)
     parts.append(rnn)
+  else:
+    clause_keys = torch.nn.Embedding(HP.NUM_EFFECTIVE_QUEUES,HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features())
+    parts.append(clause_keys)
       
   return torch.nn.ModuleList(parts)
 
@@ -215,17 +218,19 @@ def export_model(model,name):
       param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
-    clause_vals : Dict[int, float]
+    clause_vals : Dict[int, Tensor]
     clauses : Dict[int, int] # using it as a set
 
-    def __init__(self,clause_embedder : torch.nn.Module,clause_key : torch.nn.Module):
+    def __init__(self,clause_embedder : torch.nn.Module,clause_keys : torch.nn.Module):
       super().__init__()
 
       self.clause_embedder = clause_embedder
-      self.clause_key = clause_key
+      self.clause_keys = clause_keys
 
       self.clause_vals = {}
       self.clauses = {}
+
+      self.time = 0
     
     @torch.jit.export
     def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
@@ -236,8 +241,8 @@ def export_model(model,name):
       # print("NN: tFeatures",tFeatures)
 
       tInternal : Tensor = self.clause_embedder(tFeatures)
-      val = torch.dot(tInternal,self.clause_key.weight).item()
-      self.clause_vals[id] = val
+      vals = torch.matmul(self.clause_keys.weight,tInternal)
+      self.clause_vals[id] = vals
       
       #print("NN: Val:",val)
 
@@ -255,11 +260,14 @@ def export_model(model,name):
     
     @torch.jit.export
     def popSelected(self, temp : float) -> int:
+      queue_idx = self.time % HP.NUM_EFFECTIVE_QUEUES
+      self.time += 1
+
       if temp == 0.0: # the greedy selection (argmax)
         min : Optional[float] = None
         candidates : List[int] = []
         for id in sorted(self.clauses.keys()):
-          val = self.clause_vals[id]
+          val = self.clause_vals[id][queue_idx].item()
           if min is None or val < min:
             candidates = [id]
             min = val
@@ -275,7 +283,7 @@ def export_model(model,name):
         ids : List[int] = []
         vals : List[float] = []
         for id in sorted(self.clauses.keys()):
-          val = self.clause_vals[id]
+          val = self.clause_vals[id][queue_idx].item()
           ids.append(id)
           vals.append(val)
 
@@ -392,7 +400,7 @@ def export_model(model,name):
 class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_embedder : torch.nn.Module,
-      clause_key: torch.nn.Module,
+      clause_keys: torch.nn.Module,
       clauses,journal,proof_flas):
     super().__init__()
 
@@ -400,7 +408,7 @@ class LearningModel(torch.nn.Module):
     # print(clauses,journal,proof_flas)
 
     self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
-    self.clause_key = clause_key           # the key for multiplying an embedding to get a clause logits    
+    self.clause_keys = clause_keys         # the keys (one for each "queue") for multiplying an embedding to get a clause logits 
     self.clauses = clauses                 # id -> (feature_vec)
     self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas           # set of the good ids
@@ -418,13 +426,16 @@ class LearningModel(torch.nn.Module):
     embeddings = self.clause_embedder(feature_vecs)
     # since we are not doing LSTM (yet), the multiplication by key can happen emmediately as well
     # (and is probably kind of redundant in the architecture)
-    logits = torch.matmul(embeddings,self.clause_key.weight)
+    logits = torch.matmul(self.clause_keys.weight,torch.t(embeddings))
     
+    # print(logits)
+
     loss = torch.zeros(1)
     factor = 1.0
 
     # print("proof_flas",self.proof_flas)
 
+    time = 0
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
@@ -435,6 +446,9 @@ class LearningModel(torch.nn.Module):
       else:
         assert event == EVENT_SEL
 
+        queue_idx = time % HP.NUM_EFFECTIVE_QUEUES
+        time += 1
+
         passive_list = sorted(passive)
 
         # print(passive_list)
@@ -443,7 +457,7 @@ class LearningModel(torch.nn.Module):
 
         # print(indices)
 
-        sub_logits = torch.index_select(logits,0,indices)
+        sub_logits = logits[queue_idx][indices]
 
         # print(sub_logits)
 
@@ -474,7 +488,7 @@ class LearningModel(torch.nn.Module):
         else:
           # print("num_good and num_bad skip")
           pass
-
+        
         passive.remove(recorded_id)
 
     return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)

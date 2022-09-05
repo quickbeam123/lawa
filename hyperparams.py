@@ -6,7 +6,9 @@ from typing import Final, List
 INSTRUCTION_LIMIT = 5000
 
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
-TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
+# TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
+TEMPERATURES = ["0.0","0.0625","0.125","0.25","0.5","1.0"]
+# TEMPERATURES = ["1.0"]
 
 # Features
 
@@ -35,6 +37,10 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
+# allows for learning more than one clause embedding (eval alternates between them)
+NUM_EFFECTIVE_QUEUES : Final[int] = 2
+
+# instead of "keys" sorting "queues" (as setup above), there is an RNN giving a fresh key every step
 INCLUDE_LSMT : Final[bool] = False
 LSMT_LAYERS : Final[int] = 1
 

@@ -146,7 +146,12 @@ if __name__ == "__main__":
     parts_model_file_path = os.path.join(cur_dir,"parts-model.pt")
     torch.save(model, parts_model_file_path)
 
-    print("Key:",repr(model[1]))
+    keys = model[1]
+    if HP.INCLUDE_LSMT:
+      print("Initial key:",repr(keys))
+    else:
+      for i in range(HP.NUM_EFFECTIVE_QUEUES):
+        print("Key {} {}".format(i,repr(keys(torch.tensor([i]))[0])))
 
     # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
     script_model_file_path = os.path.join(cur_dir,"script-model.pt")    
