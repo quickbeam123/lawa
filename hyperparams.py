@@ -10,6 +10,8 @@ INSTRUCTION_LIMIT = 5000
 TEMPERATURES = ["0.0","0.0625","0.125","0.25","0.5","1.0"]
 # TEMPERATURES = ["1.0"]
 
+CUMMULATIVE = True
+
 # Features
 
 # the features come (unnormalized) as:
@@ -38,7 +40,7 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
 # allows for learning more than one clause embedding (eval alternates between them)
-NUM_EFFECTIVE_QUEUES : Final[int] = 2
+NUM_EFFECTIVE_QUEUES : Final[int] = 1
 
 # instead of "keys" sorting "queues" (as setup above), there is an RNN giving a fresh key every step
 INCLUDE_LSMT : Final[bool] = False
