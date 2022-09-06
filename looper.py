@@ -104,6 +104,9 @@ if __name__ == "__main__":
   else:
     model = IC.get_initial_model()
 
+  # TODO: for restarting from the middle, the optimizer state should be saved too
+  # and we should be loading "training_data.pt", as they are the list thing getting saved
+
   if HP.OPTIMIZER ==  HP.OPTIMIZER_SGD:
     optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
   elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
@@ -132,6 +135,8 @@ if __name__ == "__main__":
   
   # load the reference runs from campaign
   baselines = look_for_baselines(campaign_dir)
+
+  training_data = defaultdict(list) # group the results by problem
 
   loop = 0
   assert loop_count > 0
@@ -209,11 +214,21 @@ if __name__ == "__main__":
     sys.stdout.flush()
 
     start_time = time.time()
-    training_data = defaultdict(list) # group the results by problem
+    if not HP.CUMMULATIVE:
+      # cleanup training_data since the last iteration
+      training_data = defaultdict(list) # group the results by problem
     for results in evaluator.perform(jobs_for_training):
       for prob,data in results.items():
         if data is not None:
           training_data[prob].append(data)
+
+    if HP.CUMMULATIVE:
+      # by a convention, we keep the last "len(HP.TEMPERATURES)" solutions
+      for prob in training_data:
+        training_data[prob] = training_data[prob][-len(HP.TEMPERATURES):]
+
+    print("Collected proofs from",len(training_data),"solved problems")
+    sys.stdout.flush()
 
     # save the bulk
     torch.save(training_data, os.path.join(cur_dir,"train_data.pt"))
@@ -230,7 +245,7 @@ if __name__ == "__main__":
     # the actual training
     start_time = time.time()        
     # SGD style (one step per problem)
-    factor = 1.0/len(training_data)
+    factor = 1.0/len(training_data)    
     print("  training",end="")
     training_data_in_order = list(training_data.items())
     random.shuffle(training_data_in_order)
