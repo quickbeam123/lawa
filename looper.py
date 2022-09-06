@@ -208,11 +208,6 @@ if __name__ == "__main__":
     print()
     sys.stdout.flush()
 
-    loop += 1
-    # traning the model here (in the final loop, there is just eval)
-    if loop == loop_count:
-      break
-    
     start_time = time.time()
     training_data = defaultdict(list) # group the results by problem
     for results in evaluator.perform(jobs_for_training):
@@ -226,6 +221,11 @@ if __name__ == "__main__":
     print("Data gathering took",time.time()-start_time)
     print()
     sys.stdout.flush()
+
+    loop += 1
+    # traning the model here (in the final loop, there is just eval)
+    if loop == loop_count:
+      break
 
     # the actual training
     start_time = time.time()        
