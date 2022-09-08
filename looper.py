@@ -5,7 +5,7 @@ import hyperparams as HP
 
 import torch
 
-import os, sys, shutil, pickle, random, atexit, time
+import os, sys, shutil, pickle, random, atexit, time, math
 
 import subprocess
 from collections import defaultdict
@@ -138,6 +138,10 @@ if __name__ == "__main__":
 
   training_data = defaultdict(list) # group the results by problem
 
+  # TODO: this also starts from scratch when training gets interrupted
+  num_evals = 0
+  num_successes = defaultdict(int) # for each problem, how many times we saw it solved
+
   loop = 0
   assert loop_count > 0
   while True:
@@ -188,10 +192,14 @@ if __name__ == "__main__":
         last_mission = mission
         print(" ",mission)
 
+      num_evals += 1 
+
       successes = []
       for prob,(status,instructions,activations) in results.items():
         if status == "uns":
           successes.append(prob)
+          num_successes[prob] += 1
+
       print("    t={}  {:10.4f}% = {} / {}".format(temperature,len(successes)/len(results),len(successes),len(results)))
 
       # get the fine-grained results to compare against baseline
@@ -245,18 +253,25 @@ if __name__ == "__main__":
     # the actual training
     start_time = time.time()        
     # SGD style (one step per problem)
-    factor = 1.0/len(training_data)    
+    factor = 1.0/len(training_data) # to scale down by the number of problems we trained on
     print("  training",end="")
     training_data_in_order = list(training_data.items())
     random.shuffle(training_data_in_order)
     for i,(prob,its_data) in enumerate(training_data_in_order):
       # print(prob)
       print(">",end="")
+
+      inner_factor = factor
+
+      # possibly scale up for problems that are not getting solved always
+      difficulty = num_evals/num_successes[prob]
+      inner_factor *= min(HP.DIFFICULTY_BOOST_CAP,math.pow(difficulty,HP.DIFFICULTY_BOOST_COEF))
       
-      f = factor / len(its_data)
+      # and further scale down by the number of iterations on this problem
+      inner_factor *= 1.0 / len(its_data) 
+
       for (clauses,journal,proof_flas) in its_data:        
         print(".",end="")
-
         optimizer.zero_grad()
         if HP.INCLUDE_LSMT:
           lm = IC.RecurrentLearningModel(*model,clauses,journal,proof_flas)
@@ -266,7 +281,7 @@ if __name__ == "__main__":
         loss = lm.forward()
         if loss is None:
           continue
-        loss *= f # scale down by the number of problems we trained on
+        loss *= inner_factor
         loss.backward()
         optimizer.step()
     print()
