@@ -264,14 +264,14 @@ def export_model(model,name):
       self.time += 1
 
       if temp == 0.0: # the greedy selection (argmax)
-        min : Optional[float] = None
+        max : Optional[float] = None
         candidates : List[int] = []
         for id in sorted(self.clauses.keys()):
           val = self.clause_vals[id][queue_idx].item()
-          if min is None or val < min:
+          if max is None or val > max:
             candidates = [id]
-            min = val
-          elif val == min:
+            max = val
+          elif val == max:
             candidates.append(id)
 
         # print("NN: Cadidates",candidates)
@@ -347,14 +347,14 @@ def export_model(model,name):
       key = self.current_key
 
       if temp == 0.0: # the greedy selection (argmax)
-        min : Optional[float] = None
+        max : Optional[float] = None
         candidates : List[int] = []
         for id in sorted(self.clauses.keys()):
           val = torch.matmul(key,self.clause_embeddings[id]).item()
-          if min is None or val < min:
+          if max is None or val > max:
             candidates = [id]
-            min = val
-          elif val == min:
+            max = val
+          elif val == max:
             candidates.append(id)
 
         # print("NN: Cadidates",candidates)
