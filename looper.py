@@ -185,6 +185,9 @@ if __name__ == "__main__":
     best_solveds = defaultdict(int)
     best_results = {}
 
+    num_fails = 0
+    sum_failss_activations = 0
+
     for (result_file_name,mission,temperature,opts1,opts2),results in zip(metas,evaluator.perform(jobs_for_eval)):
       torch.save((opts1+opts2,results), os.path.join(cur_dir,result_file_name))
 
@@ -192,7 +195,7 @@ if __name__ == "__main__":
         last_mission = mission
         print(" ",mission)
         solved_accum = set()
-        accum_last = None
+        accum_last = 0
 
       num_evals += 1 
 
@@ -202,14 +205,14 @@ if __name__ == "__main__":
           solved_accum.add(prob)
           successes.append(prob)
           num_successes[prob] += 1
+        elif status is None:
+          num_fails += 1
+          sum_failss_activations += activations
 
-      if accum_last is not None:
-        accum_delta = len(solved_accum) - accum_last
-      else:
-        accum_delta = None
+      accum_delta = len(solved_accum) - accum_last
       accum_last = len(solved_accum)
 
-      print("    t={}  {:10.4f}% = {} / {} accum {} (+{})".format(temperature,len(successes)/len(results),len(successes),len(results),len(solved_accum),accum_delta))
+      print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temperature,len(successes)/len(results),len(successes),len(results),accum_delta,len(solved_accum)))
 
       # get the fine-grained results to compare against baseline
 
@@ -220,6 +223,8 @@ if __name__ == "__main__":
         best_solveds[mission] = len(successes)
         best_results[mission] = results
     
+    print()
+    print("Seen the avarege of",sum_failss_activations/num_fails,"activations over failed runs.")
     print()
     for mission in MISSIONS:
       print("  Comparing best",mission,"to baseline")

@@ -23,6 +23,8 @@ if __name__ == "__main__":
   else:
     idx = 0
 
+   # TODO: index does not work yet
+
   clause_embedder,clause_keys = model  
 
   import numpy as np
@@ -34,7 +36,7 @@ if __name__ == "__main__":
 
   def get_logit(age, weight):
     with torch.no_grad():
-      features = torch.tensor(np.column_stack((X.ravel(),Y.ravel()))).float()
+      features = torch.tensor(np.column_stack((age.ravel(),weight.ravel()))).float()
       embeddings = clause_embedder(features)
       logits = torch.matmul(clause_keys.weight,torch.t(embeddings))
 

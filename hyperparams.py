@@ -3,16 +3,16 @@
 from typing import Final, List
 
 # Data gathering
-INSTRUCTION_LIMIT = 5000
+INSTRUCTION_LIMIT = 10000
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.0","0.0625","0.125","0.25","0.5","1.0"]
+TEMPERATURES = ["0.000","0.125","0.250","0.500","1.000","2.000"]
 
 CUMMULATIVE = False
 
-DIFFICULTY_BOOST_COEF = 0.5
+DIFFICULTY_BOOST_COEF = 0.0
 DIFFICULTY_BOOST_CAP = 3.0
 
 # Features
@@ -32,8 +32,10 @@ FEATURES_PLAIN : Final[int] = 1
 FEATURES_RICH : Final[int] = 2
 # just the whole thing that comes from vampire
 FEATURES_ALL : Final[int] = 3
+# back to just age and weight - but add square, sqrt and log of each
+FEATURES_AW_PLUS : Final[int] = 4
 
-FEATURE_SUBSET : Final[int] = FEATURES_RICH
+FEATURE_SUBSET : Final[int] = FEATURES_AW_PLUS
 
 # todo: think of normalization / regularization ...
 
@@ -59,7 +61,9 @@ LEARNING_RATE : Final[float] = 0.0001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
-DISCOUNT_FACTOR = 0.999
+# Around 100 activations done in 5000Mi and 0.99^100 = 0.36
+# Around 135 activations done in 10000Mi and 0.995^100 = 0.5
+DISCOUNT_FACTOR = 0.995
 
 USE_MIN_FOR_LOSS_REDUCE = False
 

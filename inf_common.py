@@ -25,7 +25,7 @@ import subprocess
 
 import numpy as np
 
-import sys, random
+import sys, random, math
 
 import hyperparams as HP
 
@@ -147,6 +147,8 @@ def num_features():
     return 6
   elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
     return 10
+  elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
+    return 8
 
 def process_features(full_features : List[float]) -> List[float]:
   f = full_features
@@ -158,6 +160,8 @@ def process_features(full_features : List[float]) -> List[float]:
     return f[0:6]
   elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
     return f
+  elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
+    return [f[0],f[0]*f[0],math.sqrt(f[0]),math.log(1.0+f[0]),f[2],f[2]*f[2],math.sqrt(f[2]),math.log(1.0+f[2])]
   else:
     assert False
     return []
