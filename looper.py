@@ -191,16 +191,25 @@ if __name__ == "__main__":
       if mission != last_mission:
         last_mission = mission
         print(" ",mission)
+        solved_accum = set()
+        accum_last = None
 
       num_evals += 1 
 
       successes = []
       for prob,(status,instructions,activations) in results.items():
         if status == "uns":
+          solved_accum.add(prob)
           successes.append(prob)
           num_successes[prob] += 1
 
-      print("    t={}  {:10.4f}% = {} / {}".format(temperature,len(successes)/len(results),len(successes),len(results)))
+      if accum_last is not None:
+        accum_delta = len(solved_accum) - accum_last
+      else:
+        accum_delta = None
+      accum_last = len(solved_accum)
+
+      print("    t={}  {:10.4f}% = {} / {} accum {} (+{})".format(temperature,len(successes)/len(results),len(successes),len(results),len(solved_accum),accum_delta))
 
       # get the fine-grained results to compare against baseline
 
@@ -235,7 +244,7 @@ if __name__ == "__main__":
       for prob in training_data:
         training_data[prob] = training_data[prob][-len(HP.TEMPERATURES):]
 
-    print("Collected proofs from",len(training_data),"solved problems")
+    print("Collected proofs from",len(training_data),"problems to learn from")
     sys.stdout.flush()
 
     # save the bulk
