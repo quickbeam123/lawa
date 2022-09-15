@@ -82,7 +82,7 @@ if __name__ == "__main__":
 
     print(mission,"maxed with",mission_max,"at",mission_max_at)
 
-    ax1.set_ylim(ymin=0)
+    # ax1.set_ylim(ymin=0)
 
     plt.legend(handles = handles, loc='upper left') # loc = 'best' is rumored to be unpredictable
 
