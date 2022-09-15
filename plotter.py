@@ -60,15 +60,27 @@ if __name__ == "__main__":
 
     handles = []
 
+    mission_max = 0
+    mission_max_at = None
+
     for filename,run in expers.items():
       if not filename.startswith(mission):
         continue
-      successes = [s for (s,t) in run]
-      times = [t for (s,t) in run]
-      
+
+      successes = []
+      times = []
+      for (s,t) in run:
+        successes.append(s)
+        times.append(t)
+        if s > mission_max:
+          mission_max = s
+          mission_max_at = "iter{}_{}".format(t,filename)
+    
       h, = ax1.plot(times, successes, "--", linewidth = 1, label = filename[:-3])
 
       handles.append(h)
+
+    print(mission,"maxed with",mission_max,"at",mission_max_at)
 
     ax1.set_ylim(ymin=0)
 
@@ -76,6 +88,8 @@ if __name__ == "__main__":
 
     plt.savefig("{}_{}_plot.png".format(os.path.basename(sys.argv[1]),mission),dpi=250)
     plt.close(fig)
+
+
 
 
 
