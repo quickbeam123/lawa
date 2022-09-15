@@ -3,7 +3,7 @@
 from typing import Final, List
 
 # Data gathering
-INSTRUCTION_LIMIT = 10000
+INSTRUCTION_LIMIT = 5000
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
@@ -37,7 +37,7 @@ FEATURES_AW_PLUS : Final[int] = 4
 # back to just age and weight - but add square, sqrt and log of each (and their cross multiples)
 FEATURES_AW_PLUS_TIMES : Final[int] = 5
 
-FEATURE_SUBSET : Final[int] = FEATURES_AW_PLUS_TIMES
+FEATURE_SUBSET : Final[int] = FEATURES_RICH
 
 # todo: think of normalization / regularization ...
 
@@ -65,15 +65,7 @@ WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
 # Around 100 activations done in 5000Mi and 0.99^100 = 0.36
 # Around 135 activations done in 10000Mi and 0.995^100 = 0.5
-DISCOUNT_FACTOR = 0.995
+DISCOUNT_FACTOR = 1.0
 
 USE_MIN_FOR_LOSS_REDUCE = False
-
-# 16 added discount factor
-#
-# 17 adding the fix of the bug in learning model which never deleted the selected passive clause
-# 18 - the same for rnn
-
-# 19 & 20 - like 17 and 18, but with the new (more reasonable and efficient way of doing loss with classes)
-# (typo in TEMPERATURES made it evaluate 0.5 twice - however both runs would have been used for training)
 
