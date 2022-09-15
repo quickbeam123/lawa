@@ -414,6 +414,91 @@ def export_model(model,name):
   script = torch.jit.script(module)
   script.save(name)
 
+class PrincipledLearningModel(torch.nn.Module):
+  def __init__(self,
+      clause_embedder : torch.nn.Module,
+      clause_keys: torch.nn.Module,
+      clauses,journal,proof_flas):
+    super().__init__()
+
+    # print(clause_embedder,clause_key)
+    # print(clauses,journal,proof_flas)
+
+    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
+    self.clause_keys = clause_keys         # the keys (one for each "queue") for multiplying an embedding to get a clause logits 
+    self.clauses = clauses                 # id -> (feature_vec)
+    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.proof_flas = proof_flas           # set of the good ids
+
+  def forward(self):
+    # let's a get a big matrix of feature_vec's, one for each clause (id)
+    clause_list = []
+    id2idx = {}
+    for i,(id,features) in enumerate(sorted(self.clauses.items())):
+      id2idx[id] = i
+      clause_list.append(torch.tensor(features))
+    feature_vecs = torch.stack(clause_list)
+
+    # in bulk for all the clauses
+    embeddings = self.clause_embedder(feature_vecs)
+    # since we are not doing LSTM (yet), the multiplication by key can happen emmediately as well
+    # (and is probably kind of redundant in the architecture)
+    logits = torch.matmul(self.clause_keys.weight,torch.t(embeddings))
+
+    # print(logits)
+
+    loss = torch.zeros(1)
+    factor = 1.0
+
+    # print("proof_flas",self.proof_flas)
+
+    time = 0
+    steps = 0
+    passive = set()
+    for (recorded_id, event) in self.journal:
+      if event == EVENT_ADD:
+        passive.add(recorded_id)
+      elif event == EVENT_REM:
+        passive.remove(recorded_id)
+      else:
+        assert event == EVENT_SEL
+
+        if len(passive) < 2: # there was no chosing, can't correct the action
+          continue
+
+        queue_idx = time % HP.NUM_EFFECTIVE_QUEUES
+        time += 1
+
+        passive_list = sorted(passive)
+
+        # print(passive_list)
+
+        indices = torch.tensor([id2idx[id] for id in passive_list])
+
+        # print(indices)
+
+        sub_logits = logits[queue_idx][indices]
+
+        # print(sub_logits)
+
+        if recorded_id in self.proof_flas: # this was a good move, let's reward it
+          good_idx = passive_list.index(recorded_id)
+
+          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
+          cross_entropy = -lsm[good_idx]
+
+          loss += factor*cross_entropy
+
+          steps += 1
+          factor *= HP.DISCOUNT_FACTOR
+        else:
+          # TODO: penalty for wrong selections
+          pass
+
+        passive.remove(recorded_id)
+
+    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
+
 class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_embedder : torch.nn.Module,

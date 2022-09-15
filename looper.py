@@ -271,7 +271,7 @@ if __name__ == "__main__":
     print("  training",end="")
     training_data_in_order = list(training_data.items())
     random.shuffle(training_data_in_order)
-    for i,(prob,its_data) in enumerate(training_data_in_order):
+    for i,(prob,its_proofs) in enumerate(training_data_in_order):
       # print(prob)
       print(">",end="")
 
@@ -282,15 +282,18 @@ if __name__ == "__main__":
       inner_factor *= min(HP.DIFFICULTY_BOOST_CAP,math.pow(difficulty,HP.DIFFICULTY_BOOST_COEF))
       
       # and further scale down by the number of iterations on this problem
-      inner_factor *= 1.0 / len(its_data) 
+      inner_factor *= 1.0 / len(its_proofs)
 
-      for (clauses,journal,proof_flas) in its_data:        
+      for (clauses,journal,proof_flas) in its_proofs:
         print(".",end="")
         optimizer.zero_grad()
-        if HP.INCLUDE_LSMT:
-          lm = IC.RecurrentLearningModel(*model,clauses,journal,proof_flas)
+        if HP.JUST_FROM_ONE_ACTION:
+          lm = IC.PrincipledLearningModel(*model,clauses,journal,proof_flas)
         else:
-          lm = IC.LearningModel(*model,clauses,journal,proof_flas)
+          if HP.INCLUDE_LSMT:
+            lm = IC.RecurrentLearningModel(*model,clauses,journal,proof_flas)
+          else:
+            lm = IC.LearningModel(*model,clauses,journal,proof_flas)
         lm.train()
         loss = lm.forward()
         if loss is None:
@@ -302,4 +305,3 @@ if __name__ == "__main__":
     print("Training took",time.time()-start_time)
     print()
     sys.stdout.flush()
-      

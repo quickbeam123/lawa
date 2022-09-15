@@ -49,6 +49,9 @@ CLAUSE_INTERAL_SIZE : Final[int] = 8
 # allows for learning more than one clause embedding (eval alternates between them)
 NUM_EFFECTIVE_QUEUES : Final[int] = 1
 
+# LEARN JUST FROM ONE ACTION AT A TIME (incompatible with LSTM learning)
+JUST_FROM_ONE_ACTION : Final[bool] = True 
+
 # instead of "keys" sorting "queues" (as setup above), there is an RNN giving a fresh key every step
 INCLUDE_LSMT : Final[bool] = False
 LSMT_LAYERS : Final[int] = 1
