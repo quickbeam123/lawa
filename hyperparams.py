@@ -34,8 +34,10 @@ FEATURES_RICH : Final[int] = 2
 FEATURES_ALL : Final[int] = 3
 # back to just age and weight - but add square, sqrt and log of each
 FEATURES_AW_PLUS : Final[int] = 4
+# back to just age and weight - but add square, sqrt and log of each (and their cross multiples)
+FEATURES_AW_PLUS_TIMES : Final[int] = 5
 
-FEATURE_SUBSET : Final[int] = FEATURES_AW_PLUS
+FEATURE_SUBSET : Final[int] = FEATURES_AW_PLUS_TIMES
 
 # todo: think of normalization / regularization ...
 
