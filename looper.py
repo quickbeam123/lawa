@@ -87,11 +87,11 @@ if __name__ == "__main__":
   #
   # We need a folder naming scheme, checkpointing, result scanning, ...
   #
-  # To be called as in: ./looper.py loop_count parallelism campaign_folder (must exist) exper_folder (will be created - ideally have this on local/scratch) [optionally starting parts-model file]
+  # To be called as in: ./looper.py loop_count parallelism campaign_folder (must exist) exper_folder (will be created - ideally have this on local/scratch) [optionally, last completed loop dir]
   #
   # campaign_folder contains "train.txt", "test.txt" - the files listing the problems, and a bunch of train/test_something.pkl's with results of baseline (non-neural) runs for reporting
   # 
-  # ./looper.py 10 70 campaigns/small/ /local/sudamar2/lawa/exper1 [optional - starting parts-model file]
+  # ./looper.py 10 70 campaigns/small/ /local/sudamar2/lawa/exper1 [optionally, last completed loop dir]
 
   loop_count = int(sys.argv[1])
   parallelism = int(sys.argv[2])
@@ -100,9 +100,14 @@ if __name__ == "__main__":
   exper_dir =  sys.argv[4]
 
   if len(sys.argv) > 5:
-    model = torch.load(sys.argv[5])
+    load_dir = sys.argv[5]
+    model = torch.load(os.path.join(load_dir,"parts-model.pt"))
+    training_data = torch.load(os.path.join(load_dir,"train_data.pt"))
+    need_next_eval = False
   else:
     model = IC.get_initial_model()
+    training_data = defaultdict(list) # group the results by problem
+    need_next_eval = True
 
   # TODO: for restarting from the middle, the optimizer state should be saved too
   # and we should be loading "training_data.pt", as they are the list thing getting saved
@@ -135,9 +140,7 @@ if __name__ == "__main__":
   
   # load the reference runs from campaign
   baselines = look_for_baselines(campaign_dir)
-
-  training_data = defaultdict(list) # group the results by problem
-
+  
   # TODO: this also starts from scratch when training gets interrupted
   num_evals = 0
   num_successes = defaultdict(int) # for each problem, how many times we saw it solved
@@ -151,113 +154,116 @@ if __name__ == "__main__":
 
     os.mkdir(cur_dir)
 
-    # let's save the model we got from last time (either initial or the last training)
-    parts_model_file_path = os.path.join(cur_dir,"parts-model.pt")
-    torch.save(model, parts_model_file_path)
+    if need_next_eval:
+      # let's save the model we got from last time (either initial or the last training)
+      parts_model_file_path = os.path.join(cur_dir,"parts-model.pt")
+      torch.save(model, parts_model_file_path)
 
-    keys = model[1]
-    if HP.INCLUDE_LSMT:
-      print("Initial key:",repr(keys))
-    else:
-      for i in range(HP.NUM_EFFECTIVE_QUEUES):
-        print("Key {} {}".format(i,repr(keys(torch.tensor([i]))[0])))
+      keys = model[1]
+      if HP.INCLUDE_LSMT:
+        print("Initial key:",repr(keys))
+      else:
+        for i in range(HP.NUM_EFFECTIVE_QUEUES):
+          print("Key {} {}".format(i,repr(keys(torch.tensor([i]))[0])))
 
-    # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
-    script_model_file_path = os.path.join(cur_dir,"script-model.pt")    
-    IC.export_model(torch.load(parts_model_file_path),script_model_file_path)
+      # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
+      script_model_file_path = os.path.join(cur_dir,"script-model.pt")    
+      IC.export_model(torch.load(parts_model_file_path),script_model_file_path)
 
-    start_time = time.time()
+      start_time = time.time()
 
-    seed = random.randint(1,0x7fffff)
-    jobs_for_eval = []
-    metas = []
-    for mission in MISSIONS:
-      for temperature in HP.TEMPERATURES:
-        result_file_name = "{}_t{}.pt".format(mission,temperature)
-        opts1 = "-i {} -p off".format(HP.INSTRUCTION_LIMIT)
-        opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
-        metas.append((result_file_name,mission,temperature,opts1,opts2))
-        jobs_for_eval.append((prob_lists[mission],opts1+opts2,False))
+      seed = random.randint(1,0x7fffff)
+      jobs_for_eval = []
+      metas = []
+      for mission in MISSIONS:
+        for temperature in HP.TEMPERATURES:
+          result_file_name = "{}_t{}.pt".format(mission,temperature)
+          opts1 = "-i {} -p off".format(HP.INSTRUCTION_LIMIT)
+          opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
+          metas.append((result_file_name,mission,temperature,opts1,opts2))
+          jobs_for_eval.append((prob_lists[mission],opts1+opts2,False))
 
-    jobs_for_training = []
-    last_mission = None
+      jobs_for_training = []
+      last_mission = None
 
-    best_solveds = defaultdict(int)
-    best_results = {}
+      best_solveds = defaultdict(int)
+      best_results = {}
 
-    num_fails = 0
-    sum_failss_activations = 0
+      num_fails = 0
+      sum_failss_activations = 0
 
-    for (result_file_name,mission,temperature,opts1,opts2),results in zip(metas,evaluator.perform(jobs_for_eval)):
-      torch.save((opts1+opts2,results), os.path.join(cur_dir,result_file_name))
+      for (result_file_name,mission,temperature,opts1,opts2),results in zip(metas,evaluator.perform(jobs_for_eval)):
+        torch.save((opts1+opts2,results), os.path.join(cur_dir,result_file_name))
 
-      if mission != last_mission:
-        last_mission = mission
-        print(" ",mission)
-        solved_accum = set()
-        accum_last = 0
+        if mission != last_mission:
+          last_mission = mission
+          print(" ",mission)
+          solved_accum = set()
+          accum_last = 0
 
-      num_evals += 1 
+        num_evals += 1 
 
-      successes = []
-      for prob,(status,instructions,activations) in results.items():
-        if status == "uns":
-          solved_accum.add(prob)
-          successes.append(prob)
-          num_successes[prob] += 1
-        elif status is None:
-          num_fails += 1
-          sum_failss_activations += activations
+        successes = []
+        for prob,(status,instructions,activations) in results.items():
+          if status == "uns":
+            solved_accum.add(prob)
+            successes.append(prob)
+            num_successes[prob] += 1
+          elif status is None:
+            num_fails += 1
+            sum_failss_activations += activations
 
-      accum_delta = len(solved_accum) - accum_last
-      accum_last = len(solved_accum)
+        accum_delta = len(solved_accum) - accum_last
+        accum_last = len(solved_accum)
 
-      print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temperature,len(successes)/len(results),len(successes),len(results),accum_delta,len(solved_accum)))
+        print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temperature,len(successes)/len(results),len(successes),len(results),accum_delta,len(solved_accum)))
 
-      # get the fine-grained results to compare against baseline
+        # get the fine-grained results to compare against baseline
 
-      if mission == "train":
-        jobs_for_training.append((successes,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
+        if mission == "train":
+          jobs_for_training.append((successes,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
 
-      if len(successes) > best_solveds[mission]:
-        best_solveds[mission] = len(successes)
-        best_results[mission] = results
-    
-    print()
-    print("Seen the avarege of",sum_failss_activations/num_fails,"activations over failed runs.")
-    print()
-    for mission in MISSIONS:
-      print("  Comparing best",mission,"to baseline")
-      compare_to_baselines(best_results[mission],baselines[mission])
+        if len(successes) > best_solveds[mission]:
+          best_solveds[mission] = len(successes)
+          best_results[mission] = results
+      
+      print()
+      print("Seen the avarege of",sum_failss_activations/num_fails,"activations over failed runs.")
+      print()
+      for mission in MISSIONS:
+        print("  Comparing best",mission,"to baseline")
+        compare_to_baselines(best_results[mission],baselines[mission])
 
-    print()
-    print("Eval took",time.time()-start_time)
-    print()
-    sys.stdout.flush()
+      print()
+      print("Eval took",time.time()-start_time)
+      print()
+      sys.stdout.flush()
 
-    start_time = time.time()
-    if not HP.CUMMULATIVE:
-      # cleanup training_data since the last iteration
-      training_data = defaultdict(list) # group the results by problem
-    for results in evaluator.perform(jobs_for_training):
-      for prob,data in results.items():
-        if data is not None:
-          training_data[prob].append(data)
+      start_time = time.time()
+      if not HP.CUMMULATIVE:
+        # cleanup training_data since the last iteration
+        training_data = defaultdict(list) # group the results by problem
+      for results in evaluator.perform(jobs_for_training):
+        for prob,data in results.items():
+          if data is not None:
+            training_data[prob].append(data)
 
-    if HP.CUMMULATIVE:
-      # by a convention, we keep the last "len(HP.TEMPERATURES)" solutions
-      for prob in training_data:
-        training_data[prob] = training_data[prob][-len(HP.TEMPERATURES):]
+      if HP.CUMMULATIVE:
+        # by a convention, we keep the last "len(HP.TEMPERATURES)" solutions
+        for prob in training_data:
+          training_data[prob] = training_data[prob][-len(HP.TEMPERATURES):]
 
-    print("Collected proofs from",len(training_data),"problems to learn from")
-    sys.stdout.flush()
+      print("Collected proofs from",len(training_data),"problems to learn from")
+      sys.stdout.flush()
 
-    # save the bulk
-    torch.save(training_data, os.path.join(cur_dir,"train_data.pt"))
+      # save the bulk
+      torch.save(training_data, os.path.join(cur_dir,"train_data.pt"))
 
-    print("Data gathering took",time.time()-start_time)
-    print()
-    sys.stdout.flush()
+      print("Data gathering took",time.time()-start_time)
+      print()
+      sys.stdout.flush()
+
+    need_next_eval = True
 
     loop += 1
     # traning the model here (in the final loop, there is just eval)
@@ -278,8 +284,11 @@ if __name__ == "__main__":
       inner_factor = factor
 
       # possibly scale up for problems that are not getting solved always
-      difficulty = num_evals/num_successes[prob]
-      inner_factor *= min(HP.DIFFICULTY_BOOST_CAP,math.pow(difficulty,HP.DIFFICULTY_BOOST_COEF))
+      if HP.DIFFICULTY_BOOST_COEF > 0.0:
+        difficulty = num_evals/num_successes[prob]
+        inner_factor *= min(HP.DIFFICULTY_BOOST_CAP,math.pow(difficulty,HP.DIFFICULTY_BOOST_COEF))
+      else:
+        inner_factor = 1.0
       
       # and further scale down by the number of iterations on this problem
       inner_factor *= 1.0 / len(its_proofs)
