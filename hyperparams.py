@@ -8,7 +8,7 @@ INSTRUCTION_LIMIT = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.000","0.125","0.250","0.500","1.000","2.000"]
+TEMPERATURES = ["0.00","0.25","0.50","1.00","2.00","4.00"]
 
 CUMMULATIVE = False
 
@@ -50,11 +50,13 @@ CLAUSE_INTERAL_SIZE : Final[int] = 8
 NUM_EFFECTIVE_QUEUES : Final[int] = 1
 
 # LEARN JUST FROM ONE ACTION AT A TIME (incompatible with LSTM learning; also USE_MIN_FOR_LOSS_REDUCE does not make sense anymore)
-JUST_FROM_ONE_ACTION : Final[bool] = True 
+JUST_FROM_ONE_ACTION : Final[bool] = False
 
 # instead of "keys" sorting "queues" (as setup above), there is an RNN giving a fresh key every step
 INCLUDE_LSMT : Final[bool] = False
 LSMT_LAYERS : Final[int] = 1
+
+ENTROPY_COEF = 0.7
 
 # Optimizer - before, there used to be ADAM only
 OPTIMIZER_SGD = 0
