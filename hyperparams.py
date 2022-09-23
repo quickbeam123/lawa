@@ -73,6 +73,8 @@ ENIGMA_JUST_SELECTED = True
 ENIGMA_BINARY_CLASSIF = False
 
 ENTROPY_COEF = 0.0
+# next time I play with the entropy regularization, let me try the normalized one
+ENTROPY_NORMALIZED = True
 
 # Optimizer - before, there used to be ADAM only
 OPTIMIZER_SGD = 0

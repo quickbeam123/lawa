@@ -513,6 +513,8 @@ class LearningModel(torch.nn.Module):
 
           if HP.ENTROPY_COEF > 0.0:
             minus_entropy = torch.dot(torch.exp(lsm),lsm)
+            if HP.ENTROPY_NORMALIZED:
+              minus_entropy /= torch.log(len(lsm))
             loss += HP.ENTROPY_COEF*minus_entropy
 
           steps += 1
@@ -613,6 +615,8 @@ class RecurrentLearningModel(torch.nn.Module):
 
           if HP.ENTROPY_COEF > 0.0:
             minus_entropy = torch.dot(torch.exp(lsm),lsm)
+            if HP.ENTROPY_NORMALIZED:
+              minus_entropy /= torch.log(len(lsm))
             loss += HP.ENTROPY_COEF*minus_entropy
 
           steps += 1
@@ -710,6 +714,8 @@ class PrincipledLearningModel(torch.nn.Module):
           # TODO: we could entropy-penalize at every step, but then step+=1 should go out of the if too
           if HP.ENTROPY_COEF > 0.0:
             minus_entropy = torch.dot(torch.exp(lsm),lsm)
+            if HP.ENTROPY_NORMALIZED:
+              minus_entropy /= torch.log(len(lsm))
             loss += HP.ENTROPY_COEF*minus_entropy
 
           steps += 1
