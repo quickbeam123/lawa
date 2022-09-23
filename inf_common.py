@@ -42,7 +42,8 @@ def process_one(task):
     clauses = {} # id -> (feature_vec)
     journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     proof_flas = set()
-
+    
+    act_cost_sum = 0
     num_sels = 0
 
     for line in output.split("\n"):
@@ -62,6 +63,11 @@ def process_one(task):
         spl = line.split()
         id = int(spl[1])
         journal.append((id,EVENT_ADD))
+      elif line.startswith("t: "):
+        spl = line.split()
+        prev_act_cost = int(spl[1])
+        journal.append((prev_act_cost,EVENT_TIM))
+        act_cost_sum += prev_act_cost
       elif line.startswith("s: "):
         spl = line.split()
         id = int(spl[1])
@@ -78,6 +84,8 @@ def process_one(task):
 
     if len(proof_flas) == 0:
       print("Proof not found for",to_run)
+
+    # print(prob,"had total act cost",act_cost_sum)
 
     if len(clauses) == 0 or num_sels == 0 or len(proof_flas) == 0:
       return (res_idx,prob,None)
@@ -135,8 +143,9 @@ class Evaluator:
     return results
 
 EVENT_ADD = 0
-EVENT_SEL = 1
-EVENT_REM = 2
+EVENT_TIM = 1
+EVENT_SEL = 2
+EVENT_REM = 3
 
 def num_features():
   if HP.FEATURE_SUBSET == HP.FEATURES_AW:
@@ -541,7 +550,9 @@ class LearningModel(torch.nn.Module):
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
-      if event == EVENT_ADD:
+      if event == EVENT_TIM:
+        pass
+      elif event == EVENT_ADD:
         passive.add(recorded_id)
       elif event == EVENT_REM:
         passive.remove(recorded_id)
@@ -638,7 +649,9 @@ class RecurrentLearningModel(torch.nn.Module):
     steps = 0
     passive = set()
     for (recorded_id, event) in self.journal:
-      if event == EVENT_ADD:
+      if event == EVENT_TIM:
+        pass
+      elif event == EVENT_ADD:
         passive.add(recorded_id)
       elif event == EVENT_REM:
         passive.remove(recorded_id)
