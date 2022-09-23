@@ -160,12 +160,12 @@ if __name__ == "__main__":
       torch.save(model, parts_model_file_path)
 
       keys = model[1]
-      if HP.INCLUDE_LSMT:
+      if HP.LEARNER == HP.LEARNER_RECURRENT:
         print("Initial key:",repr(keys))
       else:
         for i in range(HP.NUM_EFFECTIVE_QUEUES):
           print("Key {} {}".format(i,repr(keys(torch.tensor([i]))[0])))
-
+        
       # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
       script_model_file_path = os.path.join(cur_dir,"script-model.pt")    
       IC.export_model(torch.load(parts_model_file_path),script_model_file_path)
@@ -223,7 +223,7 @@ if __name__ == "__main__":
         if mission == "train":
           jobs_for_training.append((successes,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
 
-        if len(successes) > best_solveds[mission]:
+        if len(successes) >= best_solveds[mission]:
           best_solveds[mission] = len(successes)
           best_results[mission] = results
       
@@ -296,13 +296,15 @@ if __name__ == "__main__":
       for (clauses,journal,proof_flas) in its_proofs:
         print(".",end="")
         optimizer.zero_grad()
-        if HP.JUST_FROM_ONE_ACTION:
+        if HP.LEARNER == HP.LEARNER_ORIGINAL:
+          lm = IC.LearningModel(*model,clauses,journal,proof_flas)
+        elif HP.LEARNER == HP.LEARNER_RECURRENT:
+          lm = IC.RecurrentLearningModel(*model,clauses,journal,proof_flas)
+        elif HP.LEARNER == HP.LEARNER_PRINCIPLED:
           lm = IC.PrincipledLearningModel(*model,clauses,journal,proof_flas)
-        else:
-          if HP.INCLUDE_LSMT:
-            lm = IC.RecurrentLearningModel(*model,clauses,journal,proof_flas)
-          else:
-            lm = IC.LearningModel(*model,clauses,journal,proof_flas)
+        else:          
+          lm = IC.EnigmaLearningModel(*model,clauses,journal,proof_flas)          
+            
         lm.train()
         loss = lm.forward()
         if loss is None:

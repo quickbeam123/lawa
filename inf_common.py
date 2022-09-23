@@ -215,23 +215,23 @@ def get_initial_model():
       layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
       layer_list.append(torch.nn.ReLU())
     clause_embedder = torch.nn.Sequential(*layer_list)
-      
+
   parts = [clause_embedder]
 
-  if HP.INCLUDE_LSMT:
+  if HP.LEARNER == HP.LEARNER_RECURRENT:
     assert HP.CLAUSE_EMBEDDER_LAYERS > 0
 
     initial_key = Embed(HP.CLAUSE_INTERAL_SIZE)
     initial_state = Embed(HP.CLAUSE_INTERAL_SIZE)
     rnn = torch.nn.LSTM(HP.CLAUSE_INTERAL_SIZE, HP.CLAUSE_INTERAL_SIZE, HP.LSMT_LAYERS)
-    
+
     parts.append(initial_key)
     parts.append(initial_state)
     parts.append(rnn)
   else:
     clause_keys = torch.nn.Embedding(HP.NUM_EFFECTIVE_QUEUES,HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features())
     parts.append(clause_keys)
-      
+
   return torch.nn.ModuleList(parts)
 
 # this is destructive on the model modules (best load from checkpoint file first)
@@ -416,97 +416,12 @@ def export_model(model,name):
       del self.clauses[id]
       return id
 
-  if HP.INCLUDE_LSMT:
+  if HP.LEARNER == HP.LEARNER_RECURRENT:
     module = NeuralRecurrentPassiveClauseContainer(*model)
   else:
     module = NeuralPassiveClauseContainer(*model)
   script = torch.jit.script(module)
   script.save(name)
-
-class PrincipledLearningModel(torch.nn.Module):
-  def __init__(self,
-      clause_embedder : torch.nn.Module,
-      clause_keys: torch.nn.Module,
-      clauses,journal,proof_flas):
-    super().__init__()
-
-    # print(clause_embedder,clause_key)
-    # print(clauses,journal,proof_flas)
-
-    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
-    self.clause_keys = clause_keys         # the keys (one for each "queue") for multiplying an embedding to get a clause logits 
-    self.clauses = clauses                 # id -> (feature_vec)
-    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-    self.proof_flas = proof_flas           # set of the good ids
-
-  def forward(self):
-    # let's a get a big matrix of feature_vec's, one for each clause (id)
-    clause_list = []
-    id2idx = {}
-    for i,(id,features) in enumerate(sorted(self.clauses.items())):
-      id2idx[id] = i
-      clause_list.append(torch.tensor(features))
-    feature_vecs = torch.stack(clause_list)
-
-    # in bulk for all the clauses
-    embeddings = self.clause_embedder(feature_vecs)
-    # since we are not doing LSTM (yet), the multiplication by key can happen emmediately as well
-    # (and is probably kind of redundant in the architecture)
-    logits = torch.matmul(self.clause_keys.weight,torch.t(embeddings))
-
-    # print(logits)
-
-    loss = torch.zeros(1)
-    factor = 1.0
-
-    # print("proof_flas",self.proof_flas)
-
-    time = 0
-    steps = 0
-    passive = set()
-    for (recorded_id, event) in self.journal:
-      if event == EVENT_ADD:
-        passive.add(recorded_id)
-      elif event == EVENT_REM:
-        passive.remove(recorded_id)
-      else:
-        assert event == EVENT_SEL
-
-        if len(passive) < 2: # there was no chosing, can't correct the action
-          continue
-
-        queue_idx = time % HP.NUM_EFFECTIVE_QUEUES
-        time += 1
-
-        passive_list = sorted(passive)
-
-        # print(passive_list)
-
-        indices = torch.tensor([id2idx[id] for id in passive_list])
-
-        # print(indices)
-
-        sub_logits = logits[queue_idx][indices]
-
-        # print(sub_logits)
-
-        if recorded_id in self.proof_flas: # this was a good move, let's reward it
-          good_idx = passive_list.index(recorded_id)
-
-          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
-          cross_entropy = -lsm[good_idx]
-
-          loss += factor*cross_entropy
-
-          steps += 1
-          factor *= HP.DISCOUNT_FACTOR
-        else:
-          # TODO: penalty for wrong selections
-          pass
-
-        passive.remove(recorded_id)
-
-    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
@@ -707,124 +622,157 @@ class RecurrentLearningModel(torch.nn.Module):
 
     return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
 
+class PrincipledLearningModel(torch.nn.Module):
+  def __init__(self,
+      clause_embedder : torch.nn.Module,
+      clause_keys: torch.nn.Module,
+      clauses,journal,proof_flas):
+    super().__init__()
 
+    # print(clause_embedder,clause_key)
+    # print(clauses,journal,proof_flas)
 
+    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
+    self.clause_keys = clause_keys         # the keys (one for each "queue") for multiplying an embedding to get a clause logits 
+    self.clauses = clauses                 # id -> (feature_vec)
+    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.proof_flas = proof_flas           # set of the good ids
 
+  def forward(self):
+    # let's a get a big matrix of feature_vec's, one for each clause (id)
+    clause_list = []
+    id2idx = {}
+    for i,(id,features) in enumerate(sorted(self.clauses.items())):
+      id2idx[id] = i
+      clause_list.append(torch.tensor(features))
+    feature_vecs = torch.stack(clause_list)
 
+    # in bulk for all the clauses
+    embeddings = self.clause_embedder(feature_vecs)
+    # since we are not doing LSTM (yet), the multiplication by key can happen emmediately as well
+    # (and is probably kind of redundant in the architecture)
+    logits = torch.matmul(self.clause_keys.weight,torch.t(embeddings))
 
+    # print(logits)
 
+    loss = torch.zeros(1)
+    factor = 1.0
 
+    # print("proof_flas",self.proof_flas)
 
+    time = 0
+    steps = 0
+    passive = set()
+    for (recorded_id, event) in self.journal:
+      if event == EVENT_TIM:
+        pass
+      elif event == EVENT_ADD:      
+        passive.add(recorded_id)
+      elif event == EVENT_REM:
+        passive.remove(recorded_id)
+      else:
+        assert event == EVENT_SEL
 
+        if len(passive) < 2: # there was no chosing, can't correct the action
+          continue
 
+        queue_idx = time % HP.NUM_EFFECTIVE_QUEUES
+        time += 1
 
+        passive_list = sorted(passive)
 
+        # print(passive_list)
 
+        indices = torch.tensor([id2idx[id] for id in passive_list])
 
+        # print(indices)
 
+        sub_logits = logits[queue_idx][indices]
 
+        # print(sub_logits)
 
-# OLD STUFF BELOW HERE
+        if recorded_id in self.proof_flas: # this was a good move, let's reward it
+          good_idx = passive_list.index(recorded_id)
 
-# basically, a functionality similar to "scan_results_..." except it's home-grown here
-def scan_result_folder(foldername):
-  results = {} # probname -> (result, time, mega_instr, activations)
+          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
+          cross_entropy = -lsm[good_idx]
 
-  root, dirs, files = next(os.walk(foldername)) # just take the log files immediately under solver_folder
-  for filename in files:    
-    longname = os.path.join(root, filename)
+          loss += factor*cross_entropy
 
-    if filename == "meta.info":
-      continue
+          steps += 1
+          factor *= HP.DISCOUNT_FACTOR
+        else:
+          # TODO: penalty for wrong selections
+          pass
 
-    assert filename.endswith(".p.log")
-    assert filename.startswith("Problems_")
+        passive.remove(recorded_id)
 
-    probname = filename[13:-6]
+    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
 
-    with open(longname, "r") as f:
-      status = None
-      time = None
-      instructions = 0
-      activations = 0
+class EnigmaLearningModel(torch.nn.Module):
+  def __init__(self,
+      clause_embedder : torch.nn.Module,
+      clause_keys: torch.nn.Module,
+      clauses,journal,proof_flas):
+    super().__init__()
 
-      for line in f:
-        # vampiric part:
-        if (line.startswith("% SZS status Timeout for") or line.startswith("% SZS status GaveUp") or
-            line.startswith("% Time limit reached!") or line.startswith("% Refutation not found, incomplete strategy") or
-            "% Instruction limit reached!" in line or 
-            line.startswith("% Refutation not found, non-redundant clauses discarded") or
-            line.startswith("Unsupported amount of allocated memory:") or 
-            line.startswith("Memory limit exceeded!")):          
-          status = "---"
+    # does not make sense otherwise, since we don't track time
+    assert HP.NUM_EFFECTIVE_QUEUES == 1
+
+    # print(clause_embedder,clause_key)
+    # print(clauses,journal,proof_flas)
+
+    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
+    self.clause_keys = clause_keys         # the keys (one for each "queue") for multiplying an embedding to get a clause logits 
+    self.clauses = clauses                 # id -> (feature_vec)
+    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.proof_flas = proof_flas           # set of the good ids
+
+  def forward(self):
+    if HP.ENIGMA_JUST_SELECTED:
+      selected = {id for (id, event) in self.journal if event == EVENT_SEL}
+      filter = lambda x : x in selected
+    else:
+      filter = lambda x : True
+
+    # let's a get a big matrix of feature_vec's, one for each clause (id)
+    pos = 0
+    neg = 0
+    clause_list = []
+    label_list = []
+    good_idxs = []
     
-        if line.startswith("% SZS status Unsatisfiable") or line.startswith("% SZS status Theorem") or line.startswith("% SZS status ContradictoryAxioms"):
-          status = "uns"
+    i = 0
+    for (id,features) in sorted(self.clauses.items()):
+      if filter(id):
+        clause_list.append(torch.tensor(features))
+        if id in self.proof_flas:
+          pos += 1
+          label_list.append(1.0)
+          good_idxs.append(i)
+        else:
+          neg += 1
+          label_list.append(0.0)
+        i += 1
 
-        if line.startswith("% SZS status Satisfiable") or line.startswith("% SZS status CounterSatisfiable"):
-          status = "sat"
-    
-        if line.startswith("Parsing Error on line"):
-          status = "err"
+    feature_vecs = torch.stack(clause_list)
+    targets = torch.tensor(label_list)
 
-        if line.startswith("% Time elapsed:"):
-          time = float(line.split()[-2])
-                              
-        if line.startswith("% Instructions burned:"):
-          # "% Instructions burned: 361 (million)"
-          instructions = int(line.split()[-2])
-    
-        if line.startswith("% Activations started:"):
-          activations = int(line.split()[-1])
-  
-      assert probname not in results
-      results[probname] = (status,time,instructions,activations)
+    # in bulk for all the clauses
+    embeddings = self.clause_embedder(feature_vecs)
+    # get the final logits
+    logits = torch.matmul(self.clause_keys.weight,torch.t(embeddings))[0] # the [0] stands for the selection of the effective queue, of which there is always only one, the 0-th
 
-      # print(probname,status,time,instructions,activations)
+    if HP.ENIGMA_BINARY_CLASSIF:
+      if pos*neg > 0:
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([neg/pos]),reduction='sum')
+        loss = criterion(logits,targets)
+        loss /= 2*neg # each pos (there is pos many of those) counts as neg/pos and each neg (there is neg many) counts as one, that's 2*neg total
+      else:
+        criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
+        loss = criterion(logits,targets)
+    else:
+      lsm = torch.nn.functional.log_softmax(logits,dim=0)
+      loss = -sum(lsm[good_idxs])/pos
 
-      if status is None:
-        print("Weird",longname)
-
-  return results
-
-def load_one(filename):
-  clauses = {} # id -> (feature_vec)
-  journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-  proof_flas = set()
-
-  num_sels = 0
-
-  with open(filename,"r") as f:
-    for line in f:      
-      if line.startswith("i: "):
-        spl = line.split()
-        id = int(spl[1])
-        features = process_features(list(map(float,spl[2:])))
-        assert len(features) == num_features()
-        # print(id,features)
-        assert id not in clauses
-        clauses[id] = features
-      elif line.startswith("a: "):
-        spl = line.split()
-        id = int(spl[1])
-        journal.append((id,EVENT_ADD))
-      elif line.startswith("s: "):
-        spl = line.split()
-        id = int(spl[1])
-        journal.append((id,EVENT_SEL))
-        num_sels += 1
-      elif line.startswith("r: "):
-        spl = line.split()
-        id = int(spl[1])
-        journal.append((id,EVENT_REM))
-      elif line[0] in "123456789":
-        spl = line.split(".")
-        id = int(spl[0])
-        proof_flas.add(id)
-    
-  # print(clauses,journal,proof_flas)
-  if len(clauses) == 0 or num_sels == 0:
-    return None
-  else:
-    return (filename,clauses,journal,proof_flas)
-
+    return loss
