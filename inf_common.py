@@ -511,6 +511,10 @@ class LearningModel(torch.nn.Module):
 
           loss += factor*(num_bad/(num_good+num_bad))*cross_entropy
 
+          if HP.ENTROPY_COEF > 0.0:
+            minus_entropy = torch.dot(torch.exp(lsm),lsm)
+            loss += HP.ENTROPY_COEF*minus_entropy
+
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
         else:
@@ -607,6 +611,10 @@ class RecurrentLearningModel(torch.nn.Module):
 
           loss += factor*(num_bad/(num_good+num_bad))*cross_entropy
 
+          if HP.ENTROPY_COEF > 0.0:
+            minus_entropy = torch.dot(torch.exp(lsm),lsm)
+            loss += HP.ENTROPY_COEF*minus_entropy
+
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
         else:
@@ -698,6 +706,11 @@ class PrincipledLearningModel(torch.nn.Module):
           cross_entropy = -lsm[good_idx]
 
           loss += factor*cross_entropy
+
+          # TODO: we could entropy-penalize at every step, but then step+=1 should go out of the if too
+          if HP.ENTROPY_COEF > 0.0:
+            minus_entropy = torch.dot(torch.exp(lsm),lsm)
+            loss += HP.ENTROPY_COEF*minus_entropy
 
           steps += 1
           factor *= HP.DISCOUNT_FACTOR
