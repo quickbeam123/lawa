@@ -12,10 +12,8 @@ from multiprocessing import Pool
 if __name__ == "__main__":
   # Print the module paramaters in cpp-ish format
   #
-  # To be called as in: ./model-printer.py expers/exper30/loop17/parts-model.pt 
+  # To be called as in: ./model_printer.py expers/exper50/loop13/parts-model.pt 
   
-  # this version hardwires the structure from before the NUM_EFFECTIVE_QUEUES param
-
   in_name = sys.argv[1]
   model = torch.load(in_name)
   
@@ -43,7 +41,8 @@ if __name__ == "__main__":
   print("  followed by",embedder[1])
 
   print("Key")
-  t = key.weight
+  # t = key.weight
+  t = key.weight[0]
   print("  kweight = {",end="")
   last = len(t)-1
   for i in range(last+1):
