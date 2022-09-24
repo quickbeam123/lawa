@@ -207,13 +207,15 @@ if __name__ == "__main__":
           last_mission = mission
           print(" ",mission)
           solved_accum = set()
-          accum_last = 0
 
         num_evals += 1 
 
         successes = []
+        succ_delta = []
         for prob,(status,instructions,activations) in results.items():
           if status == "uns":
+            if prob not in solved_accum:
+              succ_delta.append(prob)
             solved_accum.add(prob)
             successes.append(prob)
             num_successes[prob] += 1
@@ -221,15 +223,15 @@ if __name__ == "__main__":
             num_fails += 1
             sum_failss_activations += activations
 
-        accum_delta = len(solved_accum) - accum_last
-        accum_last = len(solved_accum)
-
-        print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temperature,len(successes)/len(results),len(successes),len(results),accum_delta,len(solved_accum)))
+        print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temperature,len(successes)/len(results),len(successes),len(results),len(succ_delta),len(solved_accum)))
 
         # get the fine-grained results to compare against baseline
 
         if mission == "train":
-          jobs_for_training.append((successes,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
+          if HP.FIRST_PROOF_ONLY:
+            jobs_for_training.append((succ_delta,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
+          else:
+            jobs_for_training.append((successes,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
 
         if len(successes) >= best_solveds[mission]:
           best_solveds[mission] = len(successes)

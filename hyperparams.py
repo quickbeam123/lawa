@@ -8,9 +8,12 @@ INSTRUCTION_LIMIT = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.00","0.25","0.50","1.00","2.00","4.00"]
+TEMPERATURES = ["0.000","0.125","0.250","0.500","1.000"]
 
 CUMMULATIVE = False
+
+# only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
+FIRST_PROOF_ONLY = True
 
 DIFFICULTY_BOOST_COEF = 0.0
 DIFFICULTY_BOOST_CAP = 3.0
@@ -55,7 +58,7 @@ LEARNER_PRINCIPLED : Final[int] = 2
 # for comparison, learn like in ENIGMA-style: each problem gives a monolithic bulk to be learned from in one shot! (may include all the passive ever seen, or only pos/neg from those selected)
 LEARNER_ENIGMA : Final[int] = 3
 
-LEARNER = LEARNER_ENIGMA
+LEARNER = LEARNER_ORIGINAL
 
 # allows for learning more than one clause embedding (works with LEARNER_ORIGINAL and LEARNER_PRINCIPLED)
 NUM_EFFECTIVE_QUEUES : Final[int] = 1
@@ -66,9 +69,8 @@ USE_MIN_FOR_LOSS_REDUCE = False
 # only for LEARNER_RECURRENT; how many layers do we allow in the LSTM
 LSMT_LAYERS : Final[int] = 1
 
-
 # only for LEARNER_ENIGMA; whether to consider all the ever seen passive clauses or just the selected as examples
-ENIGMA_JUST_SELECTED = True
+ENIGMA_JUST_SELECTED = False
 # only for LEARNER_ENIGMA; whether to treat the example as binary classification task, or multi-class with the positive sharing uniformly the 1.0 prob
 ENIGMA_BINARY_CLASSIF = False
 
