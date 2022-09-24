@@ -103,19 +103,25 @@ if __name__ == "__main__":
     load_dir = sys.argv[5]
     model = torch.load(os.path.join(load_dir,"parts-model.pt"))
     training_data = torch.load(os.path.join(load_dir,"train_data.pt"))
+    optimizer = torch.load(os.path.join(load_dir,"optimizer.pt"))
+
+    # update the learning rate according to hyperparams
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = HP.LEARNING_RATE
+    print("Set optimizer's (nominal) learning rate to",HP.LEARNING_RATE)
+
+    # TODO: would we want to set a different momentum too?
+
     need_next_eval = False
   else:
     model = IC.get_initial_model()
     training_data = defaultdict(list) # group the results by problem
+    if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
+      optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+    elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
+      optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+
     need_next_eval = True
-
-  # TODO: for restarting from the middle, the optimizer state should be saved too
-  # and we should be loading "training_data.pt", as they are the list thing getting saved
-
-  if HP.OPTIMIZER ==  HP.OPTIMIZER_SGD:
-    optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
-  elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-    optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   evaluator = IC.Evaluator(parallelism)  
   def cleanup():
@@ -158,6 +164,8 @@ if __name__ == "__main__":
       # let's save the model we got from last time (either initial or the last training)
       parts_model_file_path = os.path.join(cur_dir,"parts-model.pt")
       torch.save(model, parts_model_file_path)
+      optimizer_file_path = os.path.join(cur_dir,"optimizer.pt")
+      torch.save(optimizer, optimizer_file_path)
 
       keys = model[1]
       if HP.LEARNER == HP.LEARNER_RECURRENT:
