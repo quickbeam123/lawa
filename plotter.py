@@ -35,7 +35,7 @@ if __name__ == "__main__":
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
       for file in files:
-        if file in ["train_data.pt","parts-model.pt","script-model.pt"]:
+        if file in ["train_data.pt","parts-model.pt","script-model.pt","optimizer.pt"]:
           continue
         
         # print("    ",file)
