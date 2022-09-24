@@ -647,10 +647,39 @@ class PrincipledLearningModel(torch.nn.Module):
     self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
     self.clause_keys = clause_keys         # the keys (one for each "queue") for multiplying an embedding to get a clause logits 
     self.clauses = clauses                 # id -> (feature_vec)
-    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas           # set of the good ids
 
+    # let's preprocess the journal, so that it's easier to assign the time penalties
+    last_tim = 0 # by our convention (and it kind of makes sense)
+    tim_sum = 0
+    good_steps = 0
+    new_journal = []
+    for (value, event) in reversed(journal):
+      if event == EVENT_TIM:
+        last_tim = value
+        tim_sum += value
+        # dropping the event for new_journal
+      elif event == EVENT_SEL:
+        recorded_id = value
+        new_journal.append(((recorded_id,last_tim),event))
+        if recorded_id in proof_flas:
+          good_steps += 1
+        # sel takes the last_tim (when read backwards), so, actually, how much time was spent on immediate processing of this clause
+      else:
+        new_journal.append((value,event))
+
+    new_journal.reverse()
+    self.journal = new_journal  # (value,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM and value is recorded_id for EVENT_ADD and EVENT_REM and it's (recorded_id,last_tim) for EVENT_SEL
+    self.tim_sum = tim_sum # for penalty normalization
+    self.good_steps = good_steps
+
   def forward(self):
+    tim_sum = self.tim_sum
+    if tim_sum == 0:
+      # to avoid division by zero (if sum is zero, the penalties are all zero too anyway)
+      tim_sum = 1
+    good_steps = self.good_steps
+
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
     id2idx = {}
@@ -675,15 +704,17 @@ class PrincipledLearningModel(torch.nn.Module):
     time = 0
     steps = 0
     passive = set()
-    for (recorded_id, event) in self.journal:
-      if event == EVENT_TIM:
-        pass
-      elif event == EVENT_ADD:      
-        passive.add(recorded_id)
+    for (value, event) in self.journal:
+      if event == EVENT_ADD:
+        # print("EVENT_ADD",recorded_id)
+        passive.add(value)
       elif event == EVENT_REM:
-        passive.remove(recorded_id)
+        # print("EVENT_REM",recorded_id)
+        passive.remove(value)
       else:
+        # print("EVENT_SEL",recorded_id)
         assert event == EVENT_SEL
+        (recorded_id,last_tim) = value
 
         if len(passive) < 2: # there was no chosing, can't correct the action
           continue
@@ -703,30 +734,27 @@ class PrincipledLearningModel(torch.nn.Module):
 
         # print(sub_logits)
 
-        if recorded_id in self.proof_flas: # this was a good move, let's reward it
-          good_idx = passive_list.index(recorded_id)
+        cur_idx = passive_list.index(recorded_id)
+        lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
+        cross_entropy = -lsm[cur_idx]
 
-          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
-          cross_entropy = -lsm[good_idx]
+        reward = factor*((1/good_steps if recorded_id in self.proof_flas else 0.0) - HP.TIME_PENALTY_MIXING*last_tim/tim_sum)
+        factor *= HP.DISCOUNT_FACTOR # TODO: this is not actually what a DISCOUNT_FACTOR should be doing; consider fixing (and keep 1.0 until then)
 
-          loss += factor*cross_entropy
+        loss += reward*cross_entropy
 
-          # TODO: we could entropy-penalize at every step, but then step+=1 should go out of the if too
-          if HP.ENTROPY_COEF > 0.0:
-            minus_entropy = torch.dot(torch.exp(lsm),lsm)
-            if HP.ENTROPY_NORMALIZED:
-              minus_entropy /= torch.log(len(lsm))
-            loss += HP.ENTROPY_COEF*minus_entropy
+        steps += 1 # just to know about pathological derivations where nothing got selected and we still proved it (can these actually happen?)
 
-          steps += 1
-          factor *= HP.DISCOUNT_FACTOR
-        else:
-          # TODO: penalty for wrong selections
-          pass
+        # TODO: we are now entropy penelizing at every state - that's probably going to dominate everything - rething this!
+        if HP.ENTROPY_COEF > 0.0:
+          minus_entropy = torch.dot(torch.exp(lsm),lsm)
+          if HP.ENTROPY_NORMALIZED:
+            minus_entropy /= torch.log(len(lsm))
+          loss += HP.ENTROPY_COEF*minus_entropy
 
         passive.remove(recorded_id)
 
-    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
+    return loss if steps > 0 else None
 
 class EnigmaLearningModel(torch.nn.Module):
   def __init__(self,

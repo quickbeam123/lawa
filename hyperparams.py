@@ -8,12 +8,12 @@ INSTRUCTION_LIMIT = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.000","0.125","0.250","0.500","1.000"]
+TEMPERATURES = ["0.000","0.125","0.250","0.500","1.000","2.000"]
 
 CUMMULATIVE = False
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
-FIRST_PROOF_ONLY = True
+FIRST_PROOF_ONLY = False
 
 DIFFICULTY_BOOST_COEF = 0.0
 DIFFICULTY_BOOST_CAP = 3.0
@@ -58,7 +58,7 @@ LEARNER_PRINCIPLED : Final[int] = 2
 # for comparison, learn like in ENIGMA-style: each problem gives a monolithic bulk to be learned from in one shot! (may include all the passive ever seen, or only pos/neg from those selected)
 LEARNER_ENIGMA : Final[int] = 3
 
-LEARNER = LEARNER_ORIGINAL
+LEARNER = LEARNER_PRINCIPLED
 
 # allows for learning more than one clause embedding (works with LEARNER_ORIGINAL and LEARNER_PRINCIPLED)
 NUM_EFFECTIVE_QUEUES : Final[int] = 1
@@ -78,13 +78,16 @@ ENTROPY_COEF = 0.0
 # next time I play with the entropy regularization, let me try the normalized one
 ENTROPY_NORMALIZED = True
 
+# a ceoff of how much of a penalty we want to distribute (per successfule run we learn from) in comparison to the reward 1.0 (split across the good selections) we give per problem
+TIME_PENALTY_MIXING = 1.0
+
 # Optimizer - before, there used to be ADAM only
 OPTIMIZER_SGD = 0
 OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.0001
+LEARNING_RATE : Final[float] = 0.0002
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
