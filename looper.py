@@ -186,7 +186,7 @@ if __name__ == "__main__":
       for mission in MISSIONS:
         for temperature in HP.TEMPERATURES:
           result_file_name = "{}_t{}.pt".format(mission,temperature)
-          opts1 = "-i {} -p off".format(HP.INSTRUCTION_LIMIT)
+          opts1 = "-i {} -p off".format(HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST)
           opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
           metas.append((result_file_name,mission,temperature,opts1,opts2))
           jobs_for_eval.append((prob_lists[mission],opts1+opts2,False))
