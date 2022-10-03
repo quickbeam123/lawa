@@ -163,10 +163,7 @@ if __name__ == "__main__":
       optimizer_file_path = os.path.join(cur_dir,"optimizer.pt")
       torch.save(optimizer, optimizer_file_path)
 
-      keys = model[1]
-      
-      for i in range(HP.NUM_EFFECTIVE_QUEUES):
-        print("Key {} {}".format(i,repr(keys(torch.tensor([i]))[0])))
+      print("Key {}".format(repr(model[1])))
         
       # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
       script_model_file_path = os.path.join(cur_dir,"script-model.pt")    

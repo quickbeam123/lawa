@@ -54,12 +54,6 @@ LEARNER_PRINCIPLED : Final[int] = 2
 
 LEARNER = LEARNER_ORIGINAL
 
-# allows for learning more than one clause embedding (works with LEARNER_ORIGINAL and LEARNER_PRINCIPLED)
-NUM_EFFECTIVE_QUEUES : Final[int] = 1
-
-# with more than one positive action, how is the NLL loss distributed between them? False means average, True means minimum (only makes sense with LEARNER_ORIGINAL and LEARNER_RECURRENT)
-USE_MIN_FOR_LOSS_REDUCE = False
-
 ENTROPY_COEF = 0.0
 # next time I play with the entropy regularization, let me try the normalized one
 ENTROPY_NORMALIZED = True
