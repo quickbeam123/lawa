@@ -103,12 +103,12 @@ if __name__ == "__main__":
     load_dir = sys.argv[5]
     model = torch.load(os.path.join(load_dir,"parts-model.pt"))
     training_data = torch.load(os.path.join(load_dir,"train_data.pt"))
-    optimizer = torch.load(os.path.join(load_dir,"optimizer.pt"))
-
-    # update the learning rate according to hyperparams
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = HP.LEARNING_RATE
-    print("Set optimizer's (nominal) learning rate to",HP.LEARNING_RATE)
+    # TODO: this is broken anyway: https://pytorch.org/tutorials/beginner/saving_loading_models.html
+    # optimizer = torch.load(os.path.join(load_dir,"optimizer.pt"))
+    if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
+      optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+    elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
+      optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
     # TODO: would we want to set a different momentum too?
 
