@@ -52,8 +52,6 @@ CLAUSE_INTERAL_SIZE : Final[int] = 8
 
 # The first version used at AITP: faithul passive at each step, learns from all positive actions 
 LEARNER_ORIGINAL : Final[int] = 0
-# The same as original, but additionally keeps track of evolving state using LSTM which gives a fresh key every step (needs its own special PassiveClauseContainer for export)
-LEARNER_RECURRENT : Final[int] = 1
 # faithul passive at each step, but only learns from the action taken (may include penalty for expensive steps)
 LEARNER_PRINCIPLED : Final[int] = 2
 # for comparison, learn like in ENIGMA-style: each problem gives a monolithic bulk to be learned from in one shot! (may include all the passive ever seen, or only pos/neg from those selected)
@@ -66,9 +64,6 @@ NUM_EFFECTIVE_QUEUES : Final[int] = 1
 
 # with more than one positive action, how is the NLL loss distributed between them? False means average, True means minimum (only makes sense with LEARNER_ORIGINAL and LEARNER_RECURRENT)
 USE_MIN_FOR_LOSS_REDUCE = False
-
-# only for LEARNER_RECURRENT; how many layers do we allow in the LSTM
-LSMT_LAYERS : Final[int] = 1
 
 # only for LEARNER_ENIGMA; whether to consider all the ever seen passive clauses or just the selected as examples
 ENIGMA_JUST_SELECTED = False

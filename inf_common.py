@@ -218,19 +218,8 @@ def get_initial_model():
 
   parts = [clause_embedder]
 
-  if HP.LEARNER == HP.LEARNER_RECURRENT:
-    assert HP.CLAUSE_EMBEDDER_LAYERS > 0
-
-    initial_key = Embed(HP.CLAUSE_INTERAL_SIZE)
-    initial_state = Embed(HP.CLAUSE_INTERAL_SIZE)
-    rnn = torch.nn.LSTM(HP.CLAUSE_INTERAL_SIZE, HP.CLAUSE_INTERAL_SIZE, HP.LSMT_LAYERS)
-
-    parts.append(initial_key)
-    parts.append(initial_state)
-    parts.append(rnn)
-  else:
-    clause_keys = torch.nn.Embedding(HP.NUM_EFFECTIVE_QUEUES,HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features())
-    parts.append(clause_keys)
+  clause_keys = torch.nn.Embedding(HP.NUM_EFFECTIVE_QUEUES,HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features())
+  parts.append(clause_keys)
 
   return torch.nn.ModuleList(parts)
 
@@ -326,100 +315,8 @@ def export_model(model,name):
 
       del self.clauses[id]
       return id
-
-  class NeuralRecurrentPassiveClauseContainer(torch.nn.Module):
-    clause_embeddings : Dict[int, Tensor]
-    clauses : Dict[int, int] # using it as a set
-
-    def __init__(self,clause_embedder : torch.nn.Module,
-                      initial_key : torch.nn.Module,
-                      initial_state : torch.nn.Module,
-                      rnn : torch.nn.Module):
-      super().__init__()
-
-      self.clause_embedder = clause_embedder
-      # transpose these two vectors (for better processing by rnn)
-      self.current_key = torch.unsqueeze(initial_key.weight,dim=0)
-      self.current_state = torch.unsqueeze(initial_state.weight,dim=0)
-      self.rnn = rnn
-
-      self.clause_embeddings = {}
-      self.clauses = {}
-    
-    @torch.jit.export
-    def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
-      # print("NN: Got",id,"with features",features)
-
-      tFeatures : Tensor = torch.tensor(process_features(features))
-      tEmbed = self.clause_embedder(tFeatures)
-      self.clause_embeddings[id] = tEmbed
-      
-      #print("NN: Embedded:",tEmbed)
-
-    @torch.jit.export
-    def add(self,id: int):
-      self.clauses[id] = 0 # whatever value
-
-      # print("NN: Adding",id)
-    
-    @torch.jit.export
-    def remove(self,id: int):
-      del self.clauses[id]
-
-      # print("NN: Removing",id)
-    
-    @torch.jit.export
-    def popSelected(self, temp : float) -> int:
-      key = self.current_key
-
-      if temp == 0.0: # the greedy selection (argmax)
-        max : Optional[float] = None
-        candidates : List[int] = []
-        for id in sorted(self.clauses.keys()):
-          val = torch.matmul(key,self.clause_embeddings[id]).item()
-          if max is None or val > max:
-            candidates = [id]
-            max = val
-          elif val == max:
-            candidates.append(id)
-
-        # print("NN: Cadidates",candidates)
-        id = candidates[torch.randint(0, len(candidates), (1,)).item()]
-        
-        # print("NN: picked",id)
-
-      else: # softmax selection (taking temp into account)
-        ids : List[int] = []
-        vals : List[float] = []
-        for id in sorted(self.clauses.keys()):
-          val = torch.matmul(key,self.clause_embeddings[id]).item()
-          ids.append(id)
-          vals.append(val)
-
-        # print("NN: Ids",ids)
-
-        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp,dim=0)
-
-        # print("NN: Distrib",distrib)
-
-        idx = torch.multinomial(distrib,1).item()
-        id = ids[idx]
-
-        # print("NN: picked",id)
-
-      # update the rnn
-      input = torch.unsqueeze(self.clause_embeddings[id],dim=0)
-
-      # output can be ignored, it's going to be a singleton with the new key
-      _,(self.current_key,self.current_state) = self.rnn(input,(self.current_key,self.current_state))
-
-      del self.clauses[id]
-      return id
-
-  if HP.LEARNER == HP.LEARNER_RECURRENT:
-    module = NeuralRecurrentPassiveClauseContainer(*model)
-  else:
-    module = NeuralPassiveClauseContainer(*model)
+  
+  module = NeuralPassiveClauseContainer(*model)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -527,113 +424,6 @@ class LearningModel(torch.nn.Module):
 
     return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
     
-class RecurrentLearningModel(torch.nn.Module):
-  def __init__(self,
-      clause_embedder : torch.nn.Module,
-      initial_key : torch.nn.Module,
-      initial_state : torch.nn.Module,
-      rnn : torch.nn.Module,
-      clauses,journal,proof_flas):
-    super().__init__()
-
-    # print(clause_embedder,clause_key)
-    # print(clauses,journal,proof_flas)
-
-    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
-    self.initial_key = initial_key         # the key for multiplying the clauses at first selection call (and feeding the rnn as the initial hidden value h0)
-    self.initial_state = initial_state     # the initial content value for the lsmt (c0)
-    self.rnn = rnn                         # our lstm
-    self.clauses = clauses                 # id -> (feature_vec)
-    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-    self.proof_flas = proof_flas           # set of the good ids
-
-  def forward(self):
-    # let's a get a big matrix of feature_vec's, one for each clause (id)
-    clause_list = []
-    id2idx = {}
-    for i,(id,features) in enumerate(sorted(self.clauses.items())):
-      id2idx[id] = i
-      clause_list.append(torch.tensor(features))
-    feature_vecs = torch.stack(clause_list)
-
-    # in bulk for all the clauses
-    embeddings = self.clause_embedder(feature_vecs)
-
-    current_key = torch.unsqueeze(self.initial_key.weight,dim=0)
-    current_state = torch.unsqueeze(self.initial_state.weight,dim=0)
-
-    loss = torch.zeros(1)
-    factor = 1.0
-
-    # print("proof_flas",self.proof_flas)
-
-    steps = 0
-    passive = set()
-    for (recorded_id, event) in self.journal:
-      if event == EVENT_TIM:
-        pass
-      elif event == EVENT_ADD:
-        passive.add(recorded_id)
-      elif event == EVENT_REM:
-        passive.remove(recorded_id)
-      else:
-        assert event == EVENT_SEL
-        # we ignore what the selection was by the agent
-        # and instead assert the (multi-choice) ground truth
-
-        passive_list = sorted(passive)
-
-        # print(passive_list)
-
-        indices = torch.tensor([id2idx[id] for id in passive_list])
-        sub_embeddings = torch.index_select(embeddings,0,indices)
-        sub_logits = torch.matmul(sub_embeddings,torch.squeeze((current_key),dim=0))
-
-        # print(sub_logits)
-
-        num_good = len(passive & self.proof_flas)
-        num_bad =  len(passive) - num_good
-
-        # it's a bit weird, but num_good can be zero (avatar closed proof with a different unsat core?)
-        # in any case, while num_good == 0 means division by zero below,
-        # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
-        if num_good and num_bad:
-          good_idxs = []
-          for i,id in enumerate(passive_list):
-            if id in self.proof_flas:
-              good_idxs.append(i)
-
-          # print(good_idxs)
-
-          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
-          if HP.USE_MIN_FOR_LOSS_REDUCE:
-            cross_entropy = -min(lsm[good_idxs])
-          else:
-            cross_entropy = -sum(lsm[good_idxs])/num_good
-
-          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy
-
-          if HP.ENTROPY_COEF > 0.0:
-            minus_entropy = torch.dot(torch.exp(lsm),lsm)
-            if HP.ENTROPY_NORMALIZED:
-              minus_entropy /= torch.log(len(lsm))
-            loss += HP.ENTROPY_COEF*minus_entropy
-
-          steps += 1
-          factor *= HP.DISCOUNT_FACTOR
-        else:
-          # print("num_good and num_bad skip")
-          pass          
-
-        # update the rnn
-        input = torch.unsqueeze(embeddings[id2idx[recorded_id]],dim=0)
-        # output can be ignored, it's going to be a singleton with the new key
-        _,(current_key,current_state) = self.rnn(input,(current_key,current_state))
-
-        passive.remove(recorded_id)
-
-    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
-
 class PrincipledLearningModel(torch.nn.Module):
   def __init__(self,
       clause_embedder : torch.nn.Module,

@@ -168,11 +168,9 @@ if __name__ == "__main__":
       torch.save(optimizer, optimizer_file_path)
 
       keys = model[1]
-      if HP.LEARNER == HP.LEARNER_RECURRENT:
-        print("Initial key:",repr(keys))
-      else:
-        for i in range(HP.NUM_EFFECTIVE_QUEUES):
-          print("Key {} {}".format(i,repr(keys(torch.tensor([i]))[0])))
+      
+      for i in range(HP.NUM_EFFECTIVE_QUEUES):
+        print("Key {} {}".format(i,repr(keys(torch.tensor([i]))[0])))
         
       # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
       script_model_file_path = os.path.join(cur_dir,"script-model.pt")    
@@ -308,8 +306,6 @@ if __name__ == "__main__":
         optimizer.zero_grad()
         if HP.LEARNER == HP.LEARNER_ORIGINAL:
           lm = IC.LearningModel(*model,clauses,journal,proof_flas)
-        elif HP.LEARNER == HP.LEARNER_RECURRENT:
-          lm = IC.RecurrentLearningModel(*model,clauses,journal,proof_flas)
         elif HP.LEARNER == HP.LEARNER_PRINCIPLED:
           lm = IC.PrincipledLearningModel(*model,clauses,journal,proof_flas)
         else:          
