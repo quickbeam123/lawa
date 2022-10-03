@@ -16,9 +16,6 @@ CUMMULATIVE = False
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
 FIRST_PROOF_ONLY = False
 
-DIFFICULTY_BOOST_COEF = 0.0
-DIFFICULTY_BOOST_CAP = 3.0
-
 # Features
 
 # the features come (unnormalized) as:

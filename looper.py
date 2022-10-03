@@ -147,10 +147,6 @@ if __name__ == "__main__":
   # load the reference runs from campaign
   baselines = look_for_baselines(campaign_dir)
   
-  # TODO: this also starts from scratch when training gets interrupted
-  num_evals = 0
-  num_successes = defaultdict(int) # for each problem, how many times we saw it solved
-
   loop = 0
   assert loop_count > 0
   while True:
@@ -206,8 +202,6 @@ if __name__ == "__main__":
           print(" ",mission)
           solved_accum = set()
 
-        num_evals += 1 
-
         successes = []
         succ_delta = []
         for prob,(status,instructions,activations) in results.items():
@@ -216,7 +210,6 @@ if __name__ == "__main__":
               succ_delta.append(prob)
             solved_accum.add(prob)
             successes.append(prob)
-            num_successes[prob] += 1
           elif status is None:
             num_fails += 1
             sum_failss_activations += activations
@@ -290,13 +283,6 @@ if __name__ == "__main__":
       print(">",end="")
 
       inner_factor = factor
-
-      # possibly scale up for problems that are not getting solved always
-      if HP.DIFFICULTY_BOOST_COEF > 0.0:
-        difficulty = num_evals/num_successes[prob]
-        inner_factor *= min(HP.DIFFICULTY_BOOST_CAP,math.pow(difficulty,HP.DIFFICULTY_BOOST_COEF))
-      else:
-        inner_factor = 1.0
       
       # and further scale down by the number of iterations on this problem
       inner_factor *= 1.0 / len(its_proofs)
