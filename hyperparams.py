@@ -54,8 +54,6 @@ CLAUSE_INTERAL_SIZE : Final[int] = 8
 LEARNER_ORIGINAL : Final[int] = 0
 # faithul passive at each step, but only learns from the action taken (may include penalty for expensive steps)
 LEARNER_PRINCIPLED : Final[int] = 2
-# for comparison, learn like in ENIGMA-style: each problem gives a monolithic bulk to be learned from in one shot! (may include all the passive ever seen, or only pos/neg from those selected)
-LEARNER_ENIGMA : Final[int] = 3
 
 LEARNER = LEARNER_ORIGINAL
 
@@ -64,11 +62,6 @@ NUM_EFFECTIVE_QUEUES : Final[int] = 1
 
 # with more than one positive action, how is the NLL loss distributed between them? False means average, True means minimum (only makes sense with LEARNER_ORIGINAL and LEARNER_RECURRENT)
 USE_MIN_FOR_LOSS_REDUCE = False
-
-# only for LEARNER_ENIGMA; whether to consider all the ever seen passive clauses or just the selected as examples
-ENIGMA_JUST_SELECTED = False
-# only for LEARNER_ENIGMA; whether to treat the example as binary classification task, or multi-class with the positive sharing uniformly the 1.0 prob
-ENIGMA_BINARY_CLASSIF = False
 
 ENTROPY_COEF = 0.0
 # next time I play with the entropy regularization, let me try the normalized one

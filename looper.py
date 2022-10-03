@@ -306,11 +306,10 @@ if __name__ == "__main__":
         optimizer.zero_grad()
         if HP.LEARNER == HP.LEARNER_ORIGINAL:
           lm = IC.LearningModel(*model,clauses,journal,proof_flas)
-        elif HP.LEARNER == HP.LEARNER_PRINCIPLED:
-          lm = IC.PrincipledLearningModel(*model,clauses,journal,proof_flas)
-        else:          
-          lm = IC.EnigmaLearningModel(*model,clauses,journal,proof_flas)          
-            
+        else:
+          assert HP.LEARNER == HP.LEARNER_PRINCIPLED
+          lm = IC.PrincipledLearningModel(*model,clauses,journal,proof_flas)     
+
         lm.train()
         loss = lm.forward()
         if loss is None:
