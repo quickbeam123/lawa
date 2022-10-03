@@ -392,7 +392,7 @@ class LearningModel(torch.nn.Module):
           lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
           cross_entropy = -sum(lsm[good_idxs])/num_good
 
-          loss += factor*(num_bad/(num_good+num_bad))*cross_entropy
+          loss += factor*cross_entropy
 
           if HP.ENTROPY_COEF > 0.0:
             minus_entropy = torch.dot(torch.exp(lsm),lsm)
