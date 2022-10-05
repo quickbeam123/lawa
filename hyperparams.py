@@ -3,13 +3,13 @@
 from typing import Final, List
 
 # Data gathering
-INSTRUCTION_LIMIT = 500
-INSTRUCTION_LIMIT_TEST = 500
+INSTRUCTION_LIMIT = 5000
+INSTRUCTION_LIMIT_TEST = 5000
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.000","0.500","1.000"]
+TEMPERATURES = ["0.000","0.125","0.250","0.500","1.000"]
 
 CUMMULATIVE = False
 
@@ -62,7 +62,7 @@ ENTROPY_NORMALIZED = True
 
 # whether we normalize (True) loss such that each problem contributes the same (and each proof for a problem)
 # or (with False) each experienced time moment contributes the same
-PER_PROBLEM_NORMALIZED = False
+PER_PROBLEM_NORMALIZED = True
 
 # Optimizer - before, there used to be ADAM only
 OPTIMIZER_SGD = 0

@@ -7,6 +7,8 @@ import torch
 
 import os, sys, shutil, pickle, random, atexit, time, math
 
+from operator import add
+
 import subprocess
 from collections import defaultdict
 
@@ -15,7 +17,7 @@ MISSIONS = ["train","test"]
 def look_for_baselines(some_dir):
   baselines = defaultdict(dict) # "train"/"test" -> { reference_run_file_name -> results }
 
-  root, dirs, files = next(os.walk(some_dir)) # just take the files immediately under some_dir
+  _root, _dirs, files = next(os.walk(some_dir)) # just take the files immediately under some_dir
   for filename in files:
     if not filename.endswith(".pkl"):
       continue
@@ -33,7 +35,7 @@ def look_for_baselines(some_dir):
 
 def compare_to_baselines(results,baseline):
   total = len(results)
-  for refname, (refmeta,refres) in sorted(baseline.items()):
+  for refname, (_refmeta,refres) in sorted(baseline.items()):
     print("    Compared to",refname)
     neur_only = 0.0
     neur_better = 0.0
@@ -43,7 +45,7 @@ def compare_to_baselines(results,baseline):
     base_dunno = 0.0
     base_better = 0.0
     base_only = 0.0
-    for prob,(status,instructions,activations) in results.items():
+    for prob,(status,_instrs,activations) in results.items():
       # Problems/SWB/SWB093+1.p
       short_prob_name = prob[13:-2]
       fact = 1.0/len(refres[short_prob_name])
@@ -279,7 +281,7 @@ if __name__ == "__main__":
 
     loss = torch.zeros(1)
     if not HP.PER_PROBLEM_NORMALIZED:
-      loss_norm_tots = ((torch.zeros(1),0.0),(torch.zeros(1),0.0),(torch.zeros(1),0.0))
+      loss_norm_tots = ((torch.zeros(1),0),(torch.zeros(1),0),(torch.zeros(1),0))
 
     factor = 1.0/len(training_data)
     for (prob,its_proofs) in training_data.items():
@@ -296,13 +298,11 @@ if __name__ == "__main__":
 
         if HP.PER_PROBLEM_NORMALIZED:
           for (l,n) in loss_norms:
-            if n:
+            if n > 0:
               loss += inner_factor*l/n
         else:
-          # TODO: vectorize?
-          ((l1,n1),(l2,n2),(l3,n3)) = loss_norms
-          ((tl1,tn1),(tl2,tn2),(tl3,tn3)) = loss_norm_tots
-          loss_norm_tots = ((tl1+l1,tn1+n1),(tl2+l2,tn2+n2),(tl3+l3,tn3+n3))
+          # loss_norm_tots += loss_norms (i.e., keep accumulating, vectore-wise)
+          loss_norm_tots = tuple(map(add,loss_norms,loss_norm_tots))
 
     if not HP.PER_PROBLEM_NORMALIZED:
       for (l,n) in loss_norm_tots:
