@@ -81,6 +81,9 @@ def compare_to_baselines(results,baseline):
     print("    {:10.4f}".format(sat_and_shit/total),"sat_and_shit",sat_and_shit)
     print()
 
+def formatI2T(str2format,instrs):
+  secs = max(1,instrs // 200) # it's 10 times more than the instrlimit on a 2GH machine
+  return str2format.format(secs,instrs)
 
 if __name__ == "__main__":
   # Automating the vamp_eval - model_train - model_export loop.
@@ -90,7 +93,7 @@ if __name__ == "__main__":
   # To be called as in: ./looper.py loop_count parallelism campaign_folder (must exist) exper_folder (will be created - ideally have this on local/scratch) [optionally, last completed loop dir]
   #
   # campaign_folder contains "train.txt", "test.txt" - the files listing the problems, and a bunch of train/test_something.pkl's with results of baseline (non-neural) runs for reporting
-  # 
+  #
   # ./looper.py 10 70 campaigns/small/ /local/sudamar2/lawa/exper1 [optionally, last completed loop dir]
 
   loop_count = int(sys.argv[1])
@@ -123,7 +126,7 @@ if __name__ == "__main__":
 
     need_next_eval = True
 
-  evaluator = IC.Evaluator(parallelism)  
+  evaluator = IC.Evaluator(parallelism)
   def cleanup():
     evaluator.close()
   atexit.register(cleanup)
@@ -143,10 +146,10 @@ if __name__ == "__main__":
     with open(prob_list_file,"r") as f:
       lines = f.readlines()
       prob_lists[mission] = [line.rstrip() for line in lines]
-  
+
   # load the reference runs from campaign
   baselines = look_for_baselines(campaign_dir)
-  
+
   loop = 0
   assert loop_count > 0
   while True:
@@ -164,9 +167,9 @@ if __name__ == "__main__":
       torch.save(optimizer, optimizer_file_path)
 
       print("Key {}".format(repr(model[1])))
-        
+
       # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
-      script_model_file_path = os.path.join(cur_dir,"script-model.pt")    
+      script_model_file_path = os.path.join(cur_dir,"script-model.pt")
       IC.export_model(torch.load(parts_model_file_path),script_model_file_path)
 
       start_time = time.time()
@@ -177,7 +180,7 @@ if __name__ == "__main__":
       for mission in MISSIONS:
         for temperature in HP.TEMPERATURES:
           result_file_name = "{}_t{}.pt".format(mission,temperature)
-          opts1 = "-i {} -p off".format(HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST)
+          opts1 = formatI2T("-t {} -i {} -p off",HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST)
           opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)
           metas.append((result_file_name,mission,temperature,opts1,opts2))
           jobs_for_eval.append((prob_lists[mission],opts1+opts2,False))
@@ -217,14 +220,14 @@ if __name__ == "__main__":
 
         if mission == "train":
           if HP.FIRST_PROOF_ONLY:
-            jobs_for_training.append((succ_delta,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
+            jobs_for_training.append((succ_delta,formatI2T("-t {} -i {} -spt on",10*HP.INSTRUCTION_LIMIT)+opts2,True))
           else:
-            jobs_for_training.append((successes,"-i {} -spt on".format(10*HP.INSTRUCTION_LIMIT)+opts2,True))
+            jobs_for_training.append((successes,formatI2T("-t {} -i {} -spt on",10*HP.INSTRUCTION_LIMIT)+opts2,True))
 
         if len(successes) >= best_solveds[mission]:
           best_solveds[mission] = len(successes)
           best_results[mission] = results
-      
+
       print()
       print("Seen the avarege of",sum_failss_activations/num_fails,"activations over failed runs.")
       print()
@@ -269,37 +272,45 @@ if __name__ == "__main__":
       break
 
     # the actual training
-    start_time = time.time()        
-    # SGD style (one step per problem)
-    factor = 1.0/len(training_data) # to scale down by the number of problems we trained on
+    start_time = time.time()
     print("  training",end="")
-    training_data_in_order = list(training_data.items())
-    random.shuffle(training_data_in_order)
-    for i,(prob,its_proofs) in enumerate(training_data_in_order):
+    # one bulk training step (mega-batch)
+    optimizer.zero_grad()
+
+    loss = torch.zeros(1)
+    if not HP.PER_PROBLEM_NORMALIZED:
+      loss_norm_tots = ((torch.zeros(1),0.0),(torch.zeros(1),0.0),(torch.zeros(1),0.0))
+
+    factor = 1.0/len(training_data)
+    for (prob,its_proofs) in training_data.items():
       # print(prob)
       print(">",end="")
 
-      inner_factor = factor
-      
-      # and further scale down by the number of iterations on this problem
-      inner_factor *= 1.0 / len(its_proofs)
-
-      for (clauses,journal,proof_flas) in its_proofs:
+      inner_factor = factor/len(its_proofs)
+      for proof_tuple in its_proofs:
         print(".",end="")
-        optimizer.zero_grad()
-        if HP.LEARNER == HP.LEARNER_ORIGINAL:
-          lm = IC.LearningModel(*model,clauses,journal,proof_flas)
-        else:
-          assert HP.LEARNER == HP.LEARNER_PRINCIPLED
-          lm = IC.PrincipledLearningModel(*model,clauses,journal,proof_flas)     
 
+        lm = IC.LearningModel(*model,*proof_tuple)
         lm.train()
-        loss = lm.forward()
-        if loss is None:
-          continue
-        loss *= inner_factor
-        loss.backward()
-        optimizer.step()
+        loss_norms = lm.forward()
+
+        if HP.PER_PROBLEM_NORMALIZED:
+          for (l,n) in loss_norms:
+            if n:
+              loss += inner_factor*l/n
+        else:
+          # TODO: vectorize?
+          ((l1,n1),(l2,n2),(l3,n3)) = loss_norms
+          ((tl1,tn1),(tl2,tn2),(tl3,tn3)) = loss_norm_tots
+          loss_norm_tots = ((tl1+l1,tn1+n1),(tl2+l2,tn2+n2),(tl3+l3,tn3+n3))
+
+    if not HP.PER_PROBLEM_NORMALIZED:
+      for (l,n) in loss_norm_tots:
+        if n:
+          loss += l/n
+
+    loss.backward()
+    optimizer.step()
     print()
     print("Training took",time.time()-start_time)
     print()

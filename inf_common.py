@@ -29,26 +29,35 @@ import sys, random, math
 
 import hyperparams as HP
 
+EVENT_ADD = 0
+EVENT_REM = 1
+EVENT_SEL = 2
+
 def process_one(task):
   (prob,opts,ltd,res_idx) = task
 
-  to_run = " ".join(["./run_lawa_vampire.sh",prob,opts])
+  to_run = " ".join(["./run_lawa_vampire.sh",opts,prob])
 
   # print(to_run)
 
   output = subprocess.getoutput(to_run)
 
   if ltd:
-    clauses = {} # id -> (feature_vec)
-    journal = [] # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    clauses = {}         # id -> (feature_vec)
+    journal = []         # [event,id,time], where event is one of EVENT_ADD EVENT_SEL EVENT_REM,
+                         # time only for EVENT_SEL
     proof_flas = set()
-    
-    act_cost_sum = 0
+
+    warmup_time = None  # how long it took till first selection
+    select_time = 0     # how long all the followup selections took together (strictly speaking, this is redundant)
+
+    # just temporaries, here during the parsing
     num_sels = 0
+    last_sel_idx = None
 
     for line in output.split("\n"):
       if "% Instruction limit reached!" in line:
-        assert not proof_flas      
+        assert not proof_flas
         break # better than "id appeared again for:" failing just below
       # print(line)
       if line.startswith("i: "):
@@ -62,21 +71,26 @@ def process_one(task):
       elif line.startswith("a: "):
         spl = line.split()
         id = int(spl[1])
-        journal.append((id,EVENT_ADD))
+        journal.append([EVENT_ADD,id])
       elif line.startswith("t: "):
         spl = line.split()
         prev_act_cost = int(spl[1])
-        journal.append((prev_act_cost,EVENT_TIM))
-        act_cost_sum += prev_act_cost
+        if last_sel_idx is None:
+          warmup_time = prev_act_cost
+        else:
+          assert len(journal[last_sel_idx]) == 2
+          journal[last_sel_idx].append(prev_act_cost)
+          select_time += prev_act_cost
       elif line.startswith("s: "):
         spl = line.split()
         id = int(spl[1])
-        journal.append((id,EVENT_SEL))
+        last_sel_idx = len(journal)
+        journal.append([EVENT_SEL,id])
         num_sels += 1
       elif line.startswith("r: "):
         spl = line.split()
         id = int(spl[1])
-        journal.append((id,EVENT_REM))
+        journal.append([EVENT_REM,id])
       elif line and line[0] in "123456789":
         spl = line.split(".")
         id = int(spl[0])
@@ -86,11 +100,16 @@ def process_one(task):
       print("Proof not found for",to_run)
 
     # print(prob,"had total act cost",act_cost_sum)
+    if last_sel_idx is not None:
+      assert len(journal[last_sel_idx]) == 2 # still waiting for its time
+      # so, let's formally satisfy it (pretending the last selection finished things off in 0 time):
+      journal[last_sel_idx].append(0)
 
+    # degenerate or broken
     if len(clauses) == 0 or num_sels == 0 or len(proof_flas) == 0:
       return (res_idx,prob,None)
     else:
-      return (res_idx,prob,(clauses,journal,proof_flas)) 
+      return (res_idx,prob,(clauses,journal,proof_flas,warmup_time,select_time))
   else:
     status = None
     instructions = 0
@@ -118,13 +137,13 @@ class Evaluator:
   def close(self):
     self.pool.close()
 
-  # gets a list of "jobs", each being a triple of 
+  # gets a list of "jobs", each being a triple of
   # (list_of_problems, vampire_options, load_traing_data : Bool)
   # returns a list of the same lenght of result dicts
   # either 1) as done by scan_and_store scripts - for load_traing_data False
   # or     2) like load_one - for load_traing_data True
   def perform(self,jobs,parallelly=True):
-    tasks = []    
+    tasks = []
     for i,(probs,opts,ltd) in enumerate(jobs):
       for prob in probs:
         tasks.append((prob,opts,ltd,i))
@@ -141,11 +160,6 @@ class Evaluator:
       results[res_idx][prob] = data
 
     return results
-
-EVENT_ADD = 0
-EVENT_TIM = 1
-EVENT_SEL = 2
-EVENT_REM = 3
 
 def num_features():
   if HP.FEATURE_SUBSET == HP.FEATURES_AW:
@@ -190,13 +204,13 @@ def process_features(full_features : List[float]) -> List[float]:
 
 class Embed(torch.nn.Module):
   weight: Tensor
-  
+
   def __init__(self, dim : int):
     super().__init__()
-    
+
     self.weight = torch.nn.parameter.Parameter(torch.Tensor(dim))
     self.reset_parameters()
-  
+
   def __repr__(self):
     return "Embed: "+str(self.weight.data)
 
@@ -227,7 +241,7 @@ def get_initial_model():
 def export_model(model,name):
 
   # eval mode and no gradient
-  for part in model:    
+  for part in model:
     part.eval()
     for param in part.parameters():
       param.requires_grad = False
@@ -244,7 +258,7 @@ def export_model(model,name):
 
       self.clause_vals = {}
       self.clauses = {}
-    
+
     @torch.jit.export
     def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
       # print("NN: Got",id,"with features",features)
@@ -264,13 +278,13 @@ def export_model(model,name):
       self.clauses[id] = 0 # whatever value
 
       # print("NN: Adding",id)
-    
+
     @torch.jit.export
     def remove(self,id: int):
       del self.clauses[id]
 
       # print("NN: Removing",id)
-    
+
     @torch.jit.export
     def popSelected(self, temp : float) -> int:
       if temp == 0.0: # the greedy selection (argmax)
@@ -286,7 +300,7 @@ def export_model(model,name):
 
         # print("NN: Cadidates",candidates)
         id = candidates[torch.randint(0, len(candidates), (1,)).item()]
-        
+
         # print("NN: picked",id)
 
       else: # softmax selection (taking temp into account)
@@ -310,7 +324,7 @@ def export_model(model,name):
 
       del self.clauses[id]
       return id
-  
+
   module = NeuralPassiveClauseContainer(*model)
   script = torch.jit.script(module)
   script.save(name)
@@ -319,7 +333,7 @@ class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_embedder : torch.nn.Module,
       clause_key: torch.nn.Module,
-      clauses,journal,proof_flas):
+      clauses,journal,proof_flas,warmup_time,select_time):
     super().__init__()
 
     # print(clause_embedder,clause_key)
@@ -330,6 +344,8 @@ class LearningModel(torch.nn.Module):
     self.clauses = clauses                 # id -> (feature_vec)
     self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas           # set of the good ids
+    self.warmup_time = warmup_time
+    self.select_time = select_time
 
   def forward(self):
     # let's a get a big matrix of feature_vec's, one for each clause (id)
@@ -343,187 +359,68 @@ class LearningModel(torch.nn.Module):
     # in bulk for all the clauses
     embeddings = self.clause_embedder(feature_vecs)
     logits = torch.matmul(self.clause_key.weight,torch.t(embeddings))
-    
     # print(logits)
 
-    loss = torch.zeros(1)
-    factor = 1.0
+    good_action_reward_loss = torch.zeros(1)
+    num_good_steps = 0
 
-    # print("proof_flas",self.proof_flas)
+    time_penalty_loss = torch.zeros(1)
+    time_penalty_volume = 0
 
-    steps = 0
+    entropy_loss = torch.zeros(1)
+    num_steps = 0
+
     passive = set()
-    for (recorded_id, event) in self.journal:
-      if event == EVENT_TIM:
-        pass
-      elif event == EVENT_ADD:
+    for event in self.journal:
+      event_tag = event[0]
+      recorded_id = event[1]
+      if event_tag == EVENT_ADD:
         passive.add(recorded_id)
-      elif event == EVENT_REM:
+      elif event_tag == EVENT_REM:
         passive.remove(recorded_id)
       else:
-        assert event == EVENT_SEL
-
-        passive_list = sorted(passive)
-
-        # print(passive_list)
-
-        indices = torch.tensor([id2idx[id] for id in passive_list])
-
-        # print(indices)
-
-        sub_logits = logits[indices]
-
-        # print(sub_logits)
-
-        num_good = len(passive & self.proof_flas)
-        num_bad =  len(passive) - num_good
-
-        # it's a bit weird, but num_good can be zero (avatar closed proof with a different unsat core?)
-        # in any case, while num_good == 0 means division by zero below,
-        # it does not even seem to make much sense to learn wiht num_bad == 0 either (both are expected to be rare anyways)
-        if num_good and num_bad:
-          good_idxs = []
-          for i,id in enumerate(passive_list):
-            if id in self.proof_flas:
-              good_idxs.append(i)
-
-          # print(good_idxs)
-
-          lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
-          cross_entropy = -sum(lsm[good_idxs])/num_good
-
-          loss += factor*cross_entropy
-
-          if HP.ENTROPY_COEF > 0.0:
-            minus_entropy = torch.dot(torch.exp(lsm),lsm)
-            if HP.ENTROPY_NORMALIZED:
-              minus_entropy /= torch.log(len(lsm))
-            loss += HP.ENTROPY_COEF*minus_entropy
-
-          steps += 1
-          factor *= HP.DISCOUNT_FACTOR
-        else:
-          # print("num_good and num_bad skip")
-          pass
-        
-        passive.remove(recorded_id)
-
-    return loss/steps if steps > 0 else None # normalized per problem (the else branch just returns the constant zero)
-    
-class PrincipledLearningModel(torch.nn.Module):
-  def __init__(self,
-      clause_embedder : torch.nn.Module,
-      clause_key: torch.nn.Module,
-      clauses,journal,proof_flas):
-    super().__init__()
-
-    # print(clause_embedder,clause_key)
-    # print(clauses,journal,proof_flas)
-
-    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
-    self.clause_key = clause_key           # the key for multiplying an embedding to get a clause logits 
-    self.clauses = clauses                 # id -> (feature_vec)
-    self.proof_flas = proof_flas           # set of the good ids
-
-    # let's preprocess the journal, so that it's easier to assign the time penalties
-    last_tim = 0 # by our convention (and it kind of makes sense)
-    tim_sum = 0
-    good_steps = 0
-    new_journal = []
-    for (value, event) in reversed(journal):
-      if event == EVENT_TIM:
-        last_tim = value
-        tim_sum += value
-        # dropping the event for new_journal
-      elif event == EVENT_SEL:
-        recorded_id = value
-        new_journal.append(((recorded_id,last_tim),event))
-        if recorded_id in proof_flas:
-          good_steps += 1
-        # sel takes the last_tim (when read backwards), so, actually, how much time was spent on immediate processing of this clause
-      else:
-        new_journal.append((value,event))
-
-    new_journal.reverse()
-    self.journal = new_journal  # (value,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM and value is recorded_id for EVENT_ADD and EVENT_REM and it's (recorded_id,last_tim) for EVENT_SEL
-    self.tim_sum = tim_sum # for penalty normalization
-    self.good_steps = good_steps
-
-  def forward(self):
-    tim_sum = self.tim_sum
-    if tim_sum == 0:
-      # to avoid division by zero (if sum is zero, the penalties are all zero too anyway)
-      tim_sum = 1
-    good_steps = self.good_steps
-
-    # let's a get a big matrix of feature_vec's, one for each clause (id)
-    clause_list = []
-    id2idx = {}
-    for i,(id,features) in enumerate(sorted(self.clauses.items())):
-      id2idx[id] = i
-      clause_list.append(torch.tensor(features))
-    feature_vecs = torch.stack(clause_list)
-
-    # in bulk for all the clauses
-    embeddings = self.clause_embedder(feature_vecs)
-    # since we are not doing LSTM (yet), the multiplication by key can happen emmediately as well
-    # (and is probably kind of redundant in the architecture)
-    logits = torch.matmul(self.clause_key.weight,torch.t(embeddings))
-
-    # print(logits)
-
-    loss = torch.zeros(1)
-    factor = 1.0
-
-    # print("proof_flas",self.proof_flas)
-
-    steps = 0
-    passive = set()
-    for (value, event) in self.journal:
-      if event == EVENT_ADD:
-        # print("EVENT_ADD",recorded_id)
-        passive.add(value)
-      elif event == EVENT_REM:
-        # print("EVENT_REM",recorded_id)
-        passive.remove(value)
-      else:
-        # print("EVENT_SEL",recorded_id)
-        assert event == EVENT_SEL
-        (recorded_id,last_tim) = value
+        assert event_tag == EVENT_SEL
+        event_time = event[2]
 
         if len(passive) < 2: # there was no chosing, can't correct the action
           continue
 
         passive_list = sorted(passive)
-
         # print(passive_list)
-
         indices = torch.tensor([id2idx[id] for id in passive_list])
-
         # print(indices)
-
         sub_logits = logits[indices]
-
         # print(sub_logits)
 
-        cur_idx = passive_list.index(recorded_id)
         lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
-        cross_entropy = -lsm[cur_idx]
 
-        reward = factor*((1/good_steps if recorded_id in self.proof_flas else 0.0) - HP.TIME_PENALTY_MIXING*last_tim/tim_sum)
-        factor *= HP.DISCOUNT_FACTOR # TODO: this is not actually what a DISCOUNT_FACTOR should be doing; consider fixing (and keep 1.0 until then)
+        if HP.LEARN_FROM_ALL_GOOD:
+          good_idxs = []
+          for i,id in enumerate(passive_list):
+            if id in self.proof_flas:
+              good_idxs.append(i)
+          # print(good_idxs)
+          if len(good_idxs):
+            good_action_reward_loss += -sum(lsm[good_idxs])/len(good_idxs)
+            num_good_steps += 1
+        else:
+          if recorded_id in self.proof_flas:
+            cur_idx = passive_list.index(recorded_id)
+            good_action_reward_loss += -lsm[cur_idx]
+            num_good_steps += 1
 
-        loss += reward*cross_entropy
+        if HP.TIME_PENALTY_MIXING > 0.0:
+          cur_idx = passive_list.index(recorded_id)
+          time_penalty_loss += HP.TIME_PENALTY_MIXING*event_time*lsm[cur_idx]
+          time_penalty_volume += event_time
 
-        steps += 1 # just to know about pathological derivations where nothing got selected and we still proved it (can these actually happen?)
-
-        # TODO: we are now entropy penelizing at every state - that's probably going to dominate everything - rething this!
         if HP.ENTROPY_COEF > 0.0:
           minus_entropy = torch.dot(torch.exp(lsm),lsm)
           if HP.ENTROPY_NORMALIZED:
             minus_entropy /= torch.log(len(lsm))
-          loss += HP.ENTROPY_COEF*minus_entropy
+          entropy_loss += HP.ENTROPY_COEF*minus_entropy
+          num_steps += 1
 
         passive.remove(recorded_id)
 
-    return loss if steps > 0 else None
+    return ((good_action_reward_loss,num_good_steps),(time_penalty_loss,time_penalty_volume),(entropy_loss,num_steps))
