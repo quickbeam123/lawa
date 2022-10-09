@@ -84,7 +84,7 @@ def compare_to_baselines(results,baseline):
     print()
 
 def formatI2T(str2format,instrs):
-  secs = max(1,instrs // 200) # it's 10 times more than the instrlimit on a 2GH machine
+  secs = max(5,instrs // 200) # it's 10 times more than the instrlimit on a 2GH machine
   return str2format.format(secs,instrs)
 
 if __name__ == "__main__":
@@ -208,6 +208,7 @@ if __name__ == "__main__":
         succ_delta = []
         for prob,(status,instructions,activations) in results.items():
           if status == "uns":
+            # print(f"UNS m: {mission} t: {temperature}; i: {instructions} a: {activations} toRun: {opts1+opts2} {prob}")
             if prob not in solved_accum:
               succ_delta.append(prob)
             solved_accum.add(prob)
@@ -302,7 +303,9 @@ if __name__ == "__main__":
               loss += inner_factor*l/n
         else:
           # loss_norm_tots += loss_norms (i.e., keep accumulating, vectore-wise)
-          loss_norm_tots = tuple(map(add,loss_norms,loss_norm_tots))
+          ((l1,n1),(l2,n2),(l3,n3)) = loss_norms
+          ((tl1,tn1),(tl2,tn2),(tl3,tn3)) = loss_norm_tots
+          loss_norm_tots = ((tl1+l1,tn1+n1),(tl2+l2,tn2+n2),(tl3+l3,tn3+n3))
 
     if not HP.PER_PROBLEM_NORMALIZED:
       for (l,n) in loss_norm_tots:
