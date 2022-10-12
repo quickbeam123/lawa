@@ -60,17 +60,13 @@ ENTROPY_COEF = 0.0
 # next time I play with the entropy regularization, let me try the normalized one
 ENTROPY_NORMALIZED = True
 
-# whether we normalize (True) loss such that each problem contributes the same (and each proof for a problem)
-# or (with False) each experienced time moment contributes the same
-PER_PROBLEM_NORMALIZED = True
-
 # Optimizer - before, there used to be ADAM only
 OPTIMIZER_SGD = 0
 OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.01
+LEARNING_RATE : Final[float] = 0.0001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

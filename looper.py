@@ -277,15 +277,11 @@ if __name__ == "__main__":
     # the actual training
     start_time = time.time()
     print("  training",end="")
-    # one bulk training step (mega-batch)
-    optimizer.zero_grad()
-
-    loss = torch.zeros(1)
-    if not HP.PER_PROBLEM_NORMALIZED:
-      loss_norm_tots = ((torch.zeros(1),0),(torch.zeros(1),0),(torch.zeros(1),0))
 
     factor = 1.0/len(training_data)
-    for (prob,its_proofs) in training_data.items():
+    training_data_in_order = list(training_data.items())
+    random.shuffle(training_data_in_order)
+    for (prob,its_proofs) in training_data_in_order: # training_data.items()
       # print(prob)
       print(">",end="")
 
@@ -293,27 +289,25 @@ if __name__ == "__main__":
       for proof_tuple in its_proofs:
         print(".",end="")
 
+        optimizer.zero_grad()
+        loss = torch.zeros(1)
+
         lm = IC.LearningModel(*model,*proof_tuple)
         lm.train()
         loss_norms = lm.forward()
 
-        if HP.PER_PROBLEM_NORMALIZED:
-          for (l,n) in loss_norms:
-            if n > 0:
-              loss += inner_factor*l/n
-        else:
-          # loss_norm_tots += loss_norms (i.e., keep accumulating, vectore-wise)
-          ((l1,n1),(l2,n2),(l3,n3)) = loss_norms
-          ((tl1,tn1),(tl2,tn2),(tl3,tn3)) = loss_norm_tots
-          loss_norm_tots = ((tl1+l1,tn1+n1),(tl2+l2,tn2+n2),(tl3+l3,tn3+n3))
+        something = False
+        for (l,n) in loss_norms:
+          if n > 0:
+            something = True
+            loss += inner_factor*l/n
 
-    if not HP.PER_PROBLEM_NORMALIZED:
-      for (l,n) in loss_norm_tots:
-        if n:
-          loss += l/n
+        if not something:
+          continue
 
-    loss.backward()
-    optimizer.step()
+        loss.backward()
+        optimizer.step()
+
     print()
     print("Training took",time.time()-start_time)
     print()
