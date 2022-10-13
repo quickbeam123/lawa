@@ -237,8 +237,10 @@ def get_initial_model():
 
   return torch.nn.ModuleList(parts)
 
-# this is destructive on the model modules (best load from checkpoint file first)
-def export_model(model,name):
+def export_model(parts_model_state_file_path,name):
+  # we start from a fresh model and just load its state from a saved dict
+  model = get_initial_model()
+  model.load_state_dict(torch.load(parts_model_state_file_path))
 
   # eval mode and no gradient
   for part in model:

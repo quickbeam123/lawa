@@ -84,7 +84,7 @@ def compare_to_baselines(results,baseline):
     print()
 
 def formatI2T(str2format,instrs):
-  secs = max(5,instrs // 200) # it's 10 times more than the instrlimit on a 2GH machine
+  secs = max(5,instrs // 200) # it's 10 times more than the instrlimit on a 2GHz machine
   return str2format.format(secs,instrs)
 
 if __name__ == "__main__":
@@ -104,29 +104,44 @@ if __name__ == "__main__":
   campaign_dir = sys.argv[3]
   exper_dir =  sys.argv[4]
 
+  # initialize model, optimizer and the training_data container
+  model = IC.get_initial_model()
+  training_data = defaultdict(list) # group the results by problem
+  if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
+    optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+  elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
+    optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+  need_next_eval = True
+
+  # the use gave us an extra argument with a previously stored check-point
   if len(sys.argv) > 5:
     load_dir = sys.argv[5]
-    model = torch.load(os.path.join(load_dir,"parts-model.pt"))
-    training_data = torch.load(os.path.join(load_dir,"train_data.pt"))
-    # TODO: this is broken anyway: https://pytorch.org/tutorials/beginner/saving_loading_models.html
-    # optimizer = torch.load(os.path.join(load_dir,"optimizer.pt"))
+
+    train_data_filename = os.path.join(load_dir,"train_data.pt")
+    if os.path.exists(train_data_filename):
+      training_data = torch.load(train_data_filename)
+      need_next_eval = False
+    else:
+      # we will simply start with the eval first
+      assert need_next_eval
+
+    model.load_state_dict(torch.load(os.path.join(load_dir,"parts-model-state.tar")))
+    optimizer.load_state_dict(torch.load(os.path.join(load_dir,"optimizer-state.tar")))
+    # allow for adapting the params from current HP
+    # (TODO: in principle a larger class of things can be adaptively change after resumig the training process)
     if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
-      optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+      for param_group in optimizer.param_groups:
+        param_group['lr'] = HP.LEARNING_RATE
+        param_group['momentum'] = HP.MOMENTUM
     elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-      optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+      for param_group in optimizer.param_groups:
+        param_group['lr'] = HP.LEARNING_RATE
+        param_group['weight_decay'] = HP.WEIGHT_DECAY
 
-    # TODO: would we want to set a different momentum too?
-
-    need_next_eval = False
-  else:
-    model = IC.get_initial_model()
-    training_data = defaultdict(list) # group the results by problem
-    if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
-      optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
-    elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-      optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
-
-    need_next_eval = True
+  print("Model's state_dict:")
+  print(model.state_dict())
+  print("Optimizers's state_dict:")
+  print(optimizer.state_dict())
 
   evaluator = IC.Evaluator(parallelism)
   def cleanup():
@@ -163,16 +178,16 @@ if __name__ == "__main__":
 
     if need_next_eval:
       # let's save the model we got from last time (either initial or the last training)
-      parts_model_file_path = os.path.join(cur_dir,"parts-model.pt")
-      torch.save(model, parts_model_file_path)
-      optimizer_file_path = os.path.join(cur_dir,"optimizer.pt")
-      torch.save(optimizer, optimizer_file_path)
+      parts_model_state_file_path = os.path.join(cur_dir,"parts-model-state.tar")
+      torch.save(model.state_dict(), parts_model_state_file_path)
+      optimizer_file_path = os.path.join(cur_dir,"optimizer-state.tar")
+      torch.save(optimizer.state_dict(), optimizer_file_path)
 
       print("Key {}".format(repr(model[1])))
 
       # let's also export it for scripting (note we load a fresh copy of model -- export_model is possibly destructive)
       script_model_file_path = os.path.join(cur_dir,"script-model.pt")
-      IC.export_model(torch.load(parts_model_file_path),script_model_file_path)
+      IC.export_model(parts_model_state_file_path,script_model_file_path)
 
       start_time = time.time()
 
