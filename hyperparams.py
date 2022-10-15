@@ -25,20 +25,18 @@ FIRST_PROOF_ONLY = False
 # the B-versions below only make sense for NUM_LAYERS == 0 where we only do the dot product with key
 # there a bias channel adds one more constant-one feature to every clause
 
+# just the generalized length (TODO: consider not using the twoVar eq ones)
+FEATURES_LEN : Final[int] = 0
 # just age and weight
-FEATURES_AW : Final[int] = 0
-# features 0 - 3
-FEATURES_PLAIN : Final[int] = 1
-# features 0 - 5
-FEATURES_RICH : Final[int] = 2
-# just the whole thing that comes from vampire
-FEATURES_ALL : Final[int] = 3
-# back to just age and weight - but add square, sqrt and log of each
-FEATURES_AW_PLUS : Final[int] = 4
-# back to just age and weight - but add square, sqrt and log of each (and their cross multiples)
-FEATURES_AW_PLUS_TIMES : Final[int] = 5
+FEATURES_AW : Final[int] = 1
+# the above two together
+FEATURES_PLAIN : Final[int] = 2
+# add AVATAR
+FEATURES_RICH : Final[int] = 3
+# add also sine levels
+FEATURES_ALL : Final[int] = 4
 
-FEATURE_SUBSET : Final[int] = FEATURES_RICH
+FEATURE_SUBSET : Final[int] = FEATURES_ALL
 
 # todo: think of normalization / regularization ...
 

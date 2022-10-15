@@ -162,42 +162,46 @@ class Evaluator:
     return results
 
 def num_features():
-  if HP.FEATURE_SUBSET == HP.FEATURES_AW:
+  if HP.FEATURE_SUBSET == HP.FEATURES_LEN:
+    return 6
+  elif HP.FEATURE_SUBSET == HP.FEATURES_AW:
     return 2
   elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
-    return 4
-  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
-    return 6
-  elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
-    return 10
-  elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
     return 8
-  elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS_TIMES:
-    return 17
+  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
+    return 9
+  elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
+    return 12
+  else:
+    return 0
 
 def process_features(full_features : List[float]) -> List[float]:
   f = full_features
-  if HP.FEATURE_SUBSET == HP.FEATURES_AW:
-    return [f[0],f[2]]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
-    return f[0:4]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
+  if HP.FEATURE_SUBSET == HP.FEATURES_LEN:
     return f[0:6]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_AW:
+    return [f[6],f[7]]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
+    return f[0:8]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
+    return f[0:9]
   elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
     return f
-  elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
-    return [f[0],f[0]*f[0],math.sqrt(f[0]),math.log(1.0+f[0]),f[2],f[2]*f[2],math.sqrt(f[2]),math.log(1.0+f[2])]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS_TIMES:
-    a = f[0]
-    w = f[2]
-    a2 = a*a
-    w2 = w*w
-    a_sqrt = math.sqrt(a)
-    w_sqrt = math.sqrt(w)
-    a_log = math.log(1.0+a)
-    w_log = math.log(1.0+w)
+    '''
+    elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
+      return [f[0],f[0]*f[0],math.sqrt(f[0]),math.log(1.0+f[0]),f[2],f[2]*f[2],math.sqrt(f[2]),math.log(1.0+f[2])]
+    elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS_TIMES:
+      a = f[0]
+      w = f[2]
+      a2 = a*a
+      w2 = w*w
+      a_sqrt = math.sqrt(a)
+      w_sqrt = math.sqrt(w)
+      a_log = math.log(1.0+a)
+      w_log = math.log(1.0+w)
 
-    return [a,a2,a_sqrt,a_log,w,w2,w_sqrt,w_log,a*w,a*w_sqrt,a*w_log,a_sqrt*w,a_sqrt*w_sqrt,a_sqrt*w_log,a_log*w,a_log*w_sqrt,a_log*w_log]
+      return [a,a2,a_sqrt,a_log,w,w2,w_sqrt,w_log,a*w,a*w_sqrt,a*w_log,a_sqrt*w,a_sqrt*w_sqrt,a_sqrt*w_log,a_log*w,a_log*w_sqrt,a_log*w_log]
+    '''
   else:
     assert False
     return []
@@ -262,7 +266,7 @@ def export_model(parts_model_state_file_path,name):
       self.clauses = {}
 
     @torch.jit.export
-    def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float]):
+    def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float, float, float]):
       # print("NN: Got",id,"with features",features)
 
       tFeatures : Tensor = torch.tensor(process_features(features))
@@ -358,10 +362,12 @@ class LearningModel(torch.nn.Module):
       clause_list.append(torch.tensor(features))
     feature_vecs = torch.stack(clause_list)
 
+    # print("forward-feature_vecs",feature_vecs)
+
     # in bulk for all the clauses
     embeddings = self.clause_embedder(feature_vecs)
     logits = torch.matmul(self.clause_key.weight,torch.t(embeddings))
-    # print(logits)
+    # print("forward-logits",logits)
 
     good_action_reward_loss = torch.zeros(1)
     num_good_steps = 0
@@ -388,11 +394,11 @@ class LearningModel(torch.nn.Module):
           continue
 
         passive_list = sorted(passive)
-        # print(passive_list)
+        # print("forward-passive_list",passive_list)
         indices = torch.tensor([id2idx[id] for id in passive_list])
-        # print(indices)
+        # print("forward-indices",indices)
         sub_logits = logits[indices]
-        # print(sub_logits)
+        # print("forward-sub_logits",sub_logits)
 
         lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
 

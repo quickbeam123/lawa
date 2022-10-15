@@ -138,10 +138,10 @@ if __name__ == "__main__":
         param_group['lr'] = HP.LEARNING_RATE
         param_group['weight_decay'] = HP.WEIGHT_DECAY
 
-  print("Model's state_dict:")
-  print(model.state_dict())
-  print("Optimizers's state_dict:")
-  print(optimizer.state_dict())
+  # print("Model's state_dict:")
+  # print(model.state_dict())
+  # print("Optimizers's state_dict:")
+  # print(optimizer.state_dict())
 
   evaluator = IC.Evaluator(parallelism)
   def cleanup():
@@ -302,7 +302,7 @@ if __name__ == "__main__":
 
       inner_factor = factor/len(its_proofs)
       for proof_tuple in its_proofs:
-        print(".",end="")
+        # print(".",end="")
 
         optimizer.zero_grad()
         loss = torch.zeros(1)
