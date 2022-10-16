@@ -36,9 +36,10 @@ FEATURES_RICH : Final[int] = 3
 # add also sine levels
 FEATURES_ALL : Final[int] = 4
 # just length instead of generalized one (that which used to be called FEATURES_RICH before; for regressions)
+# this still not the same, since sine levels are done differently and there is the extra channel for "sine=255"
 FEATURES_ORIGRICH : Final[int] = 5
 
-FEATURE_SUBSET : Final[int] = FEATURES_ALL
+FEATURE_SUBSET : Final[int] = FEATURES_ORIGRICH
 
 # todo: think of normalization / regularization ...
 

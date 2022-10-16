@@ -172,6 +172,8 @@ def num_features():
     return 9
   elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
     return 12
+  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGRICH:
+    return 7
   else:
     return 0
 
@@ -187,6 +189,8 @@ def process_features(full_features : List[float]) -> List[float]:
     return f[0:9]
   elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
     return f
+  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGRICH:
+    return [f[0]+f[1]+f[2]+f[3]]+f[6:]
     '''
     elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
       return [f[0],f[0]*f[0],math.sqrt(f[0]),math.log(1.0+f[0]),f[2],f[2]*f[2],math.sqrt(f[2]),math.log(1.0+f[2])]
