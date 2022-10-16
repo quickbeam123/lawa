@@ -35,6 +35,8 @@ FEATURES_PLAIN : Final[int] = 2
 FEATURES_RICH : Final[int] = 3
 # add also sine levels
 FEATURES_ALL : Final[int] = 4
+# just length instead of generalized one (that which used to be called FEATURES_RICH before; for regressions)
+FEATURES_ORIGRICH : Final[int] = 5
 
 FEATURE_SUBSET : Final[int] = FEATURES_ALL
 

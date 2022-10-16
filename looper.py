@@ -302,7 +302,7 @@ if __name__ == "__main__":
 
       inner_factor = factor/len(its_proofs)
       for proof_tuple in its_proofs:
-        # print(".",end="")
+        print(".",end="")
 
         optimizer.zero_grad()
         loss = torch.zeros(1)
