@@ -3,13 +3,13 @@
 from typing import Final, List
 
 # Data gathering
-INSTRUCTION_LIMIT = 5000
-INSTRUCTION_LIMIT_TEST = 5000
+INSTRUCTION_LIMIT = 50000
+INSTRUCTION_LIMIT_TEST = 50000
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.000","0.125","0.250","0.500","1.000"]
+TEMPERATURES = ["0.0","0.0","0.0"]
 
 CUMMULATIVE = False
 
@@ -38,13 +38,15 @@ FEATURES_ALL : Final[int] = 4
 # just length instead of generalized one (that which used to be called FEATURES_RICH before; for regressions)
 # this still not the same, since sine levels are done differently and there is the extra channel for "sine=255"
 FEATURES_ORIGRICH : Final[int] = 5
+# like ORIGRICH, but leave out all the sine level stuff
+FEATURES_ORIGPLAIN : Final[int] = 6
 
-FEATURE_SUBSET : Final[int] = FEATURES_ORIGRICH
+FEATURE_SUBSET : Final[int] = FEATURES_ALL
 
 # todo: think of normalization / regularization ...
 
 # Architecture
-CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the end (which needs to be of size num_features())
+CLAUSE_EMBEDDER_LAYERS : Final[int] = 2  # 0 means - just multiply by key at the end (which needs to be of size num_features())
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 

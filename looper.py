@@ -191,11 +191,11 @@ if __name__ == "__main__":
 
       start_time = time.time()
 
-      seed = random.randint(1,0x7fffff)
       jobs_for_eval = []
       metas = []
       for mission in MISSIONS:
         for temperature in HP.TEMPERATURES:
+          seed = random.randint(1,0x7fffff)
           result_file_name = "{}_t{}.pt".format(mission,temperature)
           opts1 = formatI2T("-t {} -i {} -p off",HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST)
           opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temperature)

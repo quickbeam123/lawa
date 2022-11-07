@@ -174,6 +174,8 @@ def num_features():
     return 12
   elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGRICH:
     return 7
+  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGPLAIN:
+    return 4
   else:
     return 0
 
@@ -191,6 +193,8 @@ def process_features(full_features : List[float]) -> List[float]:
     return f
   elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGRICH:
     return [f[0]+f[1]+f[2]+f[3]]+f[6:]
+  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGPLAIN:
+    return [f[0]+f[1]+f[2]+f[3]]+f[6:9]
     '''
     elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
       return [f[0],f[0]*f[0],math.sqrt(f[0]),math.log(1.0+f[0]),f[2],f[2]*f[2],math.sqrt(f[2]),math.log(1.0+f[2])]
@@ -257,83 +261,20 @@ def export_model(parts_model_state_file_path,name):
       param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
-    clause_vals : Dict[int, Tensor]
-    clauses : Dict[int, int] # using it as a set
-
     def __init__(self,clause_embedder : torch.nn.Module,clause_key : torch.nn.Module):
       super().__init__()
 
       self.clause_embedder = clause_embedder
       self.clause_key = clause_key
 
-      self.clause_vals = {}
-      self.clauses = {}
-
     @torch.jit.export
-    def regClause(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float, float, float]):
+    def forward(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float, float, float]):
       # print("NN: Got",id,"with features",features)
 
       tFeatures : Tensor = torch.tensor(process_features(features))
-
-      # print("NN: tFeatures",tFeatures)
-
       tInternal : Tensor = self.clause_embedder(tFeatures)
       val = torch.dot(self.clause_key.weight,tInternal)
-      self.clause_vals[id] = val
-
-      #print("NN: Val:",val)
-
-    @torch.jit.export
-    def add(self,id: int):
-      self.clauses[id] = 0 # whatever value
-
-      # print("NN: Adding",id)
-
-    @torch.jit.export
-    def remove(self,id: int):
-      del self.clauses[id]
-
-      # print("NN: Removing",id)
-
-    @torch.jit.export
-    def popSelected(self, temp : float) -> int:
-      if temp == 0.0: # the greedy selection (argmax)
-        max : Optional[float] = None
-        candidates : List[int] = []
-        for id in sorted(self.clauses.keys()):
-          val = self.clause_vals[id].item()
-          if max is None or val > max:
-            candidates = [id]
-            max = val
-          elif val == max:
-            candidates.append(id)
-
-        # print("NN: Cadidates",candidates)
-        id = candidates[torch.randint(0, len(candidates), (1,)).item()]
-
-        # print("NN: picked",id)
-
-      else: # softmax selection (taking temp into account)
-        ids : List[int] = []
-        vals : List[float] = []
-        for id in sorted(self.clauses.keys()):
-          val = self.clause_vals[id].item()
-          ids.append(id)
-          vals.append(val)
-
-        # print("NN: Ids",ids)
-
-        distrib = torch.nn.functional.softmax(torch.tensor(vals)/temp,dim=0)
-
-        # print("NN: Distrib",distrib)
-
-        idx = torch.multinomial(distrib,1).item()
-        id = ids[idx]
-
-        # print("NN: picked",id)
-
-      del self.clauses[id]
-      return id
+      return val.item()
 
   module = NeuralPassiveClauseContainer(*model)
   script = torch.jit.script(module)
