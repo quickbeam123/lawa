@@ -2,15 +2,18 @@
 
 from typing import Final, List
 
+SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
+
 # Data gathering
-INSTRUCTION_LIMIT = 50000
-INSTRUCTION_LIMIT_TEST = 50000
+INSTRUCTION_LIMIT = 5000
+INSTRUCTION_LIMIT_TEST = 5000
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.0","0.2","1.0"]
+TEMPERATURES = ["0.0","0.1","1.0"]
 
+# TODO: no longer reflected in clooper
 CUMMULATIVE = False
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
@@ -58,7 +61,7 @@ LEARN_FROM_ALL_GOOD = True
 # a coeff of how much of a penalty we want to distribute (per successfule run we learn from) in comparison to the reward 1.0 (split across the good selections) we give per problem
 TIME_PENALTY_MIXING = 0.0
 
-# a coeff of how much the entropy legurazation term should influence the overall loss
+# a coeff of how much the entropy regularization term should influence the overall loss
 ENTROPY_COEF = 0.0
 # next time I play with the entropy regularization, let me try the normalized one
 ENTROPY_NORMALIZED = True
@@ -69,7 +72,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.0001
+LEARNING_RATE : Final[float] = 0.000005
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

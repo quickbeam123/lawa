@@ -14,25 +14,6 @@ from collections import defaultdict
 
 MISSIONS = ["train","test"]
 
-def look_for_baselines(some_dir):
-  baselines = defaultdict(dict) # "train"/"test" -> { reference_run_file_name -> results }
-
-  _root, _dirs, files = next(os.walk(some_dir)) # just take the files immediately under some_dir
-  for filename in files:
-    if not filename.endswith(".pkl"):
-      continue
-
-    for mission in MISSIONS:
-      if filename.startswith(mission):
-        break
-    else:
-      continue
-
-    with open(os.path.join(some_dir,filename),'rb') as f:
-      baselines[mission][filename] = pickle.load(f)
-
-  return baselines
-
 def compare_to_baselines(results,baseline):
   total = len(results)
   for refname, (_refmeta,refres) in sorted(baseline.items()):

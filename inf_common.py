@@ -4,17 +4,8 @@
 
 import os
 
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
 import torch
 from torch import Tensor
-
-torch.set_num_threads(1)
-torch.set_num_interop_threads(1)
 
 # print(torch.__config__.parallel_info())
 
@@ -33,16 +24,36 @@ EVENT_ADD = 0
 EVENT_REM = 1
 EVENT_SEL = 2
 
-def process_one(task):
-  (prob,opts,ltd,res_idx) = task
-
+def vampire_eval(prob,opts):
   to_run = " ".join(["./run_lawa_vampire.sh",opts,prob])
-
   # print(to_run)
-
   output = subprocess.getoutput(to_run)
 
-  if ltd:
+  status = None
+  instructions = 0
+  activations = 0
+
+  for line in output.split("\n"):
+    # print("  ",line)
+    if line.startswith("%"):
+      if line.startswith("% Activations started:"):
+        activations = int(line.split()[-1])
+      if line.startswith("% Instructions burned:"):
+        instructions = int(line.split()[-2])
+      if line.startswith("% SZS status"):
+        if "Satisfiable" in line or "CounterSatisfiable" in line:
+          status = "sat"
+        elif "Theorem" in line or "Unsatisfiable" in line or "ContradictoryAxioms" in line:
+          status = "uns"
+
+  return (status,instructions,activations)
+
+def vampire_gather(prob,opts):
+  to_run = " ".join(["./run_lawa_vampire.sh",opts,prob])
+  # print(to_run)
+  for _ in range(5): # sometimes, there are weird failures, but a restart could help!
+    output = subprocess.getoutput(to_run)
+
     clauses = {}         # id -> (feature_vec)
     journal = []         # [event,id,time], where event is one of EVENT_ADD EVENT_SEL EVENT_REM,
                          # time only for EVENT_SEL
@@ -91,13 +102,19 @@ def process_one(task):
         spl = line.split()
         id = int(spl[1])
         journal.append([EVENT_REM,id])
+      elif "Aborted by signal" in line:
+        # print("Error line:",line)
+        proof_flas = set() # so that we continue the outer loop below
+        break
       elif line and line[0] in "123456789":
         spl = line.split(".")
         id = int(spl[0])
         proof_flas.add(id)
 
     if len(proof_flas) == 0:
-      print("Proof not found for",to_run)
+      # print("Proof not found for",to_run)
+      # print("Will retry!")
+      continue
 
     # print(prob,"had total act cost",act_cost_sum)
     if last_sel_idx is not None:
@@ -105,61 +122,13 @@ def process_one(task):
       # so, let's formally satisfy it (pretending the last selection finished things off in 0 time):
       journal[last_sel_idx].append(0)
 
-    # degenerate or broken
-    if len(clauses) == 0 or num_sels == 0 or len(proof_flas) == 0:
-      return (res_idx,prob,None)
-    else:
-      return (res_idx,prob,(clauses,journal,proof_flas,warmup_time,select_time))
-  else:
-    status = None
-    instructions = 0
-    activations = 0
+    # a success
+    # in the first coordinate, however, we still say whether there is non-trivial stuff to learn from
+    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,proof_flas,warmup_time,select_time))
 
-    for line in output.split("\n"):
-      # print("  ",line)
-      if line.startswith("%"):
-        if line.startswith("% Activations started:"):
-          activations = int(line.split()[-1])
-        if line.startswith("% Instructions burned:"):
-          instructions = int(line.split()[-2])
-        if line.startswith("% SZS status"):
-          if "Satisfiable" in line or "CounterSatisfiable" in line:
-            status = "sat"
-          elif "Theorem" in line or "Unsatisfiable" in line or "ContradictoryAxioms" in line:
-            status = "uns"
-
-    return (res_idx,prob,(status,instructions,activations))
-
-class Evaluator:
-  def __init__(self, numcpu : int):
-    self.pool = Pool(processes = numcpu)
-
-  def close(self):
-    self.pool.close()
-
-  # gets a list of "jobs", each being a triple of
-  # (list_of_problems, vampire_options, load_traing_data : Bool)
-  # returns a list of the same lenght of result dicts
-  # either 1) as done by scan_and_store scripts - for load_traing_data False
-  # or     2) like load_one - for load_traing_data True
-  def perform(self,jobs,parallelly=True):
-    tasks = []
-    for i,(probs,opts,ltd) in enumerate(jobs):
-      for prob in probs:
-        tasks.append((prob,opts,ltd,i))
-
-    if parallelly:
-      computed = self.pool.map(process_one, tasks, chunksize = 1)
-    else:
-      computed = []
-      for task in tasks:
-        computed.append(process_one(task))
-
-    results = [{} for _ in jobs]
-    for (res_idx,prob,data) in computed:
-      results[res_idx][prob] = data
-
-    return results
+  print("Repeatedly failing:",to_run)
+  print(output)
+  return None # meaning: "A major failure, consider keeping the used model for later debugging"
 
 def num_features():
   if HP.FEATURE_SUBSET == HP.FEATURES_LEN:
@@ -249,10 +218,10 @@ def get_initial_model():
 
   return torch.nn.ModuleList(parts)
 
-def export_model(parts_model_state_file_path,name):
+def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
   model = get_initial_model()
-  model.load_state_dict(torch.load(parts_model_state_file_path))
+  model.load_state_dict(model_state_dict)
 
   # eval mode and no gradient
   for part in model:
