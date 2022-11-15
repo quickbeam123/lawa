@@ -31,6 +31,7 @@ if __name__ == "__main__":
       cur_dir = os.path.join(exper_dir,loop_str)
       if not os.path.isdir(cur_dir):
         if loop == 0:
+          loop += 1
           continue
         else:
           break
