@@ -49,6 +49,40 @@ def look_for_baselines(some_dir):
     with open(os.path.join(some_dir,filename),'rb') as f:
       baselines[mission][filename] = pickle.load(f)
 
+  # non-compulsory; reporting on what the baselines actually are
+  '''
+  for mission in MISSIONS:
+    for refname, (_refmeta,refres) in sorted(baselines[mission].items()):
+      print(refname,_refmeta)
+      for instr_cap in [5000,10000,50000]:
+        print("  instr_cap",instr_cap)
+        uns_uni = 0
+        sat_uni = 0
+        uns_cnts = defaultdict(int)
+        sat_cnts = defaultdict(int)
+        for prob,res_list in refres.items():
+          had_uns = False
+          had_sat = False
+          for i,(sta,tim,ins,act) in enumerate(res_list):
+            if ins > instr_cap:
+              continue
+            if sta == "uns":
+              uns_cnts[i] += 1
+              had_uns = True
+            elif sta == "sat":
+              sat_cnts[i] += 1
+              had_sat = True
+          assert not had_uns or not had_sat
+          if had_uns:
+            uns_uni += 1
+          elif had_sat:
+            sat_uni += 1
+        print("    UNS:",end=" ")
+        print(sum(uns_cnts.values())/len(uns_cnts),"union",uns_uni,"of",len(uns_cnts))
+        print("    SAT:",end=" ")
+        print(sum(sat_cnts.values())/len(sat_cnts),"union",sat_uni,"of",len(sat_cnts))
+  '''
+
   return baselines
 
 def compare_to_baselines(results,baseline):
@@ -205,7 +239,6 @@ if __name__ == "__main__":
   # - a checkpoint saved
 
   loop_count = int(sys.argv[1])
-  assert loop_count > 0
   parallelism = int(sys.argv[2])
   assert parallelism > 0
   campaign_dir = sys.argv[3]
@@ -260,6 +293,8 @@ if __name__ == "__main__":
     save_model_and_optimizer(cur_dir,model,optimizer)
 
   print_model_part()
+
+  assert loop_count > 0
 
   # create our worker processes and register a cleanup
   q_in = multiprocessing.Queue()
