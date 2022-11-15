@@ -20,8 +20,8 @@ import torch
 MISSIONS = ["train","test"]
 
 def print_model_part():
-  pass
   # print("Key {}".format(repr(model[1])))
+  pass
 
 def load_train_tests_problem_lists(campaign_dir):
   prob_lists = {}
