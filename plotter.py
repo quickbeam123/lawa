@@ -30,7 +30,10 @@ if __name__ == "__main__":
       loop_str = "loop{}".format(loop)
       cur_dir = os.path.join(exper_dir,loop_str)
       if not os.path.isdir(cur_dir):
-        break
+        if loop == 0:
+          continue
+        else:
+          break
 
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
