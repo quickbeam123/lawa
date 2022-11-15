@@ -20,7 +20,7 @@ import torch
 MISSIONS = ["train","test"]
 
 def print_model_part():
-  # print("Key {}".format(repr(model[1])))
+  print("Key {}".format(repr(model[1])))
   pass
 
 def load_train_tests_problem_lists(campaign_dir):
@@ -161,8 +161,8 @@ JK_LEARN = 2
 
 def worker(q_in, q_out):
   # tell each worker we don't want any extra threads
-  # torch.set_num_threads(1)
-  # torch.set_num_interop_threads(1)
+  torch.set_num_threads(1)
+  torch.set_num_interop_threads(1)
 
   while True:
     (job_kind,input) = q_in.get()
@@ -244,9 +244,6 @@ if __name__ == "__main__":
   campaign_dir = sys.argv[3]
   exper_dir =  sys.argv[4]
 
-  torch.set_num_threads(1)
-  torch.set_num_interop_threads(1)
-
   # start a new expreriment folder
   os.mkdir(exper_dir)
 
@@ -309,6 +306,21 @@ if __name__ == "__main__":
     for p in my_processes:
       p.kill()
   atexit.register(cleanup)
+
+  # only after the forks, otherwise weird trouble
+  '''
+  terminate called after throwing an instance of 'c10::Error'
+  what():  pool INTERNAL ASSERT FAILED at "../aten/src/ATen/ParallelOpenMP.cpp":65, please report a bug to PyTorch. Invalid thread pool!
+  Exception raised from set_num_threads at ../aten/src/ATen/ParallelOpenMP.cpp:65 (most recent call first):
+  ...
+  and this would happen only in conjunction with calling print_model_part, i.e., super-weird!
+  see also
+  https://stackoverflow.com/questions/64095876/multiprocessing-fork-vs-spawn
+  or maybe (pytorch specific help on this seemed scarce)
+  https://github.com/pytorch/pytorch/issues/75147
+  '''
+  torch.set_num_threads(1)
+  torch.set_num_interop_threads(1)
 
   num_active_tasks = 0
 
