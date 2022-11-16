@@ -52,7 +52,7 @@ FEATURES_ORIGRICH : Final[int] = 5
 # like ORIGRICH, but leave out all the sine level stuff
 FEATURES_ORIGPLAIN : Final[int] = 6
 
-FEATURE_SUBSET : Final[int] = FEATURES_ALL
+FEATURE_SUBSET : Final[int] = FEATURES_AW
 
 # todo: think of normalization / regularization ...
 
