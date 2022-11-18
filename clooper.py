@@ -177,6 +177,7 @@ def worker(q_in, q_out):
       (script_model_file_path,prob,opts) = input
       result = IC.vampire_gather(prob,opts)
       # TODO: possibly, the training data (if large) could go through a file
+      # however, the worker should know beforehand the name (only master can keep track of unique names)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_LEARN:
       (prob,proof_tuple,parts_model_file_path) = input
@@ -454,6 +455,7 @@ if __name__ == "__main__":
         (status,instructions,activations) = result
 
         if mission == "train" and status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
+          # print("Loop",loop,"first proof for",prob,"via",opts2)
           solved_accum.add(prob)
           # turn this into gather job
           ilim = 10*HP.INSTRUCTION_LIMIT
