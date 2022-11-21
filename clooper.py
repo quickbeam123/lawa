@@ -146,11 +146,13 @@ def claim_loop_dir(loop):
   os.mkdir(cur_dir)
   return cur_dir
 
-def save_model_and_optimizer(cur_dir,model,optimizer):
+def save_model_and_optimizer_and_tweaks(cur_dir,model,optimizer,tweak_map):
   parts_model_state_file_path = os.path.join(cur_dir,"parts-model-state.tar")
   torch.save(model.state_dict(), parts_model_state_file_path)
   optimizer_file_path = os.path.join(cur_dir,"optimizer-state.tar")
   torch.save(optimizer.state_dict(), optimizer_file_path)
+  tweak_map_file_path = os.path.join(cur_dir,"tweak_map.pt")
+  torch.save(tweak_map, tweak_map_file_path)
 
 def ilim2tlim(ilim):
   secs = max(5,ilim // 200) # it's 10 times more than the instrlimit on a 2GHz machine
@@ -269,12 +271,14 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   loop = 0
+  this_time_succesful_with = {} # probname -> (detached, except for succesfull training problems) tweak's tensor, shared among temperatures, reset every round
 
   if len(sys.argv) > 5:
     # start from this checkpoint
     load_dir = sys.argv[5]
     model.load_state_dict(torch.load(os.path.join(load_dir,"parts-model-state.tar")))
     optimizer.load_state_dict(torch.load(os.path.join(load_dir,"optimizer-state.tar")))
+    this_time_succesful_with = torch.load(os.path.join(load_dir,"tweak_map.pt"))
 
     # allow for adapting the params from current HP
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
@@ -290,7 +294,7 @@ if __name__ == "__main__":
     # since we were not loading, let's save the initial model instead
     assert loop == 0
     cur_dir = claim_loop_dir(loop)
-    save_model_and_optimizer(cur_dir,model,optimizer)
+    save_model_and_optimizer_and_tweaks(cur_dir,model,optimizer,this_time_succesful_with)
 
   print_model_part()
 
@@ -333,8 +337,6 @@ if __name__ == "__main__":
   script_model_ref_counts = defaultdict(int)
   parts_model_version = 0
   grad_loader_temp = IC.get_initial_model([FAKE_PROB_NAME])
-
-  this_time_succesful_with = {} # probname -> (detached, except for succesfull training problems) tweak's tensor, shared among temperatures, reset every round
 
   while True:
     loop += 1
@@ -447,11 +449,27 @@ if __name__ == "__main__":
           print()
           sys.stdout.flush()
 
-          if mission == "train":
+          if mission == "test":
             # before saving, let's put all the tweaks back
             model[-1] = tweaks
-            save_model_and_optimizer(cur_dir,model,optimizer)
+            save_model_and_optimizer_and_tweaks(cur_dir,model,optimizer,this_time_succesful_with)
             print_model_part()
+
+            # print some stats on problems gained and lost
+            for mission in MISSIONS:
+              gained = 0
+              lost = 0
+              sticky = 0
+              for prob in prob_lists[mission]:
+                if prob in last_time_succesful_with:
+                  if prob in this_time_succesful_with:
+                    sticky += 1
+                  else:
+                    lost += 1
+                else:
+                  if prob in this_time_succesful_with:
+                    gained += 1
+              print("Mission",mission,"gained",gained,"lost",lost,"maintaining",sticky,"problems")
 
         stage += 1
         if stage == len(MISSIONS):
