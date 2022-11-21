@@ -183,6 +183,44 @@ def process_features(full_features : List[float]) -> List[float]:
     assert False
     return []
 
+class Tweak(torch.nn.Module):
+  weight: Tensor
+
+  def __init__(self, dim1 : int, dim2 : int, dim3: int):
+    super().__init__()
+
+    self.dim1 = dim1
+    self.dim2 = dim2
+    self.dim3 = dim3
+
+    self.weight = torch.nn.parameter.Parameter(torch.Tensor(dim1+dim2+dim3))
+    self.reset_parameters()
+
+  def __repr__(self):
+    return "Tweak: "+str(self.weight.data)
+
+  def reset_parameters(self):
+    # the GSD_INPUT_MUL and GSD_INPUT_ADD should be zeros
+    torch.nn.init.constant_(self.weight, 0.0)
+    if self.dim3 > 0:
+      # the GSD_FINAL_BLENDERS ones should be ones
+      with torch.no_grad():
+        offset = self.dim1+self.dim2
+        for i in range(self.dim3):
+          self.weight[offset+i] = 1.0
+
+    # print(self.weight)
+
+  def forward(self) -> Tensor:
+    return self.weight
+
+def get_default_tweak():
+  return Tweak(HP.GSD_INPUT_MUL,HP.GSD_INPUT_ADD,HP.GSD_FINAL_BLENDERS)
+
+def nice_module_name(str):
+  # for some reasons, "." are not allowed as keys in module dicts
+  return str.replace(".","_")
+
 class Embed(torch.nn.Module):
   weight: Tensor
 
@@ -201,7 +239,7 @@ class Embed(torch.nn.Module):
   def forward(self) -> Tensor:
     return self.weight
 
-def get_initial_model():
+def get_initial_model(prob_list):
   if HP.CLAUSE_EMBEDDER_LAYERS == 0:
     clause_embedder = torch.nn.Identity()
   else:
@@ -216,12 +254,21 @@ def get_initial_model():
   clause_key = Embed(HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features())
   parts.append(clause_key)
 
+  tw_mul = torch.nn.Linear(HP.GSD_INPUT_MUL,num_features())
+  tw_add = torch.nn.Linear(HP.GSD_INPUT_ADD,num_features())
+  tweaks = torch.nn.ModuleDict({nice_module_name(prob) : get_default_tweak() for prob in prob_list})
+
+  parts += [tw_mul,tw_add,tweaks]
+
   return torch.nn.ModuleList(parts)
 
-def export_model(model_state_dict,name):
+def export_model(model_state_dict,name,prob_list):
   # we start from a fresh model and just load its state from a saved dict
-  model = get_initial_model()
+  model = get_initial_model(prob_list)
   model.load_state_dict(model_state_dict)
+
+  # we drop the learned tweaks
+  model = model[:-1]
 
   # eval mode and no gradient
   for part in model:
@@ -230,19 +277,44 @@ def export_model(model_state_dict,name):
       param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
-    def __init__(self,clause_embedder : torch.nn.Module,clause_key : torch.nn.Module):
+    def __init__(self,clause_embedder : torch.nn.Module,clause_key : torch.nn.Module, tw_mul: torch.nn.Module, tw_add: torch.nn.Module):
       super().__init__()
 
       self.clause_embedder = clause_embedder
       self.clause_key = clause_key
+      self.tw_mul = tw_mul
+      self.tw_add = tw_add
+
+      # a bit of an overhead, as we normally expect to get tweaks supplied (via eatMyTweaks just below)
+      # (but taking care of the possibility of the user not saying anything,
+      # and so we have a reasonable default for that occasion)
+      self.feature_mul = tw_mul(torch.zeros(HP.GSD_INPUT_MUL))
+      self.feature_add = tw_add(torch.zeros(HP.GSD_INPUT_ADD))
+      self.final_blend = torch.ones(HP.GSD_FINAL_BLENDERS)
+
+    @torch.jit.export
+    def eatMyTweaks(self,tweaks : List[float]):
+      assert len(tweaks) == HP.GSD_INPUT_MUL+HP.GSD_INPUT_ADD+HP.GSD_FINAL_BLENDERS
+      self.feature_mul = self.tw_mul(torch.tensor(tweaks[:HP.GSD_INPUT_MUL]))
+      self.feature_add = self.tw_add(torch.tensor(tweaks[HP.GSD_INPUT_MUL:HP.GSD_INPUT_MUL+HP.GSD_INPUT_ADD]))
+      self.final_blend = torch.tensor(tweaks[-HP.GSD_FINAL_BLENDERS:])
 
     @torch.jit.export
     def forward(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float, float, float]):
       # print("NN: Got",id,"with features",features)
 
-      tFeatures : Tensor = torch.tensor(process_features(features))
+      tFeatures : Tensor = torch.mul(self.feature_mul,torch.tensor(process_features(features))) + self.feature_add
       tInternal : Tensor = self.clause_embedder(tFeatures)
-      val = torch.dot(self.clause_key.weight,tInternal)
+
+      if HP.GSD_FINAL_BLENDERS:
+        assert len(tInternal) % HP.GSD_FINAL_BLENDERS == 0
+
+        pre_val = torch.mul(self.clause_key.weight,tInternal)
+        blocks_summed = torch.sum(pre_val.reshape(-1,HP.GSD_FINAL_BLENDERS),0)
+        val = torch.dot(blocks_summed,self.final_blend)
+      else:
+        val = torch.dot(self.clause_key.weight,tInternal)
+
       return val.item()
 
   module = NeuralPassiveClauseContainer(*model)
@@ -253,6 +325,9 @@ class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_embedder : torch.nn.Module,
       clause_key: torch.nn.Module,
+      tw_mul: torch.nn.Module,
+      tw_add: torch.nn.Module,
+      tweaks: torch.nn.Module,
       clauses,journal,proof_flas,warmup_time,select_time):
     super().__init__()
 
@@ -261,13 +336,23 @@ class LearningModel(torch.nn.Module):
 
     self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
     self.clause_key = clause_key           # the key for multiplying an embedding to get a clause logits
+    self.tw_mul = tw_mul
+    self.tw_add = tw_add
+    self.tweaks = tweaks
+
     self.clauses = clauses                 # id -> (feature_vec)
     self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas           # set of the good ids
     self.warmup_time = warmup_time
     self.select_time = select_time
 
-  def forward(self):
+  def forward(self,prob):
+    my_tweak = self.tweaks[nice_module_name(prob)].weight
+
+    feature_mul = self.tw_mul(my_tweak[:HP.GSD_INPUT_MUL])
+    feature_add = self.tw_mul(my_tweak[HP.GSD_INPUT_MUL:HP.GSD_INPUT_MUL+HP.GSD_INPUT_ADD])
+    final_blend = my_tweak[-HP.GSD_FINAL_BLENDERS:]
+
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
     id2idx = {}
@@ -275,12 +360,21 @@ class LearningModel(torch.nn.Module):
       id2idx[id] = i
       clause_list.append(torch.tensor(features))
     feature_vecs = torch.stack(clause_list)
+    feature_vecs = feature_mul*feature_vecs+feature_add
 
     # print("forward-feature_vecs",feature_vecs)
 
     # in bulk for all the clauses
     embeddings = self.clause_embedder(feature_vecs)
-    logits = torch.matmul(self.clause_key.weight,torch.t(embeddings))
+    if HP.GSD_FINAL_BLENDERS > 0:
+      pre_logits = torch.mul(embeddings,self.clause_key.weight)
+      # print(pre_logits.shape)
+      blocks_summed = torch.sum(pre_logits.reshape(pre_logits.shape[0],-1,HP.GSD_FINAL_BLENDERS),1)
+      # print(blocks_summed.shape)
+      logits = torch.matmul(final_blend,torch.t(blocks_summed))
+    else:
+      logits = torch.matmul(self.clause_key.weight,torch.t(embeddings))
+
     # print("forward-logits",logits)
 
     good_action_reward_loss = torch.zeros(1)

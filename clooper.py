@@ -17,6 +17,8 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import torch
 
+FAKE_PROB_NAME = "dummy"
+
 MISSIONS = ["train","test"]
 
 def print_model_part():
@@ -182,7 +184,7 @@ def worker(q_in, q_out):
     elif job_kind == JK_LEARN:
       (prob,proof_tuple,parts_model_file_path) = input
 
-      local_model = IC.get_initial_model()
+      local_model = IC.get_initial_model([FAKE_PROB_NAME])
       local_model.load_state_dict(torch.load(parts_model_file_path))
 
       # not sure if there is any after load -- TODO: check if necessary
@@ -195,7 +197,7 @@ def worker(q_in, q_out):
 
       learn_model = IC.LearningModel(*local_model,*proof_tuple)
       learn_model.train()
-      loss_norms = learn_model.forward()
+      loss_norms = learn_model.forward(FAKE_PROB_NAME)
 
       something = False
       loss = torch.zeros(1)
@@ -260,7 +262,7 @@ if __name__ == "__main__":
   # load the reference runs from campaign
   baselines = look_for_baselines(campaign_dir)
 
-  model = IC.get_initial_model()
+  model = IC.get_initial_model(prob_lists["train"])
   if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
     optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
   elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
@@ -291,6 +293,8 @@ if __name__ == "__main__":
     save_model_and_optimizer(cur_dir,model,optimizer)
 
   print_model_part()
+
+  tweaks = model[-1]
 
   assert loop_count > 0
 
@@ -328,12 +332,19 @@ if __name__ == "__main__":
   script_model_version = 0
   script_model_ref_counts = defaultdict(int)
   parts_model_version = 0
-  grad_loader_temp = IC.get_initial_model()
+  grad_loader_temp = IC.get_initial_model([FAKE_PROB_NAME])
+
+  this_time_succesful_with = {} # probname -> (detached, except for succesfull training problems) tweak's tensor, shared among temperatures, reset every round
 
   while True:
     loop += 1
     if loop > loop_count:
       break
+
+    # all these three are storing the tensor, not the module!
+    last_time_succesful_with = this_time_succesful_with
+    tweak_cache = {} # so that we don't send tweaks through the queues
+    this_time_succesful_with = {}
 
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
@@ -364,13 +375,34 @@ if __name__ == "__main__":
             script_model_ref_counts[script_model_file_path] += 1
           else:
             # export current script_model_version for eval
-            IC.export_model(model.state_dict(),script_model_file_path)
+            model[-1] = torch.nn.ModuleDict()
+            IC.export_model(model.state_dict(),script_model_file_path,[])
             script_model_ref_counts[script_model_file_path] = 1
+
+          # every loop share a tweak among temperatures
+          if prob in tweak_cache: # if it's already in cache, we assigned a tweak already
+            used_tweak = tweak_cache[prob]
+          else:
+            if prob in last_time_succesful_with:
+              used_tweak = last_time_succesful_with[prob]
+              # print("Reusing tweak",used_tweak, "from last time for",prob)
+            elif last_time_succesful_with:
+              prob_subst = random.choice(list(last_time_succesful_with))
+              used_tweak = last_time_succesful_with[prob_subst]
+              # print("Stealing from",prob_subst,"tweak",used_tweak,"for",prob)
+            else:
+              used_tweak = IC.get_default_tweak().weight.data # just the tensor
+              # print("Defaulting tweak",used_tweak,"for",prob)
+
+            # detach, so that training elsewhere does not change our selected tweak
+            tweak_cache[prob] = used_tweak.detach().clone()
+
+          tweak_str = ",".join([str(v.item()) for v in used_tweak])
 
           # will change for the data gathering job
           opts1 = "-t {} -i {} -p off".format(ilim2tlim(ilim),ilim)
           # will stay the same
-          opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temp)
+          opts2 = " --random_seed {} -npcc {} -npcct {} -npccw {}".format(seed,script_model_file_path,temp,tweak_str)
 
           q_in.put((JK_EVAL,(mission,res_filename,script_model_file_path,prob,opts1,opts2)))
           num_active_tasks += 1
@@ -416,6 +448,8 @@ if __name__ == "__main__":
           sys.stdout.flush()
 
           if mission == "train":
+            # before saving, let's put all the tweaks back
+            model[-1] = tweaks
             save_model_and_optimizer(cur_dir,model,optimizer)
             print_model_part()
 
@@ -454,6 +488,10 @@ if __name__ == "__main__":
 
         (status,instructions,activations) = result
 
+        if status == "uns":
+          # print("Solved",mission,"problem",prob,"using",tweak_cache[prob])
+          this_time_succesful_with[prob] = tweak_cache[prob]
+
         if mission == "train" and status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
           # print("Loop",loop,"first proof for",prob,"via",opts2)
           solved_accum.add(prob)
@@ -481,8 +519,22 @@ if __name__ == "__main__":
           # (there should be an error message in the logs, showing how this gather run failed (5 times))
 
         if result is not None and result[0]: # result[0] = "non-degenerate"
+          prob_nice = IC.nice_module_name(prob)
+          my_actual_tweak = tweaks[prob_nice]
+
+          # print("Learning for",prob,"with orig tweak",my_actual_tweak)
+          my_actual_tweak.weight.data.copy_(tweak_cache[prob].data)
+          # print(" replaced by",my_actual_tweak)
+
+          # this only happens for training problems, so that in the next loop they "wake up" with an even better tweak than the one the used to succeed with this loop
+          # (it's still the tweak data from the cache, but after training, it will change)
+          this_time_succesful_with[prob] = my_actual_tweak.weight.data
+
           parts_model_version += 1
           parts_model_file_path = os.path.join(HP.SCRATCH,"parts-model-state_{}_{}.tar".format(os.getpid(),parts_model_version))
+
+          # temporarily override the whole tweak dict with just a singleton
+          model[-1] = torch.nn.ModuleDict({FAKE_PROB_NAME:my_actual_tweak})
           torch.save(model.state_dict(), parts_model_file_path)
 
           q_in.put((JK_LEARN,(prob,result[1],parts_model_file_path)))
@@ -494,6 +546,10 @@ if __name__ == "__main__":
         (prob,parts_model_file_path) = input
 
         if result is not None:
+          prob_nice = IC.nice_module_name(prob)
+          my_actual_tweak = tweaks[prob_nice]
+          model[-1] = torch.nn.ModuleDict({FAKE_PROB_NAME:my_actual_tweak})
+
           # copy from result parameters to our model's gradients
           grad_loader_temp.load_state_dict(torch.load(parts_model_file_path))
           # copy_grads_back_from_param
@@ -502,6 +558,8 @@ if __name__ == "__main__":
 
           optimizer.step()
           script_model_version +=1
+
+          # print("Got back from traing for",prob,"with a new tweak",this_time_succesful_with[prob])
         else:
           print("Training for",prob,"was trivial.")
 

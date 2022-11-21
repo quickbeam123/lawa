@@ -17,7 +17,24 @@ TEMPERATURES = ["0.0","0.1","1.0"]
 CUMMULATIVE = False
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
-FIRST_PROOF_ONLY = False
+FIRST_PROOF_ONLY = True
+
+# GSD features (any can be zero; if all are, the thing degenerates to a non-gsd setting)
+GSD_INPUT_MUL : Final[int] = 1
+GSD_INPUT_ADD : Final[int] = 1
+GSD_FINAL_BLENDERS : Final[int] = 2
+# a single gsd tweak is a concat of GSD_INPUT_MUL-many mul dimensions, GSD_INPUT_ADD-many add dimensions and GSD_FINAL_BLENDERS-many blending dimensions
+# under GSD, the clause features are first multiplied by Linear(GSD_INPUT_MUL,num_features) coordinate wise and we also add Linear(GSD_INPUT_ADD,num_features) to them
+# after the computation reaches embedding = self.clause_embedder(gsdised_feature_vec) we
+# 1) assert dim(embedding) is divisible by GSD_FINAL_BLENDERS (if >0 and thus applied at all)
+# 2) we do mul with clause_keys (not a dot product)
+# 3) group and sum up the results in GSD_FINAL_BLENDERS many groups and
+# 4) form a compute a GSD_FINAL_BLENDERS weighted sum of the groups (i.e. this would be the original dot if GSD_FINAL_BLENDERS == ones)
+#
+# initial (default) values of the GSD features
+# - GSD_INPUT_MUL and GSD_INPUT_ADD are initialzed as zeros (but the models parts are random)
+#   (could this be dangerous if GSD_INPUT_MUL zeros out a feature by accident?)
+# - GSD_FINAL_BLENDERS is ones (to be like the dot product by default)
 
 # Features
 
@@ -72,7 +89,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.00001
+LEARNING_RATE : Final[float] = 0.00003
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
