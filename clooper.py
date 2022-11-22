@@ -23,7 +23,8 @@ MISSIONS = ["train","test"]
 
 def print_model_part():
   print("Key {}".format(repr(model[1])))
-  pass
+  print("Tw_mul {} {}".format(model[2].weight,model[2].bias))
+  print("Tw_add {} {}".format(model[3].weight,model[3].bias))
 
 def load_train_tests_problem_lists(campaign_dir):
   prob_lists = {}
@@ -265,10 +266,11 @@ if __name__ == "__main__":
   baselines = look_for_baselines(campaign_dir)
 
   model = IC.get_initial_model(prob_lists["train"])
+  par_groups = [{'params':model[:-1].parameters()},{'params':model[-1].parameters()}]
   if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
-    optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+    optimizer = torch.optim.SGD(par_groups)
   elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-    optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(par_groups)
 
   loop = 0
   this_time_succesful_with = {} # probname -> (detached, except for succesfull training problems) tweak's tensor, shared among temperatures, reset every round
@@ -280,26 +282,36 @@ if __name__ == "__main__":
     optimizer.load_state_dict(torch.load(os.path.join(load_dir,"optimizer-state.tar")))
     this_time_succesful_with = torch.load(os.path.join(load_dir,"tweak_map.pt"))
 
-    # allow for adapting the params from current HP
-    # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
-    if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
-      for param_group in optimizer.param_groups:
-        param_group['lr'] = HP.LEARNING_RATE
-        param_group['momentum'] = HP.MOMENTUM
-    elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-      for param_group in optimizer.param_groups:
-        param_group['lr'] = HP.LEARNING_RATE
-        param_group['weight_decay'] = HP.WEIGHT_DECAY
-  else:
+  def lr_for_group(i):
+    assert i in [0,1]
+    res = HP.LEARNING_RATE
+    if i > 0:
+      res *= HP.TWEAK_LR_SPEEDUP
+    return res
+
+  # set the learning rate and other optimizer options
+  # allows for adapting the params from current HP
+  # (in principle a larger class of things can be adaptively changed after resumig the training process)
+  if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
+    for i,param_group in enumerate(optimizer.param_groups):
+      param_group['lr'] = lr_for_group(i)
+      param_group['momentum'] = HP.MOMENTUM
+  elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
+    for i,param_group in enumerate(optimizer.param_groups):
+      param_group['lr'] = lr_for_group(i)
+      param_group['weight_decay'] = HP.WEIGHT_DECAY
+
+  if len(sys.argv) <= 5:
     # since we were not loading, let's save the initial model instead
     assert loop == 0
     cur_dir = claim_loop_dir(loop)
     save_model_and_optimizer_and_tweaks(cur_dir,model,optimizer,this_time_succesful_with)
 
+  # print more digits; this is mainly for the added precision when talking to vampire
+  torch.set_printoptions(precision=10)
+
   print_model_part()
-
   tweaks = model[-1]
-
   assert loop_count > 0
 
   # create our worker processes and register a cleanup
@@ -400,6 +412,7 @@ if __name__ == "__main__":
             tweak_cache[prob] = used_tweak.detach().clone()
 
           tweak_str = ",".join([str(v.item()) for v in used_tweak])
+          # print(tweak_str)
 
           # will change for the data gathering job
           opts1 = "-t {} -i {} -p off".format(ilim2tlim(ilim),ilim)
@@ -570,6 +583,7 @@ if __name__ == "__main__":
 
           # copy from result parameters to our model's gradients
           grad_loader_temp.load_state_dict(torch.load(parts_model_file_path))
+
           # copy_grads_back_from_param
           for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
             param.grad = param_copy

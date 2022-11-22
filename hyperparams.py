@@ -89,6 +89,9 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
+# make tweaks a separate param_group in optimizer to progress this times faster
+TWEAK_LR_SPEEDUP : Final[float] = 100
+
 LEARNING_RATE : Final[float] = 0.00003
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
