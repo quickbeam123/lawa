@@ -258,6 +258,15 @@ def get_initial_model(prob_list):
   tw_add = torch.nn.Linear(HP.GSD_INPUT_ADD,num_features())
   tweaks = torch.nn.ModuleDict({nice_module_name(prob) : get_default_tweak() for prob in prob_list})
 
+  # since the corresponding tweak starts at 0, we want the bias (and not wieghts) to make the initial state reasonable:
+  # torch.nn.init.zeros_(tw_mul.weight)
+  torch.nn.init.ones_(tw_mul.bias)
+  # torch.nn.init.zeros_(tw_add.weight)
+  torch.nn.init.zeros_(tw_add.bias)
+
+  # print("tw_mul",tw_mul.weight,tw_mul.bias)
+  # print("tw_add",tw_add.weight,tw_add.bias)
+
   parts += [tw_mul,tw_add,tweaks]
 
   return torch.nn.ModuleList(parts)
