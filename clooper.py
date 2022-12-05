@@ -22,9 +22,11 @@ FAKE_PROB_NAME = "dummy"
 MISSIONS = ["train","test"]
 
 def print_model_part():
-  print("Key {}".format(repr(model[1])))
-  print("Tw_mul {} {}".format(model[2].weight,model[2].bias))
-  print("Tw_add {} {}".format(model[3].weight,model[3].bias))
+  pass
+  # print(model[0].state_dict())
+  # print("Key {}".format(repr(model[0])))
+  # print("Tw_mul {} {}".format(model[2].weight,model[2].bias))
+  # print("Tw_add {} {}".format(model[3].weight,model[3].bias))
 
 def load_train_tests_problem_lists(campaign_dir):
   prob_lists = {}
@@ -483,6 +485,8 @@ if __name__ == "__main__":
                   if prob in this_time_succesful_with:
                     gained += 1
               print("Mission",mission,"gained",gained,"lost",lost,"maintaining",sticky,"problems")
+            # print("Current tweaks")
+            # print(tweaks)
 
         stage += 1
         if stage == len(MISSIONS):
@@ -522,6 +526,8 @@ if __name__ == "__main__":
         if status == "uns":
           # print("Solved",mission,"problem",prob,"using",tweak_cache[prob])
           this_time_succesful_with[prob] = tweak_cache[prob]
+          if not prob in last_time_succesful_with:
+            print("Newly solved",mission,"problem",prob,"using",tweak_cache[prob])
 
         if mission == "train" and status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
           # print("Loop",loop,"first proof for",prob,"via",opts2)
@@ -583,6 +589,8 @@ if __name__ == "__main__":
 
           # copy from result parameters to our model's gradients
           grad_loader_temp.load_state_dict(torch.load(parts_model_file_path))
+
+          #print(grad_loader_temp.state_dict())
 
           # copy_grads_back_from_param
           for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):

@@ -20,9 +20,7 @@ CUMMULATIVE = False
 FIRST_PROOF_ONLY = True
 
 # GSD features (any can be zero; if all are, the thing degenerates to a non-gsd setting)
-GSD_INPUT_MUL : Final[int] = 1
-GSD_INPUT_ADD : Final[int] = 1
-GSD_FINAL_BLENDERS : Final[int] = 2
+GSD_FINAL_BLENDERS : Final[int] = 8
 # a single gsd tweak is a concat of GSD_INPUT_MUL-many mul dimensions, GSD_INPUT_ADD-many add dimensions and GSD_FINAL_BLENDERS-many blending dimensions
 # under GSD, the clause features are first multiplied by Linear(GSD_INPUT_MUL,num_features) coordinate wise and we also add Linear(GSD_INPUT_ADD,num_features) to them
 # after the computation reaches embedding = self.clause_embedder(gsdised_feature_vec) we
@@ -90,9 +88,9 @@ OPTIMIZER_ADAM = 1
 OPTIMIZER = OPTIMIZER_ADAM
 
 # make tweaks a separate param_group in optimizer to progress this times faster
-TWEAK_LR_SPEEDUP : Final[float] = 100
+TWEAK_LR_SPEEDUP : Final[float] = 10
 
-LEARNING_RATE : Final[float] = 0.00003
+LEARNING_RATE : Final[float] = 0.00005
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
