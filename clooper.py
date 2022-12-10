@@ -396,7 +396,8 @@ if __name__ == "__main__":
             successes = {prob for prob,(status,instructions,activations) in results.items() if status == "uns"}
             num_new = len(successes-seen_successes)
             seen_successes = seen_successes | successes
-            print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temp,len(successes)/len(results),len(successes),len(results),num_new,len(seen_successes)))
+            if len(results):
+              print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temp,len(successes)/len(results),len(successes),len(results),num_new,len(seen_successes)))
 
             if len(successes) > best_solveds:
               best_solveds = len(successes)
