@@ -23,6 +23,9 @@ if __name__ == "__main__":
   expers = defaultdict(list)
   time = 0
 
+  # for each problem and file keep storing the number of activations it took to solve it (provided we got uns)
+  details = defaultdict(lambda : defaultdict(list))
+
   for exper_dir in sys.argv[1:]:
     print(exper_dir)
     loop = 0
@@ -50,6 +53,9 @@ if __name__ == "__main__":
 
         # print("     -> ",successes)
 
+        for prob,(status,instructions,activations) in results.items():
+          details[prob][file].append((activations if status == "uns" else None,time))
+
         expers[file].append((successes,time))
 
       loop += 1
@@ -58,6 +64,46 @@ if __name__ == "__main__":
     time -= 1
 
   import matplotlib.pyplot as plt
+
+  if False:
+    for prob,file_details in details.items():
+      fig, ax1 = plt.subplots()
+
+      handles = []
+      mission = None
+
+      had_some = False
+
+      for filename,run in file_details.items():
+        # is this a training or a test file?
+        if mission is None:
+          for mission in MISSIONS:
+            if filename.startswith(mission):
+              break
+
+        activations = []
+        times = []
+        for (a,t) in run:
+          if a is None:
+            activations.append(float('NaN'))
+          else:
+            activations.append(a)
+            had_some = True
+          times.append(t)
+
+        h, = ax1.plot(times, activations, "--", marker='.', markersize=2, linewidth = 1, label = filename[:-3])
+
+        handles.append(h)
+
+      plt.legend(handles = handles, loc='upper right') # loc = 'best' is rumored to be unpredictable
+
+      # don't generate empty plots:
+      if had_some:
+        plt.savefig("deleteme/{}_{}_{}_plot.png".format(os.path.basename(sys.argv[1]),mission,prob.replace("/","_")),dpi=250)
+
+      plt.close(fig)
+
+    exit(0)
 
   for mission in MISSIONS:
     fig, ax1 = plt.subplots()
