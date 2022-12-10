@@ -13,7 +13,7 @@ INSTRUCTION_LIMIT_TEST = 5000
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
 TEMPERATURES = ["0.0","0.1","1.0"]
 
-# TODO: no longer reflected in clooper
+# learn from the last proof you found for this setting
 CUMMULATIVE = False
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
@@ -72,7 +72,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.00001
+LEARNING_RATE : Final[float] = 0.00002
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

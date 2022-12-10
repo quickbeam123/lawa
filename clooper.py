@@ -150,6 +150,16 @@ def save_model_and_optimizer(cur_dir,model,optimizer):
   optimizer_file_path = os.path.join(cur_dir,"optimizer-state.tar")
   torch.save(optimizer.state_dict(), optimizer_file_path)
 
+def save_train_storage(cur_dir,train_storage):
+  storage_file_path = os.path.join(cur_dir,"train_storage.pt")
+
+  probs = set()
+  for prob,temp in train_storage:
+    probs.add(prob)
+
+  print("Saved train_storage with",len(train_storage),"records. Tracking solutions of",len(probs),"problems.")
+  torch.save(train_storage, storage_file_path)
+
 def ilim2tlim(ilim):
   secs = max(5,ilim // 200) # it's 10 times more than the instrlimit on a 2GHz machine
   return secs
@@ -170,11 +180,11 @@ def worker(q_in, q_out):
     # print("worker",job_kind)
 
     if job_kind == JK_EVAL:
-      (mission,res_filename,script_model_file_path,prob,opts1,opts2) = input
+      (mission,res_filename,script_model_file_path,prob,temp,opts1,opts2) = input
       result = IC.vampire_eval(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
-      (script_model_file_path,prob,opts) = input
+      (script_model_file_path,prob,temp,opts) = input
       result = IC.vampire_gather(prob,opts)
       # TODO: possibly, the training data (if large) could go through a file
       # however, the worker should know beforehand the name (only master can keep track of unique names)
@@ -330,6 +340,11 @@ if __name__ == "__main__":
   parts_model_version = 0
   grad_loader_temp = IC.get_initial_model()
 
+  # under HP.cummulative, we use this to preserve training data through loop iterations
+  # (even without HP.cummulative, we keep track of and save the last successull training run for each prob and temp)
+  # indexed by (prob,temp) storing (loop_when_obtained,training_datum)
+  train_storage = dict()
+
   while True:
     loop += 1
     if loop > loop_count:
@@ -372,7 +387,7 @@ if __name__ == "__main__":
           # will stay the same
           opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temp)
 
-          q_in.put((JK_EVAL,(mission,res_filename,script_model_file_path,prob,opts1,opts2)))
+          q_in.put((JK_EVAL,(mission,res_filename,script_model_file_path,prob,temp,opts1,opts2)))
           num_active_tasks += 1
 
           continue # could we immediately distribute more?
@@ -418,6 +433,7 @@ if __name__ == "__main__":
 
           if mission == "train":
             save_model_and_optimizer(cur_dir,model,optimizer)
+            save_train_storage(cur_dir,train_storage)
             print_model_part()
 
         stage += 1
@@ -450,26 +466,45 @@ if __name__ == "__main__":
 
       # process result, depending on what the job was
       if job_kind == JK_EVAL:
-        (mission,res_filename,script_model_file_path,prob,opts1,opts2) = input
+        (mission,res_filename,script_model_file_path,prob,temp,opts1,opts2) = input
         result_dicts[res_filename][prob] = result
 
         (status,instructions,activations) = result
 
-        if mission == "train" and status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
-          # print("Loop",loop,"first proof for",prob,"via",opts2)
-          solved_accum.add(prob)
-          # turn this into gather job
-          ilim = 10*HP.INSTRUCTION_LIMIT
-          q_in.put((JK_GATHER,(script_model_file_path,prob,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2)))
-        else:
+        need_script_model = False
+        keeps_working = False
+
+        if mission == "train":
+          if status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
+            # print("Loop",loop,"first proof for",prob,"via",opts2)
+            solved_accum.add(prob)
+            # turn this into gather job
+            ilim = 10*HP.INSTRUCTION_LIMIT
+            need_script_model = True
+            keeps_working = True
+            q_in.put((JK_GATHER,(script_model_file_path,prob,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2)))
+
+          if HP.CUMMULATIVE and (prob,temp) in train_storage and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
+            # our CUMMULATIVE is trying to implement the FIRST_PROOF_ONLY policy too (so we pretend the prob got solved right now, under the current temp)
+            solved_accum.add(prob)
+
+            parts_model_version += 1
+            parts_model_file_path = os.path.join(HP.SCRATCH,"parts-model-state_{}_{}.tar".format(os.getpid(),parts_model_version))
+            torch.save(model.state_dict(), parts_model_file_path)
+            keeps_working = True
+            q_in.put((JK_LEARN,(prob,train_storage[(prob,temp)][1],parts_model_file_path)))
+
+        if not need_script_model:
           # don't need the script model file anymore ...
           script_model_ref_counts[script_model_file_path] -= 1
           if script_model_ref_counts[script_model_file_path] == 0:
             os.remove(script_model_file_path)
+
+        if not keeps_working:
           num_active_tasks -= 1
 
       elif job_kind == JK_GATHER:
-        (script_model_file_path,prob,opts) = input
+        (script_model_file_path,prob,temp,opts) = input
 
         if result is not None:
           # don't need the script model file anymore ...
@@ -482,10 +517,12 @@ if __name__ == "__main__":
           # (there should be an error message in the logs, showing how this gather run failed (5 times))
 
         if result is not None and result[0]: # result[0] = "non-degenerate"
+          # to be used for learning even if we fail to solve under these temp setting in the future loop iterations
+          train_storage[(prob,temp)] = (loop,result[1])
+
           parts_model_version += 1
           parts_model_file_path = os.path.join(HP.SCRATCH,"parts-model-state_{}_{}.tar".format(os.getpid(),parts_model_version))
           torch.save(model.state_dict(), parts_model_file_path)
-
           q_in.put((JK_LEARN,(prob,result[1],parts_model_file_path)))
         else:
           # trivial proof, let's keep going
