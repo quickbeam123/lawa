@@ -14,9 +14,17 @@ INSTRUCTION_LIMIT_TEST = 5000
 TEMPERATURES = ["0.0","0.1","1.0"]
 
 # learn from the last proof you found for this setting
-CUMMULATIVE = False
+# 0 - don't do it (i.e., only learn from the proofs discovered during this eval)
+# >0 - do do it
+# >1 - each problem has a score starting at CUMMULATIVE and dropping by 1 until 1 every iteration where the problem gets solved...
+# ... and increasing by 1 (until the starting max value) if it does not get solved
+# Idea: super easy problems will get to 1 (ten times less then max) and stay there
+# on the other hand, hard problems will be pulling harder (as long as they stay unsolved)
+CUMMULATIVE : Final[int] = 6
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
+# in clooper, this might be especially important as otherwise easy problems will train |TEMPERATURES|-times more than
+# those solved only by some temps
 FIRST_PROOF_ONLY = True
 
 # Features
@@ -72,7 +80,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.00003
+LEARNING_RATE : Final[float] = 0.00001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

@@ -150,7 +150,7 @@ def save_model_and_optimizer(cur_dir,model,optimizer):
   optimizer_file_path = os.path.join(cur_dir,"optimizer-state.tar")
   torch.save(optimizer.state_dict(), optimizer_file_path)
 
-def save_train_storage(cur_dir,train_storage):
+def save_train_storage(cur_dir,train_storage,prob_facts):
   storage_file_path = os.path.join(cur_dir,"train_storage.pt")
 
   probs = set()
@@ -158,12 +158,12 @@ def save_train_storage(cur_dir,train_storage):
     probs.add(prob)
 
   print("Saved train_storage with",len(train_storage),"records. Tracking solutions of",len(probs),"problems.")
-  torch.save(train_storage, storage_file_path)
+  torch.save((train_storage,prob_facts), storage_file_path)
 
-def load_train_storage(load_dir,current_train_storage):
+def load_train_storage(load_dir,current_train_storage,current_prob_facts):
   storage_file_path = os.path.join(load_dir,"train_storage.pt")
   if os.path.exists(storage_file_path):
-    train_storage = torch.load(storage_file_path)
+    train_storage,prob_facts = torch.load(storage_file_path)
 
     probs = set()
     for prob,temp in train_storage:
@@ -171,9 +171,9 @@ def load_train_storage(load_dir,current_train_storage):
 
     print("Loaded train_storage with",len(train_storage),"records. Tracking solutions of",len(probs),"problems.")
 
-    return train_storage
+    return train_storage,prob_facts
   else:
-    return current_train_storage
+    return current_train_storage,current_prob_facts
 
 def ilim2tlim(ilim):
   secs = max(5,ilim // 200) # it's 10 times more than the instrlimit on a 2GHz machine
@@ -205,7 +205,7 @@ def worker(q_in, q_out):
       # however, the worker should know beforehand the name (only master can keep track of unique names)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_LEARN:
-      (prob,proof_tuple,parts_model_file_path) = input
+      (prob,proof_tuple,fact,parts_model_file_path) = input
 
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(parts_model_file_path))
@@ -234,6 +234,7 @@ def worker(q_in, q_out):
         # can the training example can still be degenerate?
         q_out.put((job_kind,input,None))
       else:
+        loss *= fact
         loss.backward()
 
         for param in local_model.parameters():
@@ -289,6 +290,11 @@ if __name__ == "__main__":
   # (even without HP.cummulative, we keep track of and save the last successull training run for each prob and temp)
   # indexed by (prob,temp) storing (loop_when_obtained,training_datum)
   train_storage = dict()
+  # loss factors (to have stronger and weaker learning), on per problem basis:
+  # currently does non-triv things only with HP.CUMMULATIVE > 1
+  # stores a factor for each problem (unless unsolved until now) and updates it each loop
+  # (lives in the same file as train_storage)
+  prob_facts = dict()
 
   model = IC.get_initial_model()
   if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
@@ -304,7 +310,7 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(os.path.join(load_dir,"parts-model-state.tar")))
     optimizer.load_state_dict(torch.load(os.path.join(load_dir,"optimizer-state.tar")))
 
-    train_storage = load_train_storage(load_dir,train_storage)
+    train_storage,prob_facts = load_train_storage(load_dir,train_storage,prob_facts)
 
     # allow for adapting the params from current HP
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
@@ -378,6 +384,8 @@ if __name__ == "__main__":
     # per problem memory about whether we already did learning here (this loop)
     # used to implement FIRST_PROOF_ONLY
     learning_done_for = set()
+    # set of training problems solved during this loop
+    solved_this_loop = set()
 
     # stages can be thought of as indices into MISSIONS
     stage = -1
@@ -418,6 +426,13 @@ if __name__ == "__main__":
         assert not eval_jobs
 
         if stage >= 0:
+          if mission == "train":
+            if HP.CUMMULATIVE > 1:
+              for prob in prob_facts:
+                if prob not in solved_this_loop:
+                  prob_facts[prob] = min(prob_facts[prob]+1,HP.CUMMULATIVE)
+                  print("Solvable prob",prob,"not solved this loop. Updating fact to",prob_facts[prob])
+
           print(" ",mission)
           seen_successes = set()
           best_solveds = -1
@@ -443,17 +458,17 @@ if __name__ == "__main__":
 
           result_dicts = defaultdict(dict)
           result_metas = []
-          learning_done_for = set()
           sys.stdout.flush()
 
           print("  Mission {} took".format(mission),time.time()-stage_start_time)
           print()
-          sys.stdout.flush()
 
           if mission == "train":
             save_model_and_optimizer(cur_dir,model,optimizer)
-            save_train_storage(cur_dir,train_storage)
+            save_train_storage(cur_dir,train_storage,prob_facts)
             print_model_part()
+
+          sys.stdout.flush()
 
         stage += 1
         if stage == len(MISSIONS):
@@ -495,6 +510,16 @@ if __name__ == "__main__":
 
         if mission == "train":
           if status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in learning_done_for):
+            if HP.CUMMULATIVE > 1:
+              if prob not in prob_facts:
+                prob_facts[prob] = HP.CUMMULATIVE
+                print("First proof for",prob,"starting with fact",prob_facts[prob])
+              elif prob not in solved_this_loop:
+                prob_facts[prob] = max(prob_facts[prob]-1,1)
+                print("New proof for",prob,"updating fact to",prob_facts[prob])
+
+              solved_this_loop.add(prob)
+
             # print("Loop",loop,"first proof for",prob,"via",opts2)
             learning_done_for.add(prob)
             # turn this into gather job
@@ -503,7 +528,7 @@ if __name__ == "__main__":
             keeps_working = True
             q_in.put((JK_GATHER,(script_model_file_path,prob,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2)))
 
-          if HP.CUMMULATIVE and (prob,temp) in train_storage and not (HP.FIRST_PROOF_ONLY and prob in learning_done_for):
+          if HP.CUMMULATIVE > 0 and (prob,temp) in train_storage and not (HP.FIRST_PROOF_ONLY and prob in learning_done_for):
             # our CUMMULATIVE is trying to implement the FIRST_PROOF_ONLY policy too (so we pretend the prob got solved right now, under the current temp)
             learning_done_for.add(prob)
 
@@ -511,7 +536,7 @@ if __name__ == "__main__":
             parts_model_file_path = os.path.join(HP.SCRATCH,"parts-model-state_{}_{}.tar".format(os.getpid(),parts_model_version))
             torch.save(model.state_dict(), parts_model_file_path)
             keeps_working = True
-            q_in.put((JK_LEARN,(prob,train_storage[(prob,temp)][1],parts_model_file_path)))
+            q_in.put((JK_LEARN,(prob,train_storage[(prob,temp)][1],prob_facts[prob] if prob in prob_facts else 1.0,parts_model_file_path)))
 
         if not need_script_model:
           # don't need the script model file anymore ...
@@ -542,7 +567,7 @@ if __name__ == "__main__":
           parts_model_version += 1
           parts_model_file_path = os.path.join(HP.SCRATCH,"parts-model-state_{}_{}.tar".format(os.getpid(),parts_model_version))
           torch.save(model.state_dict(), parts_model_file_path)
-          q_in.put((JK_LEARN,(prob,result[1],parts_model_file_path)))
+          q_in.put((JK_LEARN,(prob,result[1],prob_facts[prob] if prob in prob_facts else 1.0,parts_model_file_path)))
         else:
           # trivial proof, let's keep going
           num_active_tasks -= 1
