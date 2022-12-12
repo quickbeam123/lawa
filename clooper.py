@@ -375,7 +375,9 @@ if __name__ == "__main__":
     # reset every loop:
     result_metas = [] # res_filename(s) with additional info, in order
     result_dicts = defaultdict(dict) # for saving results to file
-    solved_accum = set()
+    # per problem memory about whether we already did learning here (this loop)
+    # used to implement FIRST_PROOF_ONLY
+    learning_done_for = set()
 
     # stages can be thought of as indices into MISSIONS
     stage = -1
@@ -441,7 +443,7 @@ if __name__ == "__main__":
 
           result_dicts = defaultdict(dict)
           result_metas = []
-          solved_accum = set()
+          learning_done_for = set()
           sys.stdout.flush()
 
           print("  Mission {} took".format(mission),time.time()-stage_start_time)
@@ -492,18 +494,18 @@ if __name__ == "__main__":
         keeps_working = False
 
         if mission == "train":
-          if status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
+          if status == "uns" and not (HP.FIRST_PROOF_ONLY and prob in learning_done_for):
             # print("Loop",loop,"first proof for",prob,"via",opts2)
-            solved_accum.add(prob)
+            learning_done_for.add(prob)
             # turn this into gather job
             ilim = 10*HP.INSTRUCTION_LIMIT
             need_script_model = True
             keeps_working = True
             q_in.put((JK_GATHER,(script_model_file_path,prob,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2)))
 
-          if HP.CUMMULATIVE and (prob,temp) in train_storage and not (HP.FIRST_PROOF_ONLY and prob in solved_accum):
+          if HP.CUMMULATIVE and (prob,temp) in train_storage and not (HP.FIRST_PROOF_ONLY and prob in learning_done_for):
             # our CUMMULATIVE is trying to implement the FIRST_PROOF_ONLY policy too (so we pretend the prob got solved right now, under the current temp)
-            solved_accum.add(prob)
+            learning_done_for.add(prob)
 
             parts_model_version += 1
             parts_model_file_path = os.path.join(HP.SCRATCH,"parts-model-state_{}_{}.tar".format(os.getpid(),parts_model_version))
