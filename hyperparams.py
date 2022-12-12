@@ -17,7 +17,7 @@ TEMPERATURES = ["0.0","0.1","1.0"]
 CUMMULATIVE = False
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
-FIRST_PROOF_ONLY = False
+FIRST_PROOF_ONLY = True
 
 # Features
 
@@ -72,7 +72,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.00002
+LEARNING_RATE : Final[float] = 0.00003
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

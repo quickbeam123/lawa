@@ -160,6 +160,21 @@ def save_train_storage(cur_dir,train_storage):
   print("Saved train_storage with",len(train_storage),"records. Tracking solutions of",len(probs),"problems.")
   torch.save(train_storage, storage_file_path)
 
+def load_train_storage(load_dir,current_train_storage):
+  storage_file_path = os.path.join(load_dir,"train_storage.pt")
+  if os.path.exists(storage_file_path):
+    train_storage = torch.load(storage_file_path)
+
+    probs = set()
+    for prob,temp in train_storage:
+      probs.add(prob)
+
+    print("Loaded train_storage with",len(train_storage),"records. Tracking solutions of",len(probs),"problems.")
+
+    return train_storage
+  else:
+    return current_train_storage
+
 def ilim2tlim(ilim):
   secs = max(5,ilim // 200) # it's 10 times more than the instrlimit on a 2GHz machine
   return secs
@@ -270,6 +285,11 @@ if __name__ == "__main__":
   # load the reference runs from campaign
   baselines = look_for_baselines(campaign_dir)
 
+  # under HP.cummulative, we use this to preserve training data through loop iterations
+  # (even without HP.cummulative, we keep track of and save the last successull training run for each prob and temp)
+  # indexed by (prob,temp) storing (loop_when_obtained,training_datum)
+  train_storage = dict()
+
   model = IC.get_initial_model()
   if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
     optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
@@ -283,6 +303,8 @@ if __name__ == "__main__":
     load_dir = sys.argv[5]
     model.load_state_dict(torch.load(os.path.join(load_dir,"parts-model-state.tar")))
     optimizer.load_state_dict(torch.load(os.path.join(load_dir,"optimizer-state.tar")))
+
+    train_storage = load_train_storage(load_dir,train_storage)
 
     # allow for adapting the params from current HP
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
@@ -339,11 +361,6 @@ if __name__ == "__main__":
   script_model_ref_counts = defaultdict(int)
   parts_model_version = 0
   grad_loader_temp = IC.get_initial_model()
-
-  # under HP.cummulative, we use this to preserve training data through loop iterations
-  # (even without HP.cummulative, we keep track of and save the last successull training run for each prob and temp)
-  # indexed by (prob,temp) storing (loop_when_obtained,training_datum)
-  train_storage = dict()
 
   while True:
     loop += 1
