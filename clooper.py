@@ -303,12 +303,16 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   loop = 0
-
+  loaded_model = False
   if len(sys.argv) > 5:
     # start from this checkpoint
     load_dir = sys.argv[5]
-    model.load_state_dict(torch.load(os.path.join(load_dir,"parts-model-state.tar")))
-    optimizer.load_state_dict(torch.load(os.path.join(load_dir,"optimizer-state.tar")))
+
+    parts_model_path = os.path.join(load_dir,"parts-model-state.tar")
+    if os.path.exists(parts_model_path):
+      model.load_state_dict(torch.load(parts_model_path))
+      optimizer.load_state_dict(torch.load(os.path.join(load_dir,"optimizer-state.tar")))
+      loaded_model = True
 
     train_storage,prob_facts = load_train_storage(load_dir,train_storage,prob_facts)
 
@@ -322,7 +326,8 @@ if __name__ == "__main__":
       for param_group in optimizer.param_groups:
         param_group['lr'] = HP.LEARNING_RATE
         param_group['weight_decay'] = HP.WEIGHT_DECAY
-  else:
+
+  if not loaded_model:
     # since we were not loading, let's save the initial model instead
     assert loop == 0
     cur_dir = claim_loop_dir(loop)
