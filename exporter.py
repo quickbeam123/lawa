@@ -13,12 +13,12 @@ if __name__ == "__main__":
   # Take our parts-model and turn it into a torchscript beast for vampire to interact with
   #
   # To be called as in: ./exporter.py testing/test.pt models/test.pt
-  
+
   in_name = sys.argv[1]
-  model = torch.load(in_name)
+  model = IC.get_initial_model()
+  model.load_state_dict(torch.load(in_name))
   print("Loaded parts-model from",in_name)
 
-  out_name = sys.argv[2]  
-  IC.export_model(model,out_name)  
+  out_name = sys.argv[2]
+  IC.export_model(model.state_dict(),out_name)
   print("Script-model written to",out_name)
-  
