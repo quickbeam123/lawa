@@ -11,7 +11,7 @@ INSTRUCTION_LIMIT_TEST = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.0","0.1","1.0"]
+TEMPERATURES = ["0.0","0.5","1.0"]
 
 # learn from the last proof you found for this setting
 # 0 - don't do it (i.e., only learn from the proofs discovered during this eval)
@@ -57,7 +57,7 @@ FEATURE_SUBSET : Final[int] = FEATURES_AW
 # todo: think of normalization / regularization ...
 
 # Architecture
-CLAUSE_EMBEDDER_LAYERS : Final[int] = 2  # 0 means - just multiply by key at the end (which needs to be of size num_features())
+CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the end (which needs to be of size num_features())
 # for NUM_LAYERS > 0 the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
