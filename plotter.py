@@ -34,7 +34,12 @@ if __name__ == "__main__":
       cur_dir = os.path.join(exper_dir,loop_str)
       if not os.path.isdir(cur_dir):
         if loop == 0:
-          loop += 1
+          loop = 1
+          continue
+        elif loop == 1:  # the dlooper way: the continueing exper does not start from 0
+          time += 1
+          loop = time
+          # print("Setting loop to",loop)
           continue
         else:
           break
@@ -42,7 +47,7 @@ if __name__ == "__main__":
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
       for file in files:
-        if file in ["train_data.pt","train_storage.pt","parts-model.pt","script-model.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar"]:
+        if file in ["train_data.pt","train_storage.pt","parts-model.pt","script-model.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar"]:
           continue
 
         # print("    ",file)

@@ -24,7 +24,7 @@ EVENT_ADD = 0
 EVENT_REM = 1
 EVENT_SEL = 2
 
-def vampire_eval(prob,opts):
+def vampire_perfrom(prob,opts):
   to_run = " ".join(["./run_lawa_vampire.sh",opts,prob])
   # print(to_run)
   output = subprocess.getoutput(to_run)
@@ -46,6 +46,7 @@ def vampire_eval(prob,opts):
         elif "Theorem" in line or "Unsatisfiable" in line or "ContradictoryAxioms" in line:
           status = "uns"
 
+  # print(status,instructions,activations)
   return (status,instructions,activations)
 
 def vampire_gather(prob,opts):
@@ -292,6 +293,8 @@ class LearningModel(torch.nn.Module):
     entropy_loss = torch.zeros(1)
     num_steps = 0
 
+    # TODO: couldn't this be one-off compiled to get much more efficient?
+
     passive = set()
     for event in self.journal:
       event_tag = event[0]
@@ -315,7 +318,6 @@ class LearningModel(torch.nn.Module):
         # print("forward-sub_logits",sub_logits)
 
         lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
-
         if HP.LEARN_FROM_ALL_GOOD:
           good_idxs = []
           for i,id in enumerate(passive_list):
@@ -345,4 +347,11 @@ class LearningModel(torch.nn.Module):
 
         passive.remove(recorded_id)
 
-    return ((good_action_reward_loss,num_good_steps),(time_penalty_loss,time_penalty_volume),(entropy_loss,num_steps))
+    something = False
+    loss = torch.zeros(1)
+    for (l,n) in [(good_action_reward_loss,num_good_steps),(time_penalty_loss,time_penalty_volume),(entropy_loss,num_steps)]:
+      if n > 0:
+        something = True
+        loss += l/n
+    assert something, "The training example was still be degenerate!"
+    return loss

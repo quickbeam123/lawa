@@ -196,7 +196,7 @@ def worker(q_in, q_out):
 
     if job_kind == JK_EVAL:
       (mission,res_filename,script_model_file_path,prob,temp,opts1,opts2) = input
-      result = IC.vampire_eval(prob,opts1+opts2)
+      result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
       (script_model_file_path,prob,temp,opts) = input
@@ -220,35 +220,25 @@ def worker(q_in, q_out):
 
       learn_model = IC.LearningModel(*local_model,*proof_tuple)
       learn_model.train()
-      loss_norms = learn_model.forward()
-
-      something = False
-      loss = torch.zeros(1)
-      for (l,n) in loss_norms:
-        if n > 0:
-          something = True
-          loss += l/n
+      loss = learn_model.forward()
 
       input = (prob,parts_model_file_path) # let's not send back the large proof_tuple
-      if not something:
-        # can the training example can still be degenerate?
-        q_out.put((job_kind,input,None))
-      else:
-        loss *= fact
-        loss.backward()
 
-        for param in local_model.parameters():
-          grad = param.grad
-          param.requires_grad = False # to allow the in-place operation just below
-          if grad is not None:
-            param.copy_(grad)
-          else:
-            param.zero_()
+      loss *= fact
+      loss.backward()
 
-        # use the same file also for the journey back (which brings the gradients inside the actual params)
-        torch.save(local_model.state_dict(), parts_model_file_path)
+      for param in local_model.parameters():
+        grad = param.grad
+        param.requires_grad = False # to allow the in-place operation just below
+        if grad is not None:
+          param.copy_(grad)
+        else:
+          param.zero_()
 
-        q_out.put((job_kind,input,parts_model_file_path))
+      # use the same file also for the journey back (which brings the gradients inside the actual params)
+      torch.save(local_model.state_dict(), parts_model_file_path)
+
+      q_out.put((job_kind,input,parts_model_file_path))
 
 if __name__ == "__main__":
   # Automating the vamp_eval - model_train - model_export loop.

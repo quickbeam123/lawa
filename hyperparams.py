@@ -25,7 +25,18 @@ CUMMULATIVE : Final[int] = 6
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
 # in clooper, this might be especially important as otherwise easy problems will train |TEMPERATURES|-times more than
 # those solved only by some temps
-FIRST_PROOF_ONLY = True
+FIRST_PROOF_ONLY = False
+
+# in dlooper, maybe we don't want to parallelize too much
+# (after all, all the workers are modifying the same model
+# so maybe, let's not be too "hogwild"?)
+TRAINING_PARALLELISM = 20
+
+# also in dlooper:
+# for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
+# for higher values, we wait until the oldest test-eval loss value out of TEST_IMPROVE_WINDOW many
+# is the best, retrive that model (unless it's the first and we would not progress), and finish the loop there
+TEST_IMPROVE_WINDOW = 3
 
 # Features
 
@@ -80,7 +91,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.00001
+LEARNING_RATE : Final[float] = 0.0001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
