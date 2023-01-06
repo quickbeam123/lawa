@@ -50,10 +50,28 @@ def possibly_load_loop_model_and_optimizer_state(load_dir,loop,model,optimizer):
   loop_model_and_optimizer_state_file_path = os.path.join(load_dir,LOOP_MODEL_AND_OPTIMIZER)
   if os.path.exists(loop_model_and_optimizer_state_file_path):
     (loop,model_state_dict,optimizer_state_dict) = torch.load(loop_model_and_optimizer_state_file_path)
+    print("Loaded model and optimizer from",load_dir,"with loop",loop)
     model.load_state_dict(model_state_dict)
     optimizer.load_state_dict(optimizer_state_dict)
     return loop,True
   return loop,False
+
+def get_empty_trace_index():
+  return { m : defaultdict(dict) for m in MISSIONS} # mission -> problem -> temp -> (loop when obtained,trace_file_name)
+
+TRACE_INDEX = "trace-index.pt"
+
+def save_trace_index(cur_dir,trace_index):
+  trace_index_file_path = os.path.join(cur_dir,TRACE_INDEX)
+  torch.save(trace_index, trace_index_file_path)
+
+def possibly_load_trace_index(load_dir,old_index):
+  trace_index_file_path = os.path.join(load_dir,TRACE_INDEX)
+  if os.path.exists(trace_index_file_path):
+    new_index = torch.load(trace_index_file_path)
+    print("Loaded a trace index from",load_dir,"with",len(new_index["train"]),"train and",len(new_index["test"]),"test problems registered.")
+    return new_index
+  return old_index
 
 def ilim2tlim(ilim):
   secs = max(5,ilim // 200) # it's 10 times more than the instrlimit on a 2GHz machine
@@ -175,7 +193,7 @@ if __name__ == "__main__":
   # 3) a traces folder with eval / train trace files (which are persistent across the loops but get overwritten to save space in each successive gather stage)
   os.mkdir(exper_dir)
   traces_dir = os.path.join(exper_dir,"traces")
-  # TODO: what if we want to share traces with a previous run?
+  # NOTE: if we want to share traces with a previous run we use CUMMULATIVE and load a trace index which will point to old exper's traces folder (until overwritten)
   os.mkdir(traces_dir)
 
   # Documentation: save hyperparams and campaign
@@ -194,6 +212,8 @@ if __name__ == "__main__":
   elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
     optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
+  trace_index = get_empty_trace_index()
+
   # temporary model used for the gradient trick
   grad_loader_temp = IC.get_initial_model()
 
@@ -204,6 +224,7 @@ if __name__ == "__main__":
     load_dir = sys.argv[5]
 
     loop,loaded_model = possibly_load_loop_model_and_optimizer_state(load_dir,loop,model,optimizer)
+    trace_index = possibly_load_trace_index(load_dir,trace_index)
 
     # allow for adapting the params from current HP
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
@@ -290,8 +311,8 @@ if __name__ == "__main__":
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
 
-    # TODO: later on, with CUMMULATIVE, this should become persistent and loadable
-    trace_index = { m : defaultdict(dict) for m in MISSIONS} # mission -> problem -> temp -> (loop when obtained,trace_file_name)
+    if HP.CUMMULATIVE == 0: # forget what we solved until now
+      trace_index = get_empty_trace_index()
 
     # STAGE 1: PERFORM and GATHER (TODO: could/should be done in one call to workers?)
     stage_start_time = time.time()
@@ -368,6 +389,11 @@ if __name__ == "__main__":
     print()
     sys.stdout.flush()
 
+    if HP.CUMMULATIVE > 0:
+      print("Registering",len(trace_index["train"]),"train and",len(trace_index["test"]),"test problems in trace_index.")
+      print()
+      sys.stdout.flush()
+
     # STAGE 2: alternate EVAL, TRAIN, EVAL until no longer improving
     stage_start_time = time.time()
 
@@ -386,6 +412,7 @@ if __name__ == "__main__":
           os.remove(eval_models[stage2iter % TIW])
         eval_models[stage2iter % TIW] = eval_model_file_path
 
+        # it's not clear whether test loss should reflect the magic-accum formula of clooper (that tries to pull more strongly on not-so-recently solved problems)
         fact = 1/len(trace_index["test"])
         tasks = ((JK_EVAL,(prob,temp,fact/len(temp_dict),trace_file_path,eval_model_file_path)) for prob, temp_dict in trace_index["test"].items() for temp,(_,trace_file_path) in temp_dict.items())
 
@@ -406,6 +433,7 @@ if __name__ == "__main__":
         do_in_parallel(tasks,parallelism,process_results_from_eval)
 
         print("Weighted test loss",weighted_test_loss)
+        sys.stdout.flush()
         eval_losses[stage2iter % TIW] = weighted_test_loss
         stage2iter += 1
         if stage2iter >= TIW: # we have written everywhere (no None there anymore)
@@ -427,6 +455,7 @@ if __name__ == "__main__":
       train_model_version = 0
       def get_train_tasks():
         fact = 1/len(trace_index["train"])
+        # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
         proto_tasks = [[prob,temp,fact/len(temp_dict),trace_file_path] for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
         random.shuffle(proto_tasks)
 
@@ -463,6 +492,7 @@ if __name__ == "__main__":
       do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
 
       print("Weighted train loss",weighted_train_loss)
+      sys.stdout.flush()
 
       if TIW == 1:
         os.remove(eval_model_file_path)
