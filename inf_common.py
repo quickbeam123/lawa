@@ -184,40 +184,16 @@ def process_features(full_features : List[float]) -> List[float]:
     assert False
     return []
 
-class Embed(torch.nn.Module):
-  weight: Tensor
-
-  def __init__(self, dim : int):
-    super().__init__()
-
-    self.weight = torch.nn.parameter.Parameter(torch.Tensor(dim))
-    self.reset_parameters()
-
-  def __repr__(self):
-    return "Embed: "+str(self.weight.data)
-
-  def reset_parameters(self):
-    torch.nn.init.normal_(self.weight)
-
-  def forward(self) -> Tensor:
-    return self.weight
-
 def get_initial_model():
-  if HP.CLAUSE_EMBEDDER_LAYERS == 0:
-    clause_embedder = torch.nn.Identity()
-  else:
-    layer_list = [torch.nn.Linear(num_features(),HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
-    for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-      layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
-      layer_list.append(torch.nn.ReLU())
-    clause_embedder = torch.nn.Sequential(*layer_list)
+  assert HP.CLAUSE_EMBEDDER_LAYERS > 0
 
-  parts = [clause_embedder]
+  layer_list = [torch.nn.Linear(num_features(),HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
+  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
+    layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
+    layer_list.append(torch.nn.ReLU())
+  layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False))
 
-  clause_key = Embed(HP.CLAUSE_INTERAL_SIZE if HP.CLAUSE_EMBEDDER_LAYERS > 0 else num_features())
-  parts.append(clause_key)
-
-  return torch.nn.ModuleList(parts)
+  return torch.nn.Sequential(*layer_list)
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
@@ -231,40 +207,36 @@ def export_model(model_state_dict,name):
       param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
-    def __init__(self,clause_embedder : torch.nn.Module,clause_key : torch.nn.Module):
+    def __init__(self,clause_evaluator : torch.nn.Module):
       super().__init__()
 
-      self.clause_embedder = clause_embedder
-      self.clause_key = clause_key
+      self.clause_evaluator = clause_evaluator
 
     @torch.jit.export
     def forward(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float, float, float]):
       # print("NN: Got",id,"with features",features)
 
       tFeatures : Tensor = torch.tensor(process_features(features))
-      tInternal : Tensor = self.clause_embedder(tFeatures)
-      val = torch.dot(self.clause_key.weight,tInternal)
+      val = self.clause_evaluator(tFeatures)
       return val.item()
 
-  module = NeuralPassiveClauseContainer(*model)
+  module = NeuralPassiveClauseContainer(model)
   script = torch.jit.script(module)
   script.save(name)
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
-      clause_embedder : torch.nn.Module,
-      clause_key: torch.nn.Module,
+      clause_evaluator : torch.nn.Module,
       clauses,journal,proof_flas,warmup_time,select_time):
     super().__init__()
 
     # print(clause_embedder,clause_key)
     # print(clauses,journal,proof_flas)
 
-    self.clause_embedder = clause_embedder # the MLP for clause feature vects to their embeddings
-    self.clause_key = clause_key           # the key for multiplying an embedding to get a clause logits
-    self.clauses = clauses                 # id -> (feature_vec)
-    self.journal = journal                 # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-    self.proof_flas = proof_flas           # set of the good ids
+    self.clause_evaluator = clause_evaluator # the MLP for clause evaluation
+    self.clauses = clauses                   # id -> (feature_vec)
+    self.journal = journal                   # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.proof_flas = proof_flas             # set of the good ids
     self.warmup_time = warmup_time
     self.select_time = select_time
 
@@ -280,8 +252,7 @@ class LearningModel(torch.nn.Module):
     # print("forward-feature_vecs",feature_vecs)
 
     # in bulk for all the clauses
-    embeddings = self.clause_embedder(feature_vecs)
-    logits = torch.matmul(self.clause_key.weight,torch.t(embeddings))
+    logits = self.clause_evaluator(feature_vecs)
     # print("forward-logits",logits)
 
     good_action_reward_loss = torch.zeros(1)

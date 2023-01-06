@@ -41,8 +41,18 @@ TRAINING_PARALLELISM = 20
 # is the best, retrive that model (unless it's the first and we would not progress), and finish the loop there
 TEST_IMPROVE_WINDOW = 3
 
-# Features
+# if the seems to be taking forever to converge, let's just rerun the perform/gather part
+MAX_TEST_IMPROVE_ITER = 30
 
+# the GSD trick:
+# there is going to be NUM_TWEAKS many extra copies of the main network,
+# with each proving attempt required to specify how these blend (in a linear combination) in the actual computation
+# a unsolved training/test problem tries to get solved with a randomly picked tweak from some of the train problems
+# a solved training problem develops is own tweaking via learning
+# a solved test problem updates it's tweak (the one which worked last time) via hillclimbing
+NUM_TWEAKS = 2
+
+# Features
 # the features come (unnormalized) as:
 # [0 - age (nat), 1 - length (nat), 2 - weight (nat), 3 - splitWeight (nat), 4 - derivedFromGoal (bool), 5 - sineLevel (char),
 # isPureTheoryDescendant (bool), th_ancestors (float+), all_ancestors (float+), th_ancestors/all_ancestors (float-pst)]
@@ -71,8 +81,8 @@ FEATURE_SUBSET : Final[int] = FEATURES_AW
 # todo: think of normalization / regularization ...
 
 # Architecture
-CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # 0 means - just multiply by key at the end (which needs to be of size num_features())
-# for NUM_LAYERS > 0 the following internal size is used:
+CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
+# the following internal size is used:
 CLAUSE_INTERAL_SIZE : Final[int] = 8
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step

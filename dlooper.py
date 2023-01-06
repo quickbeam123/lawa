@@ -20,7 +20,7 @@ import torch
 MISSIONS = ["train","test"]
 
 def print_model_part():
-  print("Key {}".format(repr(model[1])))
+  print("Key {}".format(repr(model[-1].weight.data)))
   pass
 
 def load_train_tests_problem_lists(campaign_dir):
@@ -122,7 +122,7 @@ def worker(q_in, q_out):
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(model_file_path))
 
-      learn_model = IC.LearningModel(*local_model,*proof_tuple)
+      learn_model = IC.LearningModel(local_model,*proof_tuple)
       learn_model.eval()
       loss = learn_model.forward()
 
@@ -136,7 +136,7 @@ def worker(q_in, q_out):
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(model_file_path))
 
-      learn_model = IC.LearningModel(*local_model,*proof_tuple)
+      learn_model = IC.LearningModel(local_model,*proof_tuple)
       if job_kind == JK_TRAIN:
         learn_model.train()
       else:
@@ -447,6 +447,18 @@ if __name__ == "__main__":
               model.load_state_dict(torch.load(eval_models[1]))
             else:
               model.load_state_dict(torch.load(eval_models[oldest_idx]))
+            for eval_model_file_path in eval_models:
+              os.remove(eval_model_file_path)
+            break
+          if stage2iter > HP.MAX_TEST_IMPROVE_ITER:
+            print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
+            best_idx = 0
+            best_idx_val = eval_losses[0]
+            for i,eloss in enumerate(eval_losses):
+              if eloss < best_idx_val:
+                best_idx_val = eloss
+                best_idx = i
+            model.load_state_dict(torch.load(eval_models[best_idx]))
             for eval_model_file_path in eval_models:
               os.remove(eval_model_file_path)
             break
