@@ -367,10 +367,12 @@ if __name__ == "__main__":
             if prob in tweak_map:
               used_tweak = tweak_map[prob]
               # print("Reusing tweak",used_tweak,"from last time for",prob)
-            elif tweak_map:
-              prob_subst = random.choice(list(tweak_map))
-              used_tweak = tweak_map[prob_subst]
-              # print("Stealing from",prob_subst,"tweak",used_tweak,"for",prob)
+              ''' TODO: temporarily, we don't look for new tweaks (just all starting with 0.0 and test problems staying with that)
+              elif tweak_map:
+                prob_subst = random.choice(list(tweak_map))
+                used_tweak = tweak_map[prob_subst]
+                # print("Stealing from",prob_subst,"tweak",used_tweak,"for",prob)
+              '''
             else:
               used_tweak = HP.NUM_TWEAKS*[0.0,]
               # print("Defaulting tweak",used_tweak,"for",prob)
@@ -515,58 +517,58 @@ if __name__ == "__main__":
             break
 
       # TRAIN on train problems
-      train_model_version = 0
-      def get_train_tasks():
-        fact = 1/len(trace_index["train"])
-        # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-        proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),trace_file_path] for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
-        random.shuffle(proto_tasks)
+      for _ in range(HP.NUM_TRAIN_CYCLES_BETWEEN_EVALS):
+        train_model_version = 0
+        def get_train_tasks():
+          fact = 1/len(trace_index["train"])
+          # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
+          proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),trace_file_path] for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
+          random.shuffle(proto_tasks)
 
-        global train_model_version
-        for arg_list in proto_tasks:
-          train_model_version += 1
-          train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
-          torch.save(model.state_dict(), train_model_file_path)
-          arg_list.append(train_model_file_path)
-          yield (JK_TRAIN,tuple(arg_list))
+          global train_model_version
+          for arg_list in proto_tasks:
+            train_model_version += 1
+            train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
+            torch.save(model.state_dict(), train_model_file_path)
+            arg_list.append(train_model_file_path)
+            yield (JK_TRAIN,tuple(arg_list))
 
-      weighted_train_loss = 0.0
+        weighted_train_loss = 0.0
 
-      def process_results_from_train(job_kind,input,result):
-        global weighted_train_loss
+        def process_results_from_train(job_kind,input,result):
+          global weighted_train_loss
 
-        assert job_kind == JK_TRAIN
-        (prob,temp,used_tweak,fact,trace_file_path,train_model_file_path) = input
-        loss = result
+          assert job_kind == JK_TRAIN
+          (prob,temp,used_tweak,fact,trace_file_path,train_model_file_path) = input
+          loss = result
 
-        weighted_train_loss += loss # multiplied by fact already in the child
-        # print(input,result)
+          weighted_train_loss += loss # multiplied by fact already in the child
+          # print(input,result)
 
-        model.setTweak(used_tweak)
+          model.setTweak(used_tweak)
 
-        # copy from result parameters to our model's gradients
-        grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
-        # copy_grads_back_from_param
-        for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
-          param.grad = param_copy
+          # copy from result parameters to our model's gradients
+          grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
+          # copy_grads_back_from_param
+          for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
+            param.grad = param_copy
 
-        optimizer.step()
+          optimizer.step()
 
-        # here we have a new updated tweak inside model
-        new_tweak = model.getTweak()
-        # print("Training on",prob,"updated tweak from",used_tweak,"to",new_tweak)
-        tweak_map[prob] = new_tweak
+          # here we have a new updated tweak inside model
+          new_tweak = model.getTweak()
+          # print("Training on",prob,"updated tweak from",used_tweak,"to",new_tweak)
+          tweak_map[prob] = new_tweak
 
-        os.remove(train_model_file_path)
-        return 1
+          os.remove(train_model_file_path)
+          return 1
 
-      do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
+        do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
 
-      print("Weighted train loss",weighted_train_loss)
-      sys.stdout.flush()
+        print("Weighted train loss",weighted_train_loss)
+        sys.stdout.flush()
 
       if TIW == 1:
-        os.remove(eval_model_file_path)
         break
 
     # stage 2

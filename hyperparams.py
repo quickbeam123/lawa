@@ -35,11 +35,13 @@ FIRST_PROOF_ONLY = False
 # so maybe, let's not be too "hogwild"?)
 TRAINING_PARALLELISM = 20
 
+NUM_TRAIN_CYCLES_BETWEEN_EVALS = 10
+
 # also in dlooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest test-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrive that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 3
+TEST_IMPROVE_WINDOW = 1
 
 # if the seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
@@ -113,7 +115,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.0005
+LEARNING_RATE : Final[float] = 0.001
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
