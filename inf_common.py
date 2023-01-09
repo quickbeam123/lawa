@@ -184,16 +184,52 @@ def process_features(full_features : List[float]) -> List[float]:
     assert False
     return []
 
+class TweakedClauseEvaluator(torch.nn.Module):
+  def __init__(self):
+    super().__init__()
+
+    self.nonlinearity = torch.nn.ReLU()
+
+    layer_list = [torch.nn.Linear(num_features(),(1+HP.NUM_TWEAKS)*HP.CLAUSE_INTERAL_SIZE)]
+    for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
+      layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,(1+HP.NUM_TWEAKS)*HP.CLAUSE_INTERAL_SIZE))
+    layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,(1+HP.NUM_TWEAKS),bias=False))
+
+    self.layers = torch.nn.ModuleList(layer_list)
+    self.one_tweak = torch.nn.parameter.Parameter(torch.Tensor((1+HP.NUM_TWEAKS)))
+
+  def getKey(self):
+    return self.layers[-1]
+
+  def setTweak(self,tweak : List[float]):
+    with torch.no_grad():
+      self.one_tweak.copy_(torch.tensor([1.0,]+list(tweak)))
+
+  def getTweak(self):
+    return list(self.one_tweak.detach().numpy()[1:])
+
+  def forward(self,input) -> Tensor:
+    for i,module in enumerate(self.layers):
+      input = module(input)
+
+      # the tweakish bit
+      sh = input.shape
+      lastdim = sh[-1]
+      assert lastdim % (1+HP.NUM_TWEAKS) == 0
+      newsh = sh[:-1]+(lastdim//(1+HP.NUM_TWEAKS),(1+HP.NUM_TWEAKS))
+      reshaped = input.reshape(newsh) # change the last dimension (which is divisible by OTW) to two
+      input = torch.matmul(reshaped,self.one_tweak)    # multiply-out the last dimension by our one_tweak
+
+      # if not last, do nonlinearity
+      if i < len(self.layers)-1:
+        input = self.nonlinearity(input)
+      else:
+        input = torch.squeeze(input,dim=-1) # we don't want the last dim (which is 1 from the last matmul)
+
+    return input
+
 def get_initial_model():
-  assert HP.CLAUSE_EMBEDDER_LAYERS > 0
-
-  layer_list = [torch.nn.Linear(num_features(),HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
-  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-    layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
-    layer_list.append(torch.nn.ReLU())
-  layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False))
-
-  return torch.nn.Sequential(*layer_list)
+  return TweakedClauseEvaluator()
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
@@ -201,16 +237,20 @@ def export_model(model_state_dict,name):
   model.load_state_dict(model_state_dict)
 
   # eval mode and no gradient
-  for part in model:
-    part.eval()
-    for param in part.parameters():
-      param.requires_grad = False
+  model.eval()
+  for param in model.parameters():
+    param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
     def __init__(self,clause_evaluator : torch.nn.Module):
       super().__init__()
 
       self.clause_evaluator = clause_evaluator
+
+    @torch.jit.export
+    def eatMyTweaks(self,tweaks : List[float]):
+      assert len(tweaks) == HP.NUM_TWEAKS
+      self.clause_evaluator.setTweak(tweaks)
 
     @torch.jit.export
     def forward(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float, float, float]):
@@ -240,7 +280,7 @@ class LearningModel(torch.nn.Module):
     self.warmup_time = warmup_time
     self.select_time = select_time
 
-  def forward(self):
+  def forward(self,tweaks_to_try):
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
     id2idx = {}
@@ -248,20 +288,28 @@ class LearningModel(torch.nn.Module):
       id2idx[id] = i
       clause_list.append(torch.tensor(features))
     feature_vecs = torch.stack(clause_list)
+    # print("feature_vecs.shape",feature_vecs.shape)
 
     # print("forward-feature_vecs",feature_vecs)
 
-    # in bulk for all the clauses
-    logits = self.clause_evaluator(feature_vecs)
-    # print("forward-logits",logits)
+    outer_dim = len(tweaks_to_try)
+    assert not self.training or outer_dim == 1
 
-    good_action_reward_loss = torch.zeros(1)
+    # in bulk for all the clauses
+    logits_list = []
+    for tweak in tweaks_to_try:
+      self.clause_evaluator.setTweak(tweak)
+      logits_list.append(self.clause_evaluator(feature_vecs))
+    logits = torch.stack(logits_list)
+    # print("logits.shape",logits.shape)
+
+    good_action_reward_loss = torch.zeros(outer_dim)
     num_good_steps = 0
 
-    time_penalty_loss = torch.zeros(1)
+    time_penalty_loss = torch.zeros(outer_dim)
     time_penalty_volume = 0
 
-    entropy_loss = torch.zeros(1)
+    entropy_loss = torch.zeros(outer_dim)
     num_steps = 0
 
     # TODO: couldn't this be one-off compiled to get much more efficient?
@@ -285,10 +333,13 @@ class LearningModel(torch.nn.Module):
         # print("forward-passive_list",passive_list)
         indices = torch.tensor([id2idx[id] for id in passive_list])
         # print("forward-indices",indices)
-        sub_logits = logits[indices]
+        sub_logits = logits[:,indices]
         # print("forward-sub_logits",sub_logits)
 
-        lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
+        # print("sub_logits.shape",sub_logits.shape)
+        lsm = torch.nn.functional.log_softmax(sub_logits,dim=-1)
+        # print("lsm.shape",lsm.shape)
+
         if HP.LEARN_FROM_ALL_GOOD:
           good_idxs = []
           for i,id in enumerate(passive_list):
@@ -296,21 +347,22 @@ class LearningModel(torch.nn.Module):
               good_idxs.append(i)
           # print(good_idxs)
           if len(good_idxs):
-            good_action_reward_loss += -sum(lsm[good_idxs])/len(good_idxs)
+            good_action_reward_loss += -torch.sum(lsm[:,good_idxs],dim=-1)/len(good_idxs)
             num_good_steps += 1
         else:
           if recorded_id in self.proof_flas:
             cur_idx = passive_list.index(recorded_id)
-            good_action_reward_loss += -lsm[cur_idx]
+            good_action_reward_loss += -lsm[:,cur_idx]
             num_good_steps += 1
 
         if HP.TIME_PENALTY_MIXING > 0.0:
           cur_idx = passive_list.index(recorded_id)
-          time_penalty_loss += HP.TIME_PENALTY_MIXING*event_time*lsm[cur_idx]
+          time_penalty_loss += HP.TIME_PENALTY_MIXING*event_time*lsm[:,cur_idx]
           time_penalty_volume += event_time
 
         if HP.ENTROPY_COEF > 0.0:
-          minus_entropy = torch.dot(torch.exp(lsm),lsm)
+          # TODO: this needs debugging under tweaks
+          minus_entropy = torch.dot(torch.exp(lsm,dim=-1),lsm)
           if HP.ENTROPY_NORMALIZED:
             minus_entropy /= torch.log(len(lsm))
           entropy_loss += HP.ENTROPY_COEF*minus_entropy
@@ -319,7 +371,7 @@ class LearningModel(torch.nn.Module):
         passive.remove(recorded_id)
 
     something = False
-    loss = torch.zeros(1)
+    loss = torch.zeros(outer_dim)
     for (l,n) in [(good_action_reward_loss,num_good_steps),(time_penalty_loss,time_penalty_volume),(entropy_loss,num_steps)]:
       if n > 0:
         something = True

@@ -9,6 +9,8 @@ from collections import deque
 
 import multiprocessing
 
+import numpy
+
 # first environ, then load torch, also later we set_num_treads (in "main")
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -20,7 +22,7 @@ import torch
 MISSIONS = ["train","test"]
 
 def print_model_part():
-  print("Key {}".format(repr(model[-1].weight.data)))
+  print("Key {}".format(repr(model.getKey().weight.data)))
   pass
 
 def load_train_tests_problem_lists(campaign_dir):
@@ -73,23 +75,37 @@ def possibly_load_trace_index(load_dir,old_index):
     return new_index
   return old_index
 
+TWEAK_MAP = "tweak_map.pt"
+
+def save_tweak_map(cur_dir,tweak_map):
+  tweak_map_file_path = os.path.join(cur_dir,TWEAK_MAP)
+  torch.save(tweak_map, tweak_map_file_path)
+
+def possibly_load_tweak_map(load_dir,old_map):
+  tweak_map_file_path = os.path.join(load_dir,TWEAK_MAP)
+  if os.path.exists(tweak_map_file_path):
+    new_map = torch.load(tweak_map_file_path)
+    print("Loaded tweak map with",len(new_map),"entries")
+    return new_map
+  return old_map
+
 def ilim2tlim(ilim):
   secs = max(5,ilim // 200) # it's 10 times more than the instrlimit on a 2GHz machine
   return secs
 
 # Kinds of jobs a worker can be asked to do
 JK_PERFORM = 0 # runs vampire in "real-time" mode to assess its performance
-  # input:     (res_filename,mission,prob,temp,opts1,opts2)
+  # input:     (res_filename,mission,prob,temp,used_tweak,opts1,opts2)
   # output:    result as coming from IC.vampire_eval
 JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training trace
   # input:     (mission,prob,temp,opts)
   # output:    filename where got saved if got a non-degenerate trace; or None
 JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
-  # input:     (prob,temp,fact,trace_file_path,model_file_path)
-  # output:    the computed loss
-JK_TRAIN = 3   #
-  # input:     (prob,temp,fact,trace_file_path,model_file_path)
-  # output:    the computed loss
+  # input:     (prob,temp,tweak_start,tweak_std,fact,trace_file_path,model_file_path)
+  # output:    (best_loss,best_tweak) out of the HP.NUM_HILL_TRIES_ON_EVAL tries with different tweaks from around tweak_start
+JK_TRAIN = 3   # with train also do loss.backward and send the gradients back
+  # input:     (prob,temp,used_tweak,fact,trace_file_path,model_file_path)
+  # output:    the computed loss # the out tweak will be recovered from the returned model_file_path (after optimizer step)
 
 def get_trace_file_path(mission,prob,temp):
   return os.path.join(traces_dir,"{}_{}_{}.pt".format(mission,prob.replace("/","_"),temp))
@@ -103,7 +119,7 @@ def worker(q_in, q_out):
     (job_kind,input) = q_in.get()
 
     if job_kind == JK_PERFORM:
-      (res_filename,mission,prob,temp,opts1,opts2) = input
+      (res_filename,mission,prob,temp,used_tweak,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
@@ -115,7 +131,7 @@ def worker(q_in, q_out):
         torch.save(result[1],trace_file_path)
       q_out.put((job_kind,input,trace_file_path))
     elif job_kind == JK_EVAL:
-      (prob,temp,fact,trace_file_path,model_file_path) = input
+      (prob,temp,tweak_start,tweak_std,fact,trace_file_path,model_file_path) = input
 
       proof_tuple = torch.load(trace_file_path)
 
@@ -124,12 +140,24 @@ def worker(q_in, q_out):
 
       learn_model = IC.LearningModel(local_model,*proof_tuple)
       learn_model.eval()
-      loss = learn_model.forward()
 
-      q_out.put((job_kind,input,loss.item()))
+      # TODO: don't do this with ||tweak_std|| = 0, e.g., when we don't do proper tweaking!
+      tweaks_to_try = numpy.random.normal(tweak_start,HP.TWEAK_SEARCH_SPREAD_FACTOR*tweak_std,size=(HP.NUM_HILL_TRIES_ON_EVAL,len(tweak_start)))
 
-    elif job_kind == JK_EVAL or job_kind == JK_TRAIN:
-      (prob,temp,fact,trace_file_path,model_file_path) = input
+      # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
+      # print(tweaks_to_try)
+
+      losses = learn_model.forward(tweaks_to_try)
+
+      # print("Got",losses)
+
+      min_idx = torch.argmin(losses)
+
+      # print("min-ning at",min_idx)
+
+      q_out.put((job_kind,input,(fact*losses[min_idx].item(),tweaks_to_try[min_idx])))
+    elif job_kind == JK_TRAIN:
+      (prob,temp,used_tweak,fact,trace_file_path,model_file_path) = input
 
       proof_tuple = torch.load(trace_file_path)
 
@@ -137,28 +165,23 @@ def worker(q_in, q_out):
       local_model.load_state_dict(torch.load(model_file_path))
 
       learn_model = IC.LearningModel(local_model,*proof_tuple)
-      if job_kind == JK_TRAIN:
-        learn_model.train()
-      else:
-        learn_model.eval()
-      loss = learn_model.forward()
+      learn_model.train()
+      loss = learn_model.forward([used_tweak])
 
-      loss *= fact
-      if job_kind == JK_TRAIN:
-        loss.backward()
+      loss.backward()
 
-        for param in local_model.parameters():
-          grad = param.grad
-          param.requires_grad = False # to allow the in-place operation just below
-          if grad is not None:
-            param.copy_(grad)
-          else:
-            param.zero_()
+      for param in local_model.parameters():
+        grad = param.grad
+        param.requires_grad = False # to allow the in-place operation just below
+        if grad is not None:
+          param.copy_(grad)
+        else:
+          param.zero_()
 
-        # use the same file also for the journey back (which brings the gradients inside the actual params)
-        torch.save(local_model.state_dict(), model_file_path)
+      # use the same file also for the journey back (which brings the gradients inside the actual params)
+      torch.save(local_model.state_dict(), model_file_path)
 
-      q_out.put((job_kind,input,loss.item()))
+      q_out.put((job_kind,input,fact*loss.item()))
 
 if __name__ == "__main__":
   # Automating the vamp_perform - model_train - model_export loop.
@@ -214,6 +237,9 @@ if __name__ == "__main__":
 
   trace_index = get_empty_trace_index()
 
+  tweak_map = {} # each problem (both train and test) is associated with at most one tweak, a list of floats of len = HP.NUM_TWEAKS
+  assert HP.NUM_TWEAKS == 0 or HP.CUMMULATIVE > 0, "let's not think about what it should mean to work with proper tweaks and not be CUMMULATIVE"
+
   # temporary model used for the gradient trick
   grad_loader_temp = IC.get_initial_model()
 
@@ -225,6 +251,7 @@ if __name__ == "__main__":
 
     loop,loaded_model = possibly_load_loop_model_and_optimizer_state(load_dir,loop,model,optimizer)
     trace_index = possibly_load_trace_index(load_dir,trace_index)
+    tweak_map = possibly_load_tweak_map(load_dir,tweak_map)
 
     # allow for adapting the params from current HP
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
@@ -335,20 +362,37 @@ if __name__ == "__main__":
 
           # will change for the gathering job
           opts1 = "-t {} -i {} -p off".format(ilim2tlim(ilim),ilim)
-          # will stay the same
-          opts2 = " --random_seed {} -npcc {} -npcct {}".format(seed,script_model_file_path,temp)
 
           for prob in prob_lists[mission]:
-            yield (JK_PERFORM,(res_filename,mission,prob,temp,opts1,opts2))
+            if prob in tweak_map:
+              used_tweak = tweak_map[prob]
+              # print("Reusing tweak",used_tweak,"from last time for",prob)
+            elif tweak_map:
+              prob_subst = random.choice(list(tweak_map))
+              used_tweak = tweak_map[prob_subst]
+              # print("Stealing from",prob_subst,"tweak",used_tweak,"for",prob)
+            else:
+              used_tweak = HP.NUM_TWEAKS*[0.0,]
+              # print("Defaulting tweak",used_tweak,"for",prob)
+
+            tweak_str = ",".join([str(t) for t in used_tweak])
+            # print(tweak_str)
+
+            # will stay the same
+            opts2 = " --random_seed {} -npcc {} -npcct {} -npccw {}".format(seed,script_model_file_path,temp,tweak_str)
+
+            yield (JK_PERFORM,(res_filename,mission,prob,temp,used_tweak,opts1,opts2))
 
     def process_results_from_perform_and_gather(job_kind,input,result):
       workers_freed = 0
       if job_kind == JK_PERFORM:
-        (res_filename,mission,prob,temp,opts1,opts2) = input
+        (res_filename,mission,prob,temp,used_tweak,opts1,opts2) = input
         result_dicts[res_filename][prob] = result
 
         (status,instructions,activations) = result
         if status == "uns":
+          tweak_map[prob] = used_tweak
+
           ilim = 10*HP.INSTRUCTION_LIMIT
           task = (JK_GATHER,(mission,prob,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
           # print("PUT:",task)
@@ -404,6 +448,9 @@ if __name__ == "__main__":
     stage2iter = 0
 
     while True:
+      tweak_std = numpy.std(list(tweak_map.values()),axis=0)
+      print("  tweak_std now",tweak_std)
+
       if TIW > 1:
         # EVAL on test problems
         eval_model_file_path = os.path.join(HP.SCRATCH,"eval-model-state_{}_{}.tar".format(os.getpid(),stage2iter))
@@ -414,7 +461,8 @@ if __name__ == "__main__":
 
         # it's not clear whether test loss should reflect the magic-accum formula of clooper (that tries to pull more strongly on not-so-recently solved problems)
         fact = 1/len(trace_index["test"])
-        tasks = ((JK_EVAL,(prob,temp,fact/len(temp_dict),trace_file_path,eval_model_file_path)) for prob, temp_dict in trace_index["test"].items() for temp,(_,trace_file_path) in temp_dict.items())
+        tasks = ((JK_EVAL,(prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],tweak_std,
+          fact/len(temp_dict),trace_file_path,eval_model_file_path)) for prob, temp_dict in trace_index["test"].items() for temp,(_,trace_file_path) in temp_dict.items())
 
         weighted_test_loss = 0.0
 
@@ -422,11 +470,14 @@ if __name__ == "__main__":
           global weighted_test_loss
 
           assert job_kind == JK_EVAL
-          (prob,temp,fact,trace_file_path,eval_model_file_path) = input
-          loss = result
+          (prob,temp,tweak_start,tweak_std,fact,trace_file_path,model_file_path) = input
+          (loss,out_tweak) = result
 
           weighted_test_loss += loss # multiplied by fact already in the child
-          # print(input,result)
+
+          # print("Test eval on",prob,"updated tweak from",tweak_start,"+/-",tweak_std,"to",out_tweak)
+
+          tweak_map[prob] = out_tweak
 
           return 1
 
@@ -468,7 +519,7 @@ if __name__ == "__main__":
       def get_train_tasks():
         fact = 1/len(trace_index["train"])
         # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-        proto_tasks = [[prob,temp,fact/len(temp_dict),trace_file_path] for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
+        proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),trace_file_path] for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
         random.shuffle(proto_tasks)
 
         global train_model_version
@@ -485,11 +536,13 @@ if __name__ == "__main__":
         global weighted_train_loss
 
         assert job_kind == JK_TRAIN
-        (prob,temp,fact,trace_file_path,train_model_file_path) = input
+        (prob,temp,used_tweak,fact,trace_file_path,train_model_file_path) = input
         loss = result
 
         weighted_train_loss += loss # multiplied by fact already in the child
         # print(input,result)
+
+        model.setTweak(used_tweak)
 
         # copy from result parameters to our model's gradients
         grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
@@ -498,6 +551,12 @@ if __name__ == "__main__":
           param.grad = param_copy
 
         optimizer.step()
+
+        # here we have a new updated tweak inside model
+        new_tweak = model.getTweak()
+        # print("Training on",prob,"updated tweak from",used_tweak,"to",new_tweak)
+        tweak_map[prob] = new_tweak
+
         os.remove(train_model_file_path)
         return 1
 
@@ -517,6 +576,7 @@ if __name__ == "__main__":
 
     print_model_part()
     save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
+    save_tweak_map(cur_dir,tweak_map)
 
     print("Loop took",time.time()-loop_start_time)
     print()

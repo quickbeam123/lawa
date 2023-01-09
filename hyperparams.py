@@ -52,6 +52,15 @@ MAX_TEST_IMPROVE_ITER = 30
 # a solved test problem updates it's tweak (the one which worked last time) via hillclimbing
 NUM_TWEAKS = 2
 
+# when evaluating on test problems, where do we get our tweak?
+# we do a blind hill climb around what we used last time (with some spread determined below)
+# and keep the best scoring one!
+NUM_HILL_TRIES_ON_EVAL = 5
+
+# we take the std of the tweaks seen so far (both train and test)
+# sample from gauss ball with mean = the last tweak, and std = the above std times the blow factor:
+TWEAK_SEARCH_SPREAD_FACTOR = 0.1
+
 # Features
 # the features come (unnormalized) as:
 # [0 - age (nat), 1 - length (nat), 2 - weight (nat), 3 - splitWeight (nat), 4 - derivedFromGoal (bool), 5 - sineLevel (char),
@@ -76,7 +85,7 @@ FEATURES_ORIGRICH : Final[int] = 5
 # like ORIGRICH, but leave out all the sine level stuff
 FEATURES_ORIGPLAIN : Final[int] = 6
 
-FEATURE_SUBSET : Final[int] = FEATURES_AW
+FEATURE_SUBSET : Final[int] = FEATURES_ALL
 
 # todo: think of normalization / regularization ...
 
