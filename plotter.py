@@ -66,7 +66,8 @@ if __name__ == "__main__":
       loop += 1
       time += 1
     # go one step back to seamlessly connect with the followup exper, if present
-    time -= 1
+    # NOT ANYMORE: we start from one there
+    # time -= 1
 
   import matplotlib.pyplot as plt
 
