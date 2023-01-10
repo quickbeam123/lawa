@@ -71,7 +71,7 @@ def possibly_load_trace_index(load_dir,old_index):
   trace_index_file_path = os.path.join(load_dir,TRACE_INDEX)
   if os.path.exists(trace_index_file_path):
     new_index = torch.load(trace_index_file_path)
-    print("Loaded a trace index from",load_dir,"with",len(new_index["train"]),"train and",len(new_index["test"]),"test problems registered.")
+    print("Loaded trace index from",load_dir,"with",len(new_index["train"]),"train and",len(new_index["test"]),"test problems registered.")
     return new_index
   return old_index
 
@@ -85,7 +85,7 @@ def possibly_load_tweak_map(load_dir,old_map):
   tweak_map_file_path = os.path.join(load_dir,TWEAK_MAP)
   if os.path.exists(tweak_map_file_path):
     new_map = torch.load(tweak_map_file_path)
-    print("Loaded tweak map with",len(new_map),"entries")
+    print("Loaded tweak map from",load_dir,"with",len(new_map),"entries")
     return new_map
   return old_map
 
@@ -436,6 +436,7 @@ if __name__ == "__main__":
     sys.stdout.flush()
 
     if HP.CUMMULATIVE > 0:
+      save_trace_index(cur_dir,trace_index)
       print("Registering",len(trace_index["train"]),"train and",len(trace_index["test"]),"test problems in trace_index.")
       print()
       sys.stdout.flush()
