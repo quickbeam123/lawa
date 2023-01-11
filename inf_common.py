@@ -224,12 +224,49 @@ class TweakedClauseEvaluator(torch.nn.Module):
       if i < len(self.layers)-1:
         input = self.nonlinearity(input)
       else:
-        input = torch.squeeze(input,dim=-1) # we don't want the last dim (which is 1 from the last matmul)
+        input = torch.squeeze(input,dim=-1) # we don't want the last dim (whose size is 1 from the last matmul)
 
     return input
 
 def get_initial_model():
   return TweakedClauseEvaluator()
+
+def hardwire_one(input,one_tweak):
+  sh = input.shape
+  # print("input",sh)
+  firstdim = sh[0]
+  assert firstdim % (1+HP.NUM_TWEAKS) == 0
+  nsh = ((1+HP.NUM_TWEAKS),firstdim//(1+HP.NUM_TWEAKS))+sh[1:]
+  reshaped = input.reshape(nsh)
+  # print("reshaped",reshaped.shape)
+  output = torch.einsum("i,i...->...", one_tweak,reshaped)
+  # print("output",output.shape)
+  if output.shape[0] == 1:
+    output = torch.squeeze(output,dim=0)
+    # print("output-squeeze",output.shape)
+  return output
+
+# given a TweakedClauseEvaluator tce and a tweak list (of len HP.NUM_TWEAKS)
+# return a Sequential model using the same computation as the tce under tweaks
+# this is destructive on the tce
+def hardwire_tweaks(tce : torch.nn.Module, tweaks : List[float]):
+  one_tweak = torch.tensor([1.0,]+list(tweaks))
+
+  pieces = []
+  for i,module in enumerate(tce.layers):
+    # print("weight",i)
+    module.weight = torch.nn.parameter.Parameter(hardwire_one(module.weight,one_tweak))
+
+    if module.bias is not None:
+      # print("bias",i)
+      module.bias = torch.nn.parameter.Parameter(hardwire_one(module.bias,one_tweak))
+
+    # TODO: should we also update the in_features/out_features ?
+
+    if i < len(tce.layers)-1:
+      pieces.append(tce.nonlinearity)
+
+  return torch.nn.Sequential(*pieces)
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
