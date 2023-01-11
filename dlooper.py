@@ -335,6 +335,10 @@ if __name__ == "__main__":
 
     loop_start_time = time.time()
 
+    # TODO: at the very fresh beginning, this could crash
+    tweak_std = numpy.std(list(tweak_map.values()),axis=0)
+    print("  tweak_std now",tweak_std)
+
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
 
@@ -367,15 +371,18 @@ if __name__ == "__main__":
             if prob in tweak_map:
               used_tweak = tweak_map[prob]
               # print("Reusing tweak",used_tweak,"from last time for",prob)
-              ''' TODO: temporarily, we don't look for new tweaks (just all starting with 0.0 and test problems staying with that)
-              elif tweak_map:
-                prob_subst = random.choice(list(tweak_map))
-                used_tweak = tweak_map[prob_subst]
-                # print("Stealing from",prob_subst,"tweak",used_tweak,"for",prob)
-              '''
+            else:
+              used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
+              # print("Will try tweak",used_tweak,"for",prob)
+            # TODO: there also was the option to draw a tweak that already exists somewhere in the map
+            # (but with a different problem)
+            # in any case, this is only interesting for solving more problems during training,
+            # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
+            '''
             else:
               used_tweak = HP.NUM_TWEAKS*[0.0,]
               # print("Defaulting tweak",used_tweak,"for",prob)
+            '''
 
             tweak_str = ",".join([str(t) for t in used_tweak])
             # print(tweak_str)
@@ -451,9 +458,6 @@ if __name__ == "__main__":
     stage2iter = 0
 
     while True:
-      tweak_std = numpy.std(list(tweak_map.values()),axis=0)
-      print("  tweak_std now",tweak_std)
-
       if TIW > 1:
         # EVAL on test problems
         eval_model_file_path = os.path.join(HP.SCRATCH,"eval-model-state_{}_{}.tar".format(os.getpid(),stage2iter))
