@@ -23,13 +23,26 @@ if __name__ == "__main__":
   proof_tuple = torch.load(sys.argv[2])
   print("Loaded proof_tuple with",len(proof_tuple[0]),"clauses and",len(proof_tuple[1]),"journal steps")
 
+  prob_tweak = None
+
+  if len(sys.argv) > 3:
+    tweak_map = torch.load(sys.argv[3])
+
+    # e.g. train_Problems_COL_COL042-6.p_1.0.pt
+    trace_name = sys.argv[2]
+    prob_name = "/".join(trace_name.split("_")[1:-1])
+
+    prob_tweak = tweak_map[prob_name]
+
+    print(f"Loaded prob's ({prob_name}) tweak: {prob_tweak}")
+
   learn_model = IC.LearningModel(model,*proof_tuple)
   learn_model.eval()
 
   import numpy as np
 
-  AXLEN = 0.003
-  STEPS = 10
+  AXLEN = 0.01
+  STEPS = 25
 
   dx, dy = AXLEN/STEPS, AXLEN/STEPS
 
@@ -48,7 +61,10 @@ if __name__ == "__main__":
   Z = get_loss(X, Y)
 
   from matplotlib import pyplot as plt
-  img = plt.imshow(Z, cmap=plt.cm.hsv, interpolation='nearest',extent=extent, origin='lower')
+  plt.imshow(Z, cmap=plt.cm.hsv, interpolation='nearest',extent=extent, origin='lower')
+
+  if prob_tweak is not None:
+    plt.plot([prob_tweak[0]],[prob_tweak[1]],marker='o')
 
   plt.colorbar()
   plt.savefig("tweak_map_{}.png".format(os.path.basename(sys.argv[2])),dpi=250)
