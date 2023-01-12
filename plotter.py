@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
       # don't generate empty plots:
       if had_some:
-        plt.savefig("deleteme/{}_{}_{}_plot.png".format(os.path.basename(sys.argv[1]),mission,prob.replace("/","_")),dpi=250)
+        plt.savefig("perProblemProgressionPlots/{}_{}_{}_plot.png".format(os.path.basename(sys.argv[1]),mission,prob.replace("/","_")),dpi=250)
 
       plt.close(fig)
 

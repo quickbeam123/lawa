@@ -335,9 +335,12 @@ if __name__ == "__main__":
 
     loop_start_time = time.time()
 
-    # TODO: at the very fresh beginning, this could crash
-    tweak_std = numpy.std(list(tweak_map.values()),axis=0)
-    print("  tweak_std now",tweak_std)
+    # TODO: at the very fresh beginning, this will not get initialized!
+    have_tweak_std = False
+    if len(tweak_map) > 0:
+      have_tweak_std = True
+      tweak_std = numpy.std(list(tweak_map.values()),axis=0)
+      print("  tweak_std now",tweak_std)
 
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
@@ -371,18 +374,16 @@ if __name__ == "__main__":
             if prob in tweak_map:
               used_tweak = tweak_map[prob]
               # print("Reusing tweak",used_tweak,"from last time for",prob)
-            else:
+            elif have_tweak_std:
               used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
               # print("Will try tweak",used_tweak,"for",prob)
-            # TODO: there also was the option to draw a tweak that already exists somewhere in the map
-            # (but with a different problem)
-            # in any case, this is only interesting for solving more problems during training,
-            # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
-            '''
+              # TODO: there also was the option to draw a tweak that already exists somewhere in the map
+              # (but with a different problem)
+              # in any case, this is only interesting for solving more problems during training,
+              # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
             else:
               used_tweak = HP.NUM_TWEAKS*[0.0,]
               # print("Defaulting tweak",used_tweak,"for",prob)
-            '''
 
             tweak_str = ",".join([str(t) for t in used_tweak])
             # print(tweak_str)
@@ -457,6 +458,16 @@ if __name__ == "__main__":
     eval_losses = [None]*TIW
     stage2iter = 0
 
+    # given prob's temp_dict in trace_index, tell me how many times we want to think it's present in the our set (when computing overall loss)
+    def prob_importance_coef(prob,temp_dict):
+      max_loop = 0
+      for _temp,(l,_trace_file_path) in temp_dict.items():
+        if l > max_loop:
+          max_loop = l
+      # print("prob_importance_coef for",prob,"is",min(loop-max_loop+1,HP.CUMMULATIVE))
+      # the more long time ago the most recent solution was, the more we care about bringing the problem back (i.e., easy problems don't pull on loss too hard)
+      return min(loop-max_loop+1,HP.CUMMULATIVE)
+
     while True:
       if TIW > 1:
         # EVAL on test problems
@@ -467,9 +478,10 @@ if __name__ == "__main__":
         eval_models[stage2iter % TIW] = eval_model_file_path
 
         # it's not clear whether test loss should reflect the magic-accum formula of clooper (that tries to pull more strongly on not-so-recently solved problems)
-        fact = 1/len(trace_index["test"])
+        fact = 1/sum(prob_importance_coef(prob,temp_dict) for prob, temp_dict in trace_index["test"].items())
         tasks = ((JK_EVAL,(prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],tweak_std,
-          fact/len(temp_dict),trace_file_path,eval_model_file_path)) for prob, temp_dict in trace_index["test"].items() for temp,(_,trace_file_path) in temp_dict.items())
+          fact*prob_importance_coef(prob,temp_dict)/len(temp_dict),trace_file_path,eval_model_file_path))
+          for prob, temp_dict in trace_index["test"].items() for temp,(_,trace_file_path) in temp_dict.items())
 
         weighted_test_loss = 0.0
 
@@ -525,9 +537,10 @@ if __name__ == "__main__":
       for _ in range(HP.NUM_TRAIN_CYCLES_BETWEEN_EVALS):
         train_model_version = 0
         def get_train_tasks():
-          fact = 1/len(trace_index["train"])
+          fact = 1/sum(prob_importance_coef(prob,temp_dict) for prob, temp_dict in trace_index["train"].items())
           # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-          proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),trace_file_path] for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
+          proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact*prob_importance_coef(prob,temp_dict)/len(temp_dict),trace_file_path]
+            for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
           random.shuffle(proto_tasks)
 
           global train_model_version
