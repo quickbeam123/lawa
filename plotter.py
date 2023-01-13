@@ -28,7 +28,10 @@ if __name__ == "__main__":
 
   for exper_dir in sys.argv[1:]:
     print(exper_dir)
-    loop = 0
+    _root, dirs, _files = next(os.walk(exper_dir))
+    loop = min(int(dir[4:]) for dir in dirs if dir.startswith("loop"))
+    if time == 0 and loop > 0:
+      time = loop
     while True:
       loop_str = "loop{}".format(loop)
       cur_dir = os.path.join(exper_dir,loop_str)
@@ -47,7 +50,7 @@ if __name__ == "__main__":
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
       for file in files:
-        if file in ["train_data.pt","train_storage.pt","parts-model.pt","script-model.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar"]:
+        if file in ["tweak_map.pt","trace-index.pt","train_data.pt","train_storage.pt","parts-model.pt","script-model.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar"]:
           continue
 
         # print("    ",file)
