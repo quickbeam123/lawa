@@ -22,7 +22,7 @@ TEMPERATURES = ["0.0","0.5","1.0"]
 # Idea: super easy problems will get to 1 (ten times less then max) and stay there
 # on the other hand, hard problems will be pulling harder (as long as they stay unsolved)
 # in dlooper, for now, just boolean like functionality (no extra multiplier)
-CUMMULATIVE : Final[int] = 5
+CUMMULATIVE : Final[int] = 1
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
 # in clooper, this might be especially important as otherwise easy problems will train |TEMPERATURES|-times more than

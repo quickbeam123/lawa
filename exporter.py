@@ -16,7 +16,9 @@ if __name__ == "__main__":
 
   in_name = sys.argv[1]
   model = IC.get_initial_model()
-  model.load_state_dict(torch.load(in_name))
+  # model.load_state_dict(torch.load(in_name))
+  (loop,model_state_dict,optimizer_state_dict) = torch.load(in_name)
+  model.load_state_dict(model_state_dict)
   print("Loaded parts-model from",in_name)
 
   out_name = sys.argv[2]

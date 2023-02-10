@@ -72,6 +72,16 @@ def possibly_load_trace_index(load_dir,old_index):
   if os.path.exists(trace_index_file_path):
     new_index = torch.load(trace_index_file_path)
     print("Loaded trace index from",load_dir,"with",len(new_index["train"]),"train and",len(new_index["test"]),"test problems registered.")
+    # trace index culling (for the case the loaded problems are a superset of current campaign's)
+    deleted = False
+    for m in MISSIONS:
+      relevant = set(prob_lists[m])
+      for prob in list(new_index[m]):
+        if prob not in relevant:
+          del new_index[m][prob]
+          deleted = True
+    if deleted:
+      print("Reduced to",len(new_index["train"]),"train and",len(new_index["test"]),"test problems during culling.")
     return new_index
   return old_index
 
