@@ -52,7 +52,7 @@ MAX_TEST_IMPROVE_ITER = 30
 # a unsolved training/test problem tries to get solved with a randomly picked tweak from some of the train problems
 # a solved training problem develops is own tweaking via learning
 # a solved test problem updates it's tweak (the one which worked last time) via hillclimbing
-NUM_TWEAKS = 2
+NUM_TWEAKS = 0
 
 # when evaluating on test problems, where do we get our tweak?
 # we do a blind hill climb around what we used last time (with some spread determined below)
@@ -64,30 +64,14 @@ NUM_HILL_TRIES_ON_EVAL = 5
 TWEAK_SEARCH_SPREAD_FACTOR = 0.1
 
 # Features
-# the features come (unnormalized) as:
-# [0 - age (nat), 1 - length (nat), 2 - weight (nat), 3 - splitWeight (nat), 4 - derivedFromGoal (bool), 5 - sineLevel (char),
-# isPureTheoryDescendant (bool), th_ancestors (float+), all_ancestors (float+), th_ancestors/all_ancestors (float-pst)]
-
-# the B-versions below only make sense for NUM_LAYERS == 0 where we only do the dot product with key
-# there a bias channel adds one more constant-one feature to every clause
-
-# just the generalized length (TODO: consider not using the twoVar eq ones)
-FEATURES_LEN : Final[int] = 0
-# just age and weight
-FEATURES_AW : Final[int] = 1
-# the above two together
-FEATURES_PLAIN : Final[int] = 2
-# add AVATAR
-FEATURES_RICH : Final[int] = 3
-# add also sine levels
-FEATURES_ALL : Final[int] = 4
-# just length instead of generalized one (that which used to be called FEATURES_RICH before; for regressions)
-# this still not the same, since sine levels are done differently and there is the extra channel for "sine=255"
-FEATURES_ORIGRICH : Final[int] = 5
-# like ORIGRICH, but leave out all the sine level stuff
-FEATURES_ORIGPLAIN : Final[int] = 6
-
-FEATURE_SUBSET : Final[int] = FEATURES_ALL
+# in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
+# Age,Weight                  2
+# Splits,                     3
+# posEq,negEq,posNeq,negNeq,  7
+# VarOcc,VarOcc/W             8,9
+# Sine0,SineMax,SineLevel,    12
+# DistVars,DistVars/W         13,14
+NUM_FEATURES : Final[int] = 2
 
 # todo: think of normalization / regularization ...
 

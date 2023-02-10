@@ -75,8 +75,8 @@ def vampire_gather(prob,opts):
       if line.startswith("i: "):
         spl = line.split()
         id = int(spl[1])
-        features = process_features(list(map(float,spl[2:])))
-        assert len(features) == num_features()
+        features = list(map(float,spl[2:]))
+        assert len(features) == HP.NUM_FEATURES
         # print(id,features)
         assert id not in clauses, "id appeared again for: "+to_run
         clauses[id] = features
@@ -131,66 +131,13 @@ def vampire_gather(prob,opts):
   print(output)
   return None # meaning: "A major failure, consider keeping the used model for later debugging"
 
-def num_features():
-  if HP.FEATURE_SUBSET == HP.FEATURES_LEN:
-    return 6
-  elif HP.FEATURE_SUBSET == HP.FEATURES_AW:
-    return 2
-  elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
-    return 8
-  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
-    return 9
-  elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
-    return 12
-  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGRICH:
-    return 7
-  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGPLAIN:
-    return 4
-  else:
-    return 0
-
-def process_features(full_features : List[float]) -> List[float]:
-  f = full_features
-  if HP.FEATURE_SUBSET == HP.FEATURES_LEN:
-    return f[0:6]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_AW:
-    return [f[6],f[7]]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_PLAIN:
-    return f[0:8]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_RICH:
-    return f[0:9]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_ALL:
-    return f
-  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGRICH:
-    return [f[0]+f[1]+f[2]+f[3]]+f[6:]
-  elif HP.FEATURE_SUBSET == HP.FEATURES_ORIGPLAIN:
-    return [f[0]+f[1]+f[2]+f[3]]+f[6:9]
-    '''
-    elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS:
-      return [f[0],f[0]*f[0],math.sqrt(f[0]),math.log(1.0+f[0]),f[2],f[2]*f[2],math.sqrt(f[2]),math.log(1.0+f[2])]
-    elif HP.FEATURE_SUBSET == HP.FEATURES_AW_PLUS_TIMES:
-      a = f[0]
-      w = f[2]
-      a2 = a*a
-      w2 = w*w
-      a_sqrt = math.sqrt(a)
-      w_sqrt = math.sqrt(w)
-      a_log = math.log(1.0+a)
-      w_log = math.log(1.0+w)
-
-      return [a,a2,a_sqrt,a_log,w,w2,w_sqrt,w_log,a*w,a*w_sqrt,a*w_log,a_sqrt*w,a_sqrt*w_sqrt,a_sqrt*w_log,a_log*w,a_log*w_sqrt,a_log*w_log]
-    '''
-  else:
-    assert False
-    return []
-
 class TweakedClauseEvaluator(torch.nn.Module):
   def __init__(self):
     super().__init__()
 
     self.nonlinearity = torch.nn.ReLU()
 
-    layer_list = [torch.nn.Linear(num_features(),(1+HP.NUM_TWEAKS)*HP.CLAUSE_INTERAL_SIZE)]
+    layer_list = [torch.nn.Linear(HP.NUM_FEATURES,(1+HP.NUM_TWEAKS)*HP.CLAUSE_INTERAL_SIZE)]
     for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
       layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,(1+HP.NUM_TWEAKS)*HP.CLAUSE_INTERAL_SIZE))
     layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,(1+HP.NUM_TWEAKS),bias=False))
@@ -230,6 +177,16 @@ class TweakedClauseEvaluator(torch.nn.Module):
 
 def get_initial_model():
   return TweakedClauseEvaluator()
+
+def get_initial_model_old():
+  assert HP.CLAUSE_EMBEDDER_LAYERS > 0
+  layer_list = [torch.nn.Linear(HP.NUM_FEATURES,HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
+  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
+    layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
+    layer_list.append(torch.nn.ReLU())
+  layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False))
+
+  return torch.nn.Sequential(*layer_list)
 
 def hardwire_one(input,one_tweak):
   sh = input.shape
@@ -290,10 +247,13 @@ def export_model(model_state_dict,name):
       self.clause_evaluator.setTweak(tweaks)
 
     @torch.jit.export
-    def forward(self,id: int,features : Tuple[float, float, float, float, float, float, float, float, float, float, float, float]):
+    def forward(self,id: int,features : Tensor):
       # print("NN: Got",id,"with features",features)
 
-      tFeatures : Tensor = torch.tensor(process_features(features))
+      assert len(features) == HP.NUM_FEATURES
+
+      # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
+      tFeatures : Tensor = features.float()
       val = self.clause_evaluator(tFeatures)
       return val.item()
 

@@ -19,6 +19,9 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import torch
 
+# TODO: is float64 wasteful? (note we do everything in doubles on the vampire side!)
+# torch.set_default_dtype(torch.float64)
+
 MISSIONS = ["train","test"]
 
 def print_model_part():
@@ -399,7 +402,7 @@ if __name__ == "__main__":
             # print(tweak_str)
 
             # will stay the same
-            opts2 = " --random_seed {} -npcc {} -npcct {} -npccw {}".format(seed,script_model_file_path,temp,tweak_str)
+            opts2 = " --random_seed {} -npcc {} -nnf {} -npcct {} -npccw {}".format(seed,script_model_file_path,HP.NUM_FEATURES,temp,tweak_str)
 
             yield (JK_PERFORM,(res_filename,mission,prob,temp,used_tweak,opts1,opts2))
 
