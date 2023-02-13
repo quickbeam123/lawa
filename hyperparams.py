@@ -5,8 +5,8 @@ from typing import Final, List
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
 # Data gathering
-INSTRUCTION_LIMIT = 5000
-INSTRUCTION_LIMIT_TEST = 5000
+INSTRUCTION_LIMIT = 500
+INSTRUCTION_LIMIT_TEST = 500
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
@@ -49,7 +49,7 @@ MAX_TEST_IMPROVE_ITER = 30
 # there is always going to be (1+NUM_TWEAKS) many copies of the main network in the trained model
 # also, each problem will maintain a list of NUM_TWEAKS many tweaks which best describe it
 # by convention, we train those tweaks which correspond to active_networks (e.g. ACTIVE_FROM==2 means we train all except the first tweak)
-NUM_TWEAKS = 0
+NUM_TWEAKS = 2
 
 # with NUM_TWEAKS > 0, it makes sense to fix some tweaks (as well as the main, default, network) and only train (some of the) tweaky parts
 # note the indixing issue: ACTIVE_FROM == 0 means we are training the main newtwork (at index 0), whose formal tweak is the constant 1.0
@@ -72,7 +72,7 @@ TWEAK_SEARCH_SPREAD_FACTOR = 0.1
 # VarOcc,VarOcc/W             8,9
 # Sine0,SineMax,SineLevel,    12
 # DistVars,DistVars/W         13,14
-NUM_FEATURES : Final[int] = 2
+NUM_FEATURES : Final[int] = 12
 
 # todo: think of normalization / regularization ...
 

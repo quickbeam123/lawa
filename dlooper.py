@@ -47,19 +47,19 @@ def claim_loop_dir(loop):
 
 LOOP_MODEL_AND_OPTIMIZER = "loop-model-and-optimizer.tar"
 
-def save_loop_model_and_optimizer(cur_dir,loop,model,optimizer):
+def save_info_model_and_optimizer(cur_dir,loop,model,optimizer):
   loop_model_and_optimizer_state_file_path = os.path.join(cur_dir,LOOP_MODEL_AND_OPTIMIZER)
-  torch.save((loop,model.state_dict(),optimizer.state_dict()), loop_model_and_optimizer_state_file_path)
+  torch.save((loop,HP.NUM_TWEAKS,HP.ACTIVE_FROM,model.state_dict(),optimizer.state_dict()), loop_model_and_optimizer_state_file_path)
 
-def possibly_load_loop_model_and_optimizer_state(load_dir,loop,model,optimizer):
+def possibly_load_info_model_and_optimizer_state(load_dir):
   loop_model_and_optimizer_state_file_path = os.path.join(load_dir,LOOP_MODEL_AND_OPTIMIZER)
   if os.path.exists(loop_model_and_optimizer_state_file_path):
-    (loop,model_state_dict,optimizer_state_dict) = torch.load(loop_model_and_optimizer_state_file_path)
-    print("Loaded model and optimizer from",load_dir,"with loop",loop)
+    (loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict) = torch.load(loop_model_and_optimizer_state_file_path)
+    print("Loaded model and optimizer from",load_dir,"with loop/num_tweaks/active_from:",loop,num_tweaks,active_from)
     model.load_state_dict(model_state_dict)
     optimizer.load_state_dict(optimizer_state_dict)
-    return loop,True
-  return loop,False
+    return True,(loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict)
+  return False,()
 
 def get_empty_trace_index():
   return { m : defaultdict(dict) for m in MISSIONS} # mission -> problem -> temp -> (loop when obtained,trace_file_name)
@@ -262,9 +262,15 @@ if __name__ == "__main__":
     # start from this checkpoint
     load_dir = sys.argv[5]
 
-    loop,loaded_model = possibly_load_loop_model_and_optimizer_state(load_dir,loop,model,optimizer)
+    res,data = possibly_load_info_model_and_optimizer_state(load_dir)
+    if res:
+      (loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict) = data
+      # TODO: readujst the model if new networks and tweaks are needed
+      # TODO: also possibly rewire the optimizer to account for what's newly learnable!
+
     trace_index = possibly_load_trace_index(load_dir,trace_index)
     tweak_map = possibly_load_tweak_map(load_dir,tweak_map)
+    # TODO: also here, we might need new tweaks!
 
     # allow for adapting the params from current HP
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
@@ -281,7 +287,7 @@ if __name__ == "__main__":
     # since we were not loading, let's save the initial model instead
     assert loop == 0
     cur_dir = claim_loop_dir(loop)
-    save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
+    save_info_model_and_optimizer(cur_dir,loop,model,optimizer)
 
   print_model_part()
 
@@ -382,27 +388,31 @@ if __name__ == "__main__":
 
           # will change for the gathering job
           opts1 = "-t {} -i {} -p off".format(ilim2tlim(ilim),ilim)
+          # will stay the same
+          opts2_base = " --random_seed {} -npcc {} -nnf {} -npcct {}".format(seed,script_model_file_path,HP.NUM_FEATURES,temp)
 
           for prob in prob_lists[mission]:
-            if prob in tweak_map:
-              used_tweak = tweak_map[prob]
-              # print("Reusing tweak",used_tweak,"from last time for",prob)
-            elif have_tweak_std:
-              used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
-              # print("Will try tweak",used_tweak,"for",prob)
-              # TODO: there also was the option to draw a tweak that already exists somewhere in the map
-              # (but with a different problem)
-              # in any case, this is only interesting for solving more problems during training,
-              # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
+            if HP.NUM_TWEAKS > 0:
+              if prob in tweak_map:
+                used_tweak = tweak_map[prob]
+                # print("Reusing tweak",used_tweak,"from last time for",prob)
+              elif have_tweak_std:
+                used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
+                # print("Will try tweak",used_tweak,"for",prob)
+                # TODO: there also was the option to draw a tweak that already exists somewhere in the map
+                # (but with a different problem)
+                # in any case, this is only interesting for solving more problems during training,
+                # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
+              else:
+                used_tweak = HP.NUM_TWEAKS*[0.0,]
+                # print("Defaulting tweak",used_tweak,"for",prob)
+
+              tweak_str = ",".join([str(t) for t in used_tweak])
+              # print(tweak_str)
+              opts2 = opts2_base + " -npccw {}".format(tweak_str)
             else:
-              used_tweak = HP.NUM_TWEAKS*[0.0,]
-              # print("Defaulting tweak",used_tweak,"for",prob)
-
-            tweak_str = ",".join([str(t) for t in used_tweak])
-            # print(tweak_str)
-
-            # will stay the same
-            opts2 = " --random_seed {} -npcc {} -nnf {} -npcct {} -npccw {}".format(seed,script_model_file_path,HP.NUM_FEATURES,temp,tweak_str)
+              used_tweak = []
+              opts2 = opts2_base
 
             yield (JK_PERFORM,(res_filename,mission,prob,temp,used_tweak,opts1,opts2))
 
@@ -576,7 +586,7 @@ if __name__ == "__main__":
           weighted_train_loss += loss # multiplied by fact already in the child
           # print(input,result)
 
-          model.setTweak(used_tweak)
+          model.setTweaks(used_tweak)
 
           # copy from result parameters to our model's gradients
           grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
@@ -608,7 +618,7 @@ if __name__ == "__main__":
     sys.stdout.flush()
 
     print_model_part()
-    save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
+    save_info_model_and_optimizer(cur_dir,loop,model,optimizer)
     save_tweak_map(cur_dir,tweak_map)
 
     print("Loop took",time.time()-loop_start_time)

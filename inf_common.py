@@ -158,7 +158,7 @@ class TweakedClauseEvaluator(torch.nn.Module):
 
   def getKey(self,idx=0):
     # by default, we look at the the last layer of the base network
-    return self.networks[idx][-1].weight
+    return self.networks[idx][-1]
 
   def setTweaks(self,new_tweaks : List[float]):
     with torch.no_grad():
@@ -168,41 +168,38 @@ class TweakedClauseEvaluator(torch.nn.Module):
   def getTweaks(self):
     return list(tweak.item() for tweak in self.tweaks)
 
-  def hardwireTweaks(self,new_tweaks : List[float]):
-    # similar to foward below, but
-    # we don't compute on input,
-    # rather we destructively update self.networks[0] work with the given tweaks forever
-    # (we expect there to be enough networks as we were give tweaks, but we ignore all the others if present 
-    # -- as if the tweaks were padded by 0.0 at the end if needed)
-    if len(new_tweaks) > 0:
-      for i,module in enumerate(self.networks[0]):
-        if isinstance(module,torch.nn.Linear):
-          for next_module,next_tweak in zip(self.networks[1:][i],new_tweaks):
-            module.weight.add_(next_module.weight,next_tweak)
-            if module.bias is not None:
-              module.bias.add_(next_module.bias,next_tweak)
-
-  def forward(self,input) -> Tensor:
+  def myforward(self,input) -> Tensor:
     if HP.NUM_TWEAKS == 0:
+      # print("forward-in",input.shape)
       return self.networks[0].forward(input)
 
     for i,module in enumerate(self.networks[0]):
+      # print("forward",i,"shape",input.shape)
+
       if isinstance(module,torch.nn.Linear):
         my_weight = torch.clone(module.weight)
-        my_bias = torch.clone(module.bias)
+        if module.bias is not None:
+          my_bias = torch.clone(module.bias)
+        else:
+          my_bias = None
 
-        for next_module,next_tweak in zip(self.networks[1:][i],self.tweaks):
+        for j,next_network in enumerate(self.networks[1:]):
+          next_module = next_network[i]
+          next_tweak = self.tweaks[j]
           my_weight += next_tweak*next_module.weight
           if my_bias is not None:
             my_bias += next_tweak*next_module.bias
 
         input = torch.nn.functional.linear(input, my_weight, my_bias)
 
+      elif False:
+        # TODO: when needed, should implement other network building blocks
+        pass
       else:
         # this is for our non-linearities
         input = module(input)
-      # TODO: when needed, need to implement other network building blocks
 
+    # print("forward-done",input.shape)
     return input
 
 def get_initial_model():
@@ -219,14 +216,19 @@ def export_model(model_state_dict,name):
     param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
-    def __init__(self,clause_evaluator : torch.nn.Module):
+    def __init__(self,weights0 : List[Tensor],biases0: List[Tensor], weights2 : List[Tensor]):
       super().__init__()
 
-      self.clause_evaluator = clause_evaluator
+      self.weights0 = weights0
+      self.biases0 = biases0
+      self.weights2 = weights2
 
     @torch.jit.export
     def eatMyTweaks(self,tweaks : List[float]):
-      self.clause_evaluator.hardwireTweaks(tweaks)
+      for i,tweak in enumerate(tweaks):
+        self.weights0[0].add_(self.weights0[i+1],alpha=tweak)
+        self.biases0[0].add_(self.biases0[i+1],alpha=tweak)
+        self.weights2[0].add_(self.weights2[i+1],alpha=tweak)
 
     @torch.jit.export
     def forward(self,id: int,features : Tensor):
@@ -235,11 +237,18 @@ def export_model(model_state_dict,name):
 
       # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
       tFeatures : Tensor = features.float()
-      # using only networks[0] for forward (by now potentially modified via eatMyTweaks)
-      val = self.clause_evaluator.networks[0](tFeatures)
+      val = torch.nn.functional.linear(tFeatures, self.weights0[0], self.biases0[0])
+      val = torch.nn.functional.relu(val,inplace=True)
+      val = torch.nn.functional.linear(val, self.weights2[0])
       return val.item()
 
-  module = NeuralPassiveClauseContainer(model)
+  # TODO: ugly -- hardwiring the current architecture since jit scripting is not flexible enough atm
+  assert HP.CLAUSE_EMBEDDER_LAYERS == 1
+  weights0 = [network[0].weight for network in model.networks]
+  biases0 = [network[0].bias for network in model.networks]
+  weights2 = [network[2].weight for network in model.networks]
+
+  module = NeuralPassiveClauseContainer(weights0,biases0,weights2)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -280,7 +289,10 @@ class LearningModel(torch.nn.Module):
     logits_list = []
     for tweak in tweaks_to_try:
       self.clause_evaluator.setTweaks(tweak)
-      logits_list.append(self.clause_evaluator(feature_vecs))
+      logits_for_this_tweak = self.clause_evaluator.myforward(feature_vecs)
+      logits_for_this_tweak = torch.squeeze(logits_for_this_tweak,dim=-1)
+      # print("logits_for_this_tweak",logits_for_this_tweak.shape)
+      logits_list.append(logits_for_this_tweak)
     logits = torch.stack(logits_list)
     # print("logits.shape",logits.shape)
 
