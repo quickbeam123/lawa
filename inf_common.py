@@ -131,54 +131,7 @@ def vampire_gather(prob,opts):
   print(output)
   return None # meaning: "A major failure, consider keeping the used model for later debugging"
 
-class TweakedClauseEvaluator(torch.nn.Module):
-  def __init__(self):
-    super().__init__()
-
-    self.nonlinearity = torch.nn.ReLU()
-
-    layer_list = [torch.nn.Linear(HP.NUM_FEATURES,(1+HP.NUM_TWEAKS)*HP.CLAUSE_INTERAL_SIZE)]
-    for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-      layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,(1+HP.NUM_TWEAKS)*HP.CLAUSE_INTERAL_SIZE))
-    layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,(1+HP.NUM_TWEAKS),bias=False))
-
-    self.layers = torch.nn.ModuleList(layer_list)
-    self.one_tweak = torch.nn.parameter.Parameter(torch.Tensor((1+HP.NUM_TWEAKS)))
-
-  def getKey(self):
-    return self.layers[-1]
-
-  def setTweak(self,tweak : List[float]):
-    with torch.no_grad():
-      self.one_tweak.copy_(torch.tensor([1.0,]+list(tweak)))
-
-  def getTweak(self):
-    return list(self.one_tweak.detach().numpy()[1:])
-
-  def forward(self,input) -> Tensor:
-    for i,module in enumerate(self.layers):
-      input = module(input)
-
-      # the tweakish bit
-      sh = input.shape
-      lastdim = sh[-1]
-      assert lastdim % (1+HP.NUM_TWEAKS) == 0
-      newsh = sh[:-1]+(lastdim//(1+HP.NUM_TWEAKS),(1+HP.NUM_TWEAKS))
-      reshaped = input.reshape(newsh) # change the last dimension (which is divisible by OTW) to two
-      input = torch.matmul(reshaped,self.one_tweak)    # multiply-out the last dimension by our one_tweak
-
-      # if not last, do nonlinearity
-      if i < len(self.layers)-1:
-        input = self.nonlinearity(input)
-      else:
-        input = torch.squeeze(input,dim=-1) # we don't want the last dim (whose size is 1 from the last matmul)
-
-    return input
-
-def get_initial_model():
-  return TweakedClauseEvaluator()
-
-def get_initial_model_old():
+def get_base_network():
   assert HP.CLAUSE_EMBEDDER_LAYERS > 0
   layer_list = [torch.nn.Linear(HP.NUM_FEATURES,HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
   for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
@@ -188,42 +141,72 @@ def get_initial_model_old():
 
   return torch.nn.Sequential(*layer_list)
 
-def hardwire_one(input,one_tweak):
-  sh = input.shape
-  # print("input",sh)
-  firstdim = sh[0]
-  assert firstdim % (1+HP.NUM_TWEAKS) == 0
-  nsh = ((1+HP.NUM_TWEAKS),firstdim//(1+HP.NUM_TWEAKS))+sh[1:]
-  reshaped = input.reshape(nsh)
-  # print("reshaped",reshaped.shape)
-  output = torch.einsum("i,i...->...", one_tweak,reshaped)
-  # print("output",output.shape)
-  if output.shape[0] == 1:
-    output = torch.squeeze(output,dim=0)
-    # print("output-squeeze",output.shape)
-  return output
+class TweakedClauseEvaluator(torch.nn.Module):
+  # if this got born with fewer networks/tweaks than the current value of HP.NUM_TWEAKS, let's add some (default initialized) to make the numbers work
+  def fillup_networks_and_tweaks(self):
+    assert len(self.networks) == len(self.tweaks)+1
+    while len(self.tweaks) < HP.NUM_TWEAKS:
+      self.networks.append(get_base_network())
+      self.tweaks.append(torch.nn.Parameter(torch.tensor(0.0)))
 
-# given a TweakedClauseEvaluator tce and a tweak list (of len HP.NUM_TWEAKS)
-# return a Sequential model using the same computation as the tce under tweaks
-# this is destructive on the tce
-def hardwire_tweaks(tce : torch.nn.Module, tweaks : List[float]):
-  one_tweak = torch.tensor([1.0,]+list(tweaks))
+  def __init__(self):
+    super().__init__()
 
-  pieces = []
-  for i,module in enumerate(tce.layers):
-    # print("weight",i)
-    module.weight = torch.nn.parameter.Parameter(hardwire_one(module.weight,one_tweak))
+    self.networks = torch.nn.ModuleList([get_base_network()])
+    self.tweaks = torch.nn.ParameterList()
+    self.fillup_networks_and_tweaks()
 
-    if module.bias is not None:
-      # print("bias",i)
-      module.bias = torch.nn.parameter.Parameter(hardwire_one(module.bias,one_tweak))
+  def getKey(self,idx=0):
+    # by default, we look at the the last layer of the base network
+    return self.networks[idx][-1].weight
 
-    # TODO: should we also update the in_features/out_features ?
+  def setTweaks(self,new_tweaks : List[float]):
+    with torch.no_grad():
+      for i,tweak in enumerate(new_tweaks):
+        self.tweaks[i].fill_(tweak)
 
-    if i < len(tce.layers)-1:
-      pieces.append(tce.nonlinearity)
+  def getTweaks(self):
+    return list(tweak.item() for tweak in self.tweaks)
 
-  return torch.nn.Sequential(*pieces)
+  def hardwireTweaks(self,new_tweaks : List[float]):
+    # similar to foward below, but
+    # we don't compute on input,
+    # rather we destructively update self.networks[0] work with the given tweaks forever
+    # (we expect there to be enough networks as we were give tweaks, but we ignore all the others if present 
+    # -- as if the tweaks were padded by 0.0 at the end if needed)
+    if len(new_tweaks) > 0:
+      for i,module in enumerate(self.networks[0]):
+        if isinstance(module,torch.nn.Linear):
+          for next_module,next_tweak in zip(self.networks[1:][i],new_tweaks):
+            module.weight.add_(next_module.weight,next_tweak)
+            if module.bias is not None:
+              module.bias.add_(next_module.bias,next_tweak)
+
+  def forward(self,input) -> Tensor:
+    if HP.NUM_TWEAKS == 0:
+      return self.networks[0].forward(input)
+
+    for i,module in enumerate(self.networks[0]):
+      if isinstance(module,torch.nn.Linear):
+        my_weight = torch.clone(module.weight)
+        my_bias = torch.clone(module.bias)
+
+        for next_module,next_tweak in zip(self.networks[1:][i],self.tweaks):
+          my_weight += next_tweak*next_module.weight
+          if my_bias is not None:
+            my_bias += next_tweak*next_module.bias
+
+        input = torch.nn.functional.linear(input, my_weight, my_bias)
+
+      else:
+        # this is for our non-linearities
+        input = module(input)
+      # TODO: when needed, need to implement other network building blocks
+
+    return input
+
+def get_initial_model():
+  return TweakedClauseEvaluator()
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
@@ -243,18 +226,17 @@ def export_model(model_state_dict,name):
 
     @torch.jit.export
     def eatMyTweaks(self,tweaks : List[float]):
-      assert len(tweaks) == HP.NUM_TWEAKS
-      self.clause_evaluator.setTweak(tweaks)
+      self.clause_evaluator.hardwireTweaks(tweaks)
 
     @torch.jit.export
     def forward(self,id: int,features : Tensor):
       # print("NN: Got",id,"with features",features)
-
       assert len(features) == HP.NUM_FEATURES
 
       # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
       tFeatures : Tensor = features.float()
-      val = self.clause_evaluator(tFeatures)
+      # using only networks[0] for forward (by now potentially modified via eatMyTweaks)
+      val = self.clause_evaluator.networks[0](tFeatures)
       return val.item()
 
   module = NeuralPassiveClauseContainer(model)
@@ -270,7 +252,7 @@ class LearningModel(torch.nn.Module):
     # print(clause_embedder,clause_key)
     # print(clauses,journal,proof_flas)
 
-    self.clause_evaluator = clause_evaluator # the MLP for clause evaluation
+    self.clause_evaluator = clause_evaluator # the TweakedClauseEvaluator for clause evaluation
     self.clauses = clauses                   # id -> (feature_vec)
     self.journal = journal                   # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas             # set of the good ids
@@ -282,6 +264,8 @@ class LearningModel(torch.nn.Module):
     clause_list = []
     id2idx = {}
     for i,(id,features) in enumerate(sorted(self.clauses.items())):
+      # we could also do some cropping, if vampire gave us more and we want thed fewer
+      assert len(features) == HP.NUM_FEATURES
       id2idx[id] = i
       clause_list.append(torch.tensor(features))
     feature_vecs = torch.stack(clause_list)
@@ -295,7 +279,7 @@ class LearningModel(torch.nn.Module):
     # in bulk for all the clauses
     logits_list = []
     for tweak in tweaks_to_try:
-      self.clause_evaluator.setTweak(tweak)
+      self.clause_evaluator.setTweaks(tweak)
       logits_list.append(self.clause_evaluator(feature_vecs))
     logits = torch.stack(logits_list)
     # print("logits.shape",logits.shape)

@@ -43,16 +43,17 @@ NUM_TRAIN_CYCLES_BETWEEN_EVALS = 10
 # is the best, retrive that model (unless it's the first and we would not progress), and finish the loop there
 TEST_IMPROVE_WINDOW = 1
 
-# if the seems to be taking forever to converge, let's just rerun the perform/gather part
+# if it seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
 
-# the GSD trick:
-# there is going to be NUM_TWEAKS many extra copies of the main network,
-# with each proving attempt required to specify how these blend (in a linear combination) in the actual computation
-# a unsolved training/test problem tries to get solved with a randomly picked tweak from some of the train problems
-# a solved training problem develops is own tweaking via learning
-# a solved test problem updates it's tweak (the one which worked last time) via hillclimbing
+# there is always going to be (1+NUM_TWEAKS) many copies of the main network in the trained model
+# also, each problem will maintain a list of NUM_TWEAKS many tweaks which best describe it
+# by convention, we train those tweaks which correspond to active_networks (e.g. ACTIVE_FROM==2 means we train all except the first tweak)
 NUM_TWEAKS = 0
+
+# with NUM_TWEAKS > 0, it makes sense to fix some tweaks (as well as the main, default, network) and only train (some of the) tweaky parts
+# note the indixing issue: ACTIVE_FROM == 0 means we are training the main newtwork (at index 0), whose formal tweak is the constant 1.0
+ACTIVE_FROM = 0
 
 # when evaluating on test problems, where do we get our tweak?
 # we do a blind hill climb around what we used last time (with some spread determined below)

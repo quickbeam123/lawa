@@ -587,7 +587,7 @@ if __name__ == "__main__":
           optimizer.step()
 
           # here we have a new updated tweak inside model
-          new_tweak = model.getTweak()
+          new_tweak = model.getTweaks()
           # print("Training on",prob,"updated tweak from",used_tweak,"to",new_tweak)
           tweak_map[prob] = new_tweak
 
