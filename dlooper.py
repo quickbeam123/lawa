@@ -12,11 +12,11 @@ import multiprocessing
 import numpy
 
 # first environ, then load torch, also later we set_num_treads (in "main")
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = str(HP.INTRAOP_PARALLELISM)
+os.environ["OPENBLAS_NUM_THREADS"] = str(HP.INTRAOP_PARALLELISM)
+os.environ["MKL_NUM_THREADS"] = str(HP.INTRAOP_PARALLELISM)
+os.environ["VECLIB_MAXIMUM_THREADS"] = str(HP.INTRAOP_PARALLELISM)
+os.environ["NUMEXPR_NUM_THREADS"] = str(HP.INTRAOP_PARALLELISM)
 import torch
 
 # TODO: is float64 wasteful? (note we do everything in doubles on the vampire side!)
@@ -126,7 +126,7 @@ def get_trace_file_path(mission,prob,temp):
 def worker(q_in, q_out):
   # tell each worker we don't want any extra threads
   torch.set_num_threads(1)
-  torch.set_num_interop_threads(1)
+  torch.set_num_interop_threads(HP.INTRAOP_PARALLELISM)
 
   while True:
     (job_kind,input) = q_in.get()
@@ -344,7 +344,7 @@ if __name__ == "__main__":
   https://github.com/pytorch/pytorch/issues/75147
   '''
   torch.set_num_threads(1)
-  torch.set_num_interop_threads(1)
+  torch.set_num_interop_threads(HP.INTRAOP_PARALLELISM)
 
   while True:
     if loop_count == 0:

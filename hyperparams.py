@@ -4,9 +4,11 @@ from typing import Final, List
 
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
+INTRAOP_PARALLELISM = 10
+
 # Data gathering
-INSTRUCTION_LIMIT = 500
-INSTRUCTION_LIMIT_TEST = 500
+INSTRUCTION_LIMIT = 5000
+INSTRUCTION_LIMIT_TEST = 5000
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
@@ -33,7 +35,9 @@ FIRST_PROOF_ONLY = False
 # in dlooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model
 # so maybe, let's not be too "hogwild"?)
-TRAINING_PARALLELISM = 20
+TRAINING_PARALLELISM = 10
+
+
 
 NUM_TRAIN_CYCLES_BETWEEN_EVALS = 10
 
