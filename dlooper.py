@@ -45,14 +45,14 @@ def claim_loop_dir(loop):
   os.mkdir(cur_dir)
   return cur_dir
 
-LOOP_MODEL_AND_OPTIMIZER = "loop-model-and-optimizer.tar"
+INFO_MODEL_AND_OPTIMIZER = "info-model-and-optimizer.tar"
 
 def save_info_model_and_optimizer(cur_dir,loop,model,optimizer):
-  loop_model_and_optimizer_state_file_path = os.path.join(cur_dir,LOOP_MODEL_AND_OPTIMIZER)
+  loop_model_and_optimizer_state_file_path = os.path.join(cur_dir,INFO_MODEL_AND_OPTIMIZER)
   torch.save((loop,HP.NUM_TWEAKS,HP.ACTIVE_FROM,model.state_dict(),optimizer.state_dict()), loop_model_and_optimizer_state_file_path)
 
 def possibly_load_info_model_and_optimizer_state(load_dir):
-  loop_model_and_optimizer_state_file_path = os.path.join(load_dir,LOOP_MODEL_AND_OPTIMIZER)
+  loop_model_and_optimizer_state_file_path = os.path.join(load_dir,INFO_MODEL_AND_OPTIMIZER)
   if os.path.exists(loop_model_and_optimizer_state_file_path):
     (loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict) = torch.load(loop_model_and_optimizer_state_file_path)
     print("Loaded model and optimizer from",load_dir,"with loop/num_tweaks/active_from:",loop,num_tweaks,active_from)
@@ -61,8 +61,17 @@ def possibly_load_info_model_and_optimizer_state(load_dir):
     return True,(loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict)
   return False,()
 
+def default_defaultdict_of_list():
+  return defaultdict(list)
+
 def get_empty_trace_index():
-  return { m : defaultdict(dict) for m in MISSIONS} # mission -> problem -> temp -> (loop when obtained,trace_file_name)
+  return defaultdict(default_defaultdict_of_list) # problem -> temp -> [(loop when obtained,trace_file_name)]
+
+def trace_index_content_summary(index):
+  num_probs = len(index)
+  num_prob_temps = sum(len(temp_dict) for _prob,temp_dict in index.items())
+  num_traces = sum(len(trace_list) for prob,temp_dict in index.items() for temp, trace_list in temp_dict.items())
+  return "{} probs, {} prob_temps, and {} traces in total.".format(num_probs,num_prob_temps,num_traces)
 
 TRACE_INDEX = "trace-index.pt"
 
@@ -74,17 +83,7 @@ def possibly_load_trace_index(load_dir,old_index):
   trace_index_file_path = os.path.join(load_dir,TRACE_INDEX)
   if os.path.exists(trace_index_file_path):
     new_index = torch.load(trace_index_file_path)
-    print("Loaded trace index from",load_dir,"with",len(new_index["train"]),"train and",len(new_index["test"]),"test problems registered.")
-    # trace index culling (for the case the loaded problems are a superset of current campaign's)
-    deleted = False
-    for m in MISSIONS:
-      relevant = set(prob_lists[m])
-      for prob in list(new_index[m]):
-        if prob not in relevant:
-          del new_index[m][prob]
-          deleted = True
-    if deleted:
-      print("Reduced to",len(new_index["train"]),"train and",len(new_index["test"]),"test problems during culling.")
+    print("Loaded a trace_index with",trace_index_content_summary(new_index))
     return new_index
   return old_index
 
@@ -120,8 +119,8 @@ JK_TRAIN = 3   # with train also do loss.backward and send the gradients back
   # input:     (prob,temp,used_tweak,fact,trace_file_path,model_file_path)
   # output:    the computed loss # the out tweak will be recovered from the returned model_file_path (after optimizer step)
 
-def get_trace_file_path(mission,prob,temp):
-  return os.path.join(traces_dir,"{}_{}_{}.pt".format(mission,prob.replace("/","_"),temp))
+def get_trace_file_path(prob,loop,temp):
+  return os.path.join(traces_dir,"loop{}_{}_{}.pt".format(loop,prob.replace("/","_"),temp))
 
 def worker(q_in, q_out):
   # tell each worker we don't want any extra threads
@@ -136,15 +135,15 @@ def worker(q_in, q_out):
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
-      (mission,prob,temp,opts) = input
+      (prob,temp,trace_file_path,opts) = input
       result = IC.vampire_gather(prob,opts)
-      trace_file_path = None
+      non_degenerate = False
       if result is not None and result[0]: # non-degenerate
-        trace_file_path = get_trace_file_path(mission,prob,temp)
+        non_degenerate = True
         torch.save(result[1],trace_file_path)
-      q_out.put((job_kind,input,trace_file_path))
+      q_out.put((job_kind,input,non_degenerate))
     elif job_kind == JK_EVAL:
-      (prob,temp,tweak_start,tweak_std,fact,trace_file_path,model_file_path) = input
+      (prob,temp,tweak_start,fact,trace_file_path,model_file_path) = input
 
       proof_tuple = torch.load(trace_file_path)
 
@@ -154,21 +153,14 @@ def worker(q_in, q_out):
       learn_model = IC.LearningModel(local_model,*proof_tuple)
       learn_model.eval()
 
-      # TODO: don't do this with ||tweak_std|| = 0, e.g., when we don't do proper tweaking!
-      tweaks_to_try = numpy.random.normal(tweak_start,HP.TWEAK_SEARCH_SPREAD_FACTOR*tweak_std,size=(HP.NUM_HILL_TRIES_ON_EVAL,len(tweak_start)))
-
       # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
       # print(tweaks_to_try)
 
-      losses = learn_model.forward(tweaks_to_try)
-
-      # print("Got",losses)
-
-      min_idx = torch.argmin(losses)
+      loss = learn_model.forward([tweak_start])
 
       # print("min-ning at",min_idx)
 
-      q_out.put((job_kind,input,(fact*losses[min_idx].item(),tweaks_to_try[min_idx])))
+      q_out.put((job_kind,input,(fact*loss.item(),tweak_start)))
     elif job_kind == JK_TRAIN:
       (prob,temp,used_tweak,fact,trace_file_path,model_file_path) = input
 
@@ -201,7 +193,7 @@ if __name__ == "__main__":
   # Dlooper uses the general flow of clooper but tries sever new ideas:
   # - gather traces even on test problems, so that we can "train until test-loss does not improve" (careful, this is no longer unbiased wrt the test set)
   # - as we do this, we can start reporting the loss observed (both on train and test) and create stats on "what value of loss is enough for this problem to get solved (and under how many iters)"
-  # - all these gathered pythonized vampire runs (traces) will go into files and will get communicated with the workers that way (too much RAM used started hurting clooper under CUMMULATIVE)
+  # - all these gathered pythonized vampire runs (traces) will go into files and will get communicated with the workers that way (too much RAM used started hurting clooper under CUMULATIVE)
   # - Maybe: subsample long derivation to (HYPERPARAM proper training steps) for some speed (although still need to replay the whole journal and evaluted all mentioned clauses)
   # (to get non-drifting values, we give up on the ``continuous'' aspect idea - TODO: do we have to, really?)
   # - also store the loop index (let it keep growing across interrupted runs)
@@ -229,7 +221,7 @@ if __name__ == "__main__":
   # 3) a traces folder with eval / train trace files (which are persistent across the loops but get overwritten to save space in each successive gather stage)
   os.mkdir(exper_dir)
   traces_dir = os.path.join(exper_dir,"traces")
-  # NOTE: if we want to share traces with a previous run we use CUMMULATIVE and load a trace index which will point to old exper's traces folder (until overwritten)
+  # NOTE: if we want to share traces with a previous run we use CUMULATIVE and load a trace index which will point to old exper's traces folder (until overwritten)
   os.mkdir(traces_dir)
 
   # Documentation: save hyperparams and campaign
@@ -251,7 +243,8 @@ if __name__ == "__main__":
   trace_index = get_empty_trace_index()
 
   tweak_map = {} # each problem (both train and test) is associated with at most one tweak, a list of floats of len = HP.NUM_TWEAKS
-  assert HP.NUM_TWEAKS == 0 or HP.CUMMULATIVE > 0, "let's not think about what it should mean to work with proper tweaks and not be CUMMULATIVE"
+  # note that when loaded, these tweaks might be too short and the default semantics should be to pad each by 0s to the desired length
+  assert HP.NUM_TWEAKS == 0 or HP.CUMULATIVE > 0, "let's not think about what it should mean to work with proper tweaks and not be CUMULATIVE"
 
   # temporary model used for the gradient trick
   grad_loader_temp = IC.get_initial_model()
@@ -270,7 +263,7 @@ if __name__ == "__main__":
 
     trace_index = possibly_load_trace_index(load_dir,trace_index)
     tweak_map = possibly_load_tweak_map(load_dir,tweak_map)
-    # TODO: also here, we might need new tweaks!
+    # TODO: also here, we might need new tweaks! (or we pad them on demand)
 
     # allow for adapting the params from current HP
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
@@ -354,7 +347,6 @@ if __name__ == "__main__":
 
     loop_start_time = time.time()
 
-    # TODO: at the very fresh beginning, this will not get initialized!
     have_tweak_std = False
     if len(tweak_map) > 0:
       have_tweak_std = True
@@ -364,7 +356,7 @@ if __name__ == "__main__":
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
 
-    if HP.CUMMULATIVE == 0: # forget what we solved until now
+    if HP.CUMULATIVE == 0: # forget what we solved until now
       trace_index = get_empty_trace_index()
 
     # STAGE 1: PERFORM and GATHER (TODO: could/should be done in one call to workers?)
@@ -380,13 +372,13 @@ if __name__ == "__main__":
       # for both missions and all temperatures
       for mission in MISSIONS:
         ilim = HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST
-        for ti,temp in enumerate(HP.TEMPERATURES):
+        for ti,temp in enumerate(HP.TEMPERATURES):  # we us ti in the filename too, for the case temps are repeated
           seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
           res_filename = "{}_t{}_ti{}.pt".format(mission,temp,ti)
           result_metas.append((res_filename,mission,temp,seed,ilim))
 
-          # will change for the gathering job
+          # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
           opts1 = "-t {} -i {} -p off".format(ilim2tlim(ilim),ilim)
           # will stay the same
           opts2_base = " --random_seed {} -npcc {} -nnf {} -npcct {}".format(seed,script_model_file_path,HP.NUM_FEATURES,temp)
@@ -417,7 +409,7 @@ if __name__ == "__main__":
             yield (JK_PERFORM,(res_filename,mission,prob,temp,used_tweak,opts1,opts2))
 
     def process_results_from_perform_and_gather(job_kind,input,result):
-      workers_freed = 0
+      workers_freed = 1
       if job_kind == JK_PERFORM:
         (res_filename,mission,prob,temp,used_tweak,opts1,opts2) = input
         result_dicts[res_filename][prob] = result
@@ -426,19 +418,25 @@ if __name__ == "__main__":
         if status == "uns":
           tweak_map[prob] = used_tweak
 
-          ilim = 10*HP.INSTRUCTION_LIMIT
-          task = (JK_GATHER,(mission,prob,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
-          # print("PUT:",task)
-          q_in.put(task)
-        else:
-          workers_freed = 1
+          if mission == "train":
+            ilim = 10*HP.INSTRUCTION_LIMIT
+            task = (JK_GATHER,(prob,temp,get_trace_file_path(prob,loop,temp),"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
+            # print("PUT:",task)
+            q_in.put(task)
+            workers_freed = 0 # as we keep computing the JK_GATHER job
+
       elif job_kind == JK_GATHER:
-        (mission,prob,temp,opts) = input
-        trace_file_path = result
-        # the trace pkl has been saved to a file, let's just remember that we have it:
-        if trace_file_path is not None:
-          trace_index[mission][prob][temp] = (loop,trace_file_path)
-        workers_freed = 1
+        (prob,temp,trace_file_path,opts) = input
+        non_degenerate = result
+        if non_degenerate:
+          # the trace pkl has been saved to a file, let's store it in trace_index (and potentially evict some older ones)
+          target_list = trace_index[prob][temp]
+          target_list.append((loop,trace_file_path))
+          while len(target_list) > max(1,HP.CUMULATIVE):
+            old_loop,old_trace_file_path = target_list[0]
+            print("Evicting trace",old_trace_file_path,"from loop",old_loop)
+            os.remove(old_trace_file_path)
+            del target_list[0]
       else:
         assert False, f"Surprised by job_kind {job_kind}"
 
@@ -466,58 +464,55 @@ if __name__ == "__main__":
     print()
     sys.stdout.flush()
 
-    if HP.CUMMULATIVE > 0:
+    if HP.CUMULATIVE > 0:
       save_trace_index(cur_dir,trace_index)
-      print("Registering",len(trace_index["train"]),"train and",len(trace_index["test"]),"test problems in trace_index.")
+      print("Saving trace_index with",trace_index_content_summary(trace_index))
       print()
       sys.stdout.flush()
 
     # STAGE 2: alternate EVAL, TRAIN, EVAL until no longer improving
     stage_start_time = time.time()
 
-    TIW = HP.TEST_IMPROVE_WINDOW
-    assert TIW > 0
-    eval_models = [None]*TIW
-    eval_losses = [None]*TIW
+    VIW = HP.VALID_IMPROVE_WINDOW
+    assert VIW > 0
+    eval_models = [None]*VIW
+    eval_losses = [None]*VIW
     stage2iter = 0
 
-    # given prob's temp_dict in trace_index, tell me how many times we want to think it's present in the our set (when computing overall loss)
-    def prob_importance_coef(prob,temp_dict):
-      max_loop = 0
-      for _temp,(l,_trace_file_path) in temp_dict.items():
-        if l > max_loop:
-          max_loop = l
-      # print("prob_importance_coef for",prob,"is",min(loop-max_loop+1,HP.CUMMULATIVE))
-      # the more long time ago the most recent solution was, the more we care about bringing the problem back (i.e., easy problems don't pull on loss too hard)
-      return min(loop-max_loop+1,HP.CUMMULATIVE)
+    if VIW > 1:
+      traced_problems = list(trace_index.keys())
+      random.shuffle(traced_problems)
+      for_validation = set(traced_problems[:int(HP.VALIDATION_SET_FRAC*len(traced_problems))])
+    else:
+      for_validation = set()
+    print("Will train on",len(trace_index)-len(for_validation),"problems,",len(for_validation),"set aside for validation.")
 
     while True:
-      if TIW > 1:
-        # EVAL on test problems
+      if VIW > 1:
+        # EVAL on validation problems
         eval_model_file_path = os.path.join(HP.SCRATCH,"eval-model-state_{}_{}.tar".format(os.getpid(),stage2iter))
         torch.save(model.state_dict(), eval_model_file_path)
-        if eval_models[stage2iter % TIW] is not None:
-          os.remove(eval_models[stage2iter % TIW])
-        eval_models[stage2iter % TIW] = eval_model_file_path
+        if eval_models[stage2iter % VIW] is not None:
+          os.remove(eval_models[stage2iter % VIW])
+        eval_models[stage2iter % VIW] = eval_model_file_path
 
-        # it's not clear whether test loss should reflect the magic-accum formula of clooper (that tries to pull more strongly on not-so-recently solved problems)
-        fact = 1/sum(prob_importance_coef(prob,temp_dict) for prob, temp_dict in trace_index["test"].items())
-        tasks = ((JK_EVAL,(prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],tweak_std,
-          fact*prob_importance_coef(prob,temp_dict)/len(temp_dict),trace_file_path,eval_model_file_path))
-          for prob, temp_dict in trace_index["test"].items() for temp,(_,trace_file_path) in temp_dict.items())
+        fact = 1/len(for_validation)
+        tasks = ((JK_EVAL,(prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],
+          fact/len(temp_dict),loop_trace_file_path_list[0][1],eval_model_file_path))
+          for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob in for_validation)
 
-        weighted_test_loss = 0.0
+        weighted_validation_loss = 0.0
 
         def process_results_from_eval(job_kind,input,result):
-          global weighted_test_loss
+          global weighted_validation_loss
 
           assert job_kind == JK_EVAL
-          (prob,temp,tweak_start,tweak_std,fact,trace_file_path,model_file_path) = input
+          (prob,temp,tweak_start,fact,trace_file_path,model_file_path) = input
           (loss,out_tweak) = result
 
-          weighted_test_loss += loss # multiplied by fact already in the child
+          weighted_validation_loss += loss # multiplied by fact already in the child
 
-          # print("Test eval on",prob,"updated tweak from",tweak_start,"+/-",tweak_std,"to",out_tweak)
+          # print("Test eval on",prob,"updated tweak from",tweak_start,"to",out_tweak)
 
           tweak_map[prob] = out_tweak
 
@@ -525,16 +520,16 @@ if __name__ == "__main__":
 
         do_in_parallel(tasks,parallelism,process_results_from_eval)
 
-        print("Weighted test loss",weighted_test_loss)
+        print("Weighted valid-loss",weighted_validation_loss)
         sys.stdout.flush()
-        eval_losses[stage2iter % TIW] = weighted_test_loss
+        eval_losses[stage2iter % VIW] = weighted_validation_loss
         stage2iter += 1
-        if stage2iter >= TIW: # we have written everywhere (no None there anymore)
-          oldest_idx = stage2iter % TIW
+        if stage2iter >= VIW: # we have written everywhere (no None there anymore)
+          oldest_idx = stage2iter % VIW
           oldest_val = eval_losses[oldest_idx]
           if all((el >= oldest_val for el in eval_losses)):
-            print("Eval loss didn't improve for",TIW-1,"iterations now")
-            if stage2iter == TIW:
+            print("Validation loss didn't improve for",VIW-1,"iterations now")
+            if stage2iter == VIW:
               # TODO: halve the LR when this happens?
               print("Actually, it never improved! Will apply one training step anyway!")
               model.load_state_dict(torch.load(eval_models[1]))
@@ -560,10 +555,9 @@ if __name__ == "__main__":
       for _ in range(HP.NUM_TRAIN_CYCLES_BETWEEN_EVALS):
         train_model_version = 0
         def get_train_tasks():
-          fact = 1/sum(prob_importance_coef(prob,temp_dict) for prob, temp_dict in trace_index["train"].items())
-          # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-          proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact*prob_importance_coef(prob,temp_dict)/len(temp_dict),trace_file_path]
-            for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
+          fact = 1/(len(trace_index)-len(for_validation))
+          proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),loop_trace_file_path_list[0][1]]
+            for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob not in for_validation]
           random.shuffle(proto_tasks)
 
           global train_model_version
@@ -606,10 +600,10 @@ if __name__ == "__main__":
 
         do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
 
-        print("Weighted train loss",weighted_train_loss)
+        print("Weighted train-loss",weighted_train_loss)
         sys.stdout.flush()
 
-      if TIW == 1:
+      if VIW == 1:
         break
 
     # stage 2
