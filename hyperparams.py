@@ -4,7 +4,7 @@ from typing import Final, List
 
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-INTRAOP_PARALLELISM = 10
+INTRAOP_PARALLELISM = 1
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000
@@ -29,7 +29,7 @@ FIRST_PROOF_ONLY = False
 # in dlooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model
 # so maybe, let's not be too "hogwild"?)
-TRAINING_PARALLELISM = 10
+TRAINING_PARALLELISM = 20
 
 NUM_TRAIN_CYCLES_BETWEEN_EVALS = 1
 
