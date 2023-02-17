@@ -67,7 +67,7 @@ NUM_FEATURES : Final[int] = 2
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-CLAUSE_INTERAL_SIZE : Final[int] = 8
+CLAUSE_INTERAL_SIZE : Final[int] = 16
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
@@ -88,7 +88,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.001
+LEARNING_RATE : Final[float] = 0.0005
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
