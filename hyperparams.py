@@ -99,7 +99,8 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.0001
+LEARNING_RATE : Final[float] = 0.0005
+
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
