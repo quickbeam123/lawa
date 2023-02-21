@@ -50,7 +50,7 @@ MAX_TEST_IMPROVE_ITER = 30
 # by convention, we train those tweaks which correspond to active_networks (e.g. ACTIVE_FROM==2 means we train all except the first tweak)
 NUM_TWEAKS = 0
 
-# with NUM_TWEAKS > 0, it makes sense to fix some tweaks (as well as the main, default, network) and only train (some of the) tweaky parts
+# with NUM_TWEAKS > 0, it makes sense to fix some the main, default, network (as well as some tweaks?) and only train (some of the) tweaky parts
 # note the indixing issue: ACTIVE_FROM == 0 means we are training the main newtwork (at index 0), whose formal tweak is the constant 1.0
 ACTIVE_FROM = 0
 
@@ -100,7 +100,8 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.0005
+LEARNING_RATE : Final[float] = 0.001
+TWEAKS_LEARNING_RATE : Final[float] = 0.01
 
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization

@@ -25,7 +25,8 @@ import torch
 MISSIONS = ["train","test"]
 
 def print_model_part():
-  print("Key {}".format(repr(model.getKey().weight.data)))
+  for i in range(HP.NUM_TWEAKS+1):
+    print("Key {}".format(repr(model.getKey(idx=i).weight.data)))
   pass
 
 def load_train_tests_problem_lists(campaign_dir):
@@ -56,8 +57,13 @@ def possibly_load_info_model_and_optimizer_state(load_dir):
   if os.path.exists(loop_model_and_optimizer_state_file_path):
     (loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict) = torch.load(loop_model_and_optimizer_state_file_path)
     print("Loaded model and optimizer from",load_dir,"with loop/num_tweaks/active_from:",loop,num_tweaks,active_from)
-    model.load_state_dict(model_state_dict)
-    optimizer.load_state_dict(optimizer_state_dict)
+    model.load_state_dict(model_state_dict,strict=False)
+    try:
+      optimizer.load_state_dict(optimizer_state_dict)
+    except ValueError:
+      # adding more tweaks, probably.
+      # It's not so bad to keep the optimizer in it's default state...
+      pass
     return True,(loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict)
   return False,()
 
@@ -98,6 +104,9 @@ def possibly_load_tweak_map(load_dir,old_map):
   if os.path.exists(tweak_map_file_path):
     new_map = torch.load(tweak_map_file_path)
     print("Loaded tweak map from",load_dir,"with",len(new_map),"entries")
+    for key,tweak in new_map.items():
+      while len(tweak) < HP.NUM_TWEAKS:
+        tweak.append(0.0)
     return new_map
   return old_map
 
@@ -233,12 +242,13 @@ if __name__ == "__main__":
   # Load training and testing problem lists
   prob_lists = load_train_tests_problem_lists(campaign_dir)
 
-  # Initializing a model and an optimizer (might still get better one below from load_dir if given)
+  # Initializing a model and an optimizer (might still get a better one below from load_dir if given)
   model = IC.get_initial_model()
+  parameter_list = [{'params':model.getActiveParams()},{'params': model.getTweaksAsParams(), 'lr': HP.TWEAKS_LEARNING_RATE}]
   if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
-    optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+    optimizer = torch.optim.SGD(parameter_list, lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
   elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-    optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(parameter_list, lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   trace_index = get_empty_trace_index()
 
@@ -257,6 +267,7 @@ if __name__ == "__main__":
 
     res,data = possibly_load_info_model_and_optimizer_state(load_dir)
     if res:
+      loaded_model = True
       (loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict) = data
       # TODO: readujst the model if new networks and tweaks are needed
       # TODO: also possibly rewire the optimizer to account for what's newly learnable!
@@ -434,8 +445,13 @@ if __name__ == "__main__":
           target_list.append((loop,trace_file_path))
           while len(target_list) > max(1,HP.CUMULATIVE):
             old_loop,old_trace_file_path = target_list[0]
-            print("Evicting trace",old_trace_file_path,"from loop",old_loop)
-            os.remove(old_trace_file_path)
+            # print("Evicting trace",old_trace_file_path,"of loop",old_loop)
+            if old_trace_file_path.startswith(traces_dir):
+              # don't delete files from older experiments!
+              os.remove(old_trace_file_path)
+            else:
+              pass
+              # print("Didn't delete an oldie!")
             del target_list[0]
       else:
         assert False, f"Surprised by job_kind {job_kind}"
@@ -580,7 +596,7 @@ if __name__ == "__main__":
           weighted_train_loss += loss # multiplied by fact already in the child
           # print(input,result)
 
-          model.setTweaks(used_tweak)
+          model.setTweakVals(used_tweak)
 
           # copy from result parameters to our model's gradients
           grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
@@ -591,7 +607,7 @@ if __name__ == "__main__":
           optimizer.step()
 
           # here we have a new updated tweak inside model
-          new_tweak = model.getTweaks()
+          new_tweak = model.getTweakVals()
           # print("Training on",prob,"updated tweak from",used_tweak,"to",new_tweak)
           tweak_map[prob] = new_tweak
 

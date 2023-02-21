@@ -18,6 +18,8 @@ import numpy as np
 
 import sys, random, math
 
+from itertools import chain
+
 import hyperparams as HP
 
 EVENT_ADD = 0
@@ -160,13 +162,22 @@ class TweakedClauseEvaluator(torch.nn.Module):
     # by default, we look at the the last layer of the base network
     return self.networks[idx][-1]
 
-  def setTweaks(self,new_tweaks : List[float]):
+  def setTweakVals(self,new_tweaks : List[float]):
     with torch.no_grad():
       for i,tweak in enumerate(new_tweaks):
         self.tweaks[i].fill_(tweak)
 
-  def getTweaks(self):
+  def getTweakVals(self):
     return list(tweak.item() for tweak in self.tweaks)
+
+  # return the active parameters (except the tweaks)
+  def getActiveParams(self):
+    for network in self.networks[HP.ACTIVE_FROM]:
+      for param in network.parameters():
+        yield param
+
+  def getTweaksAsParams(self):
+    return self.tweaks.parameters()
 
   def myforward(self,input) -> Tensor:
     if HP.NUM_TWEAKS == 0:
@@ -288,7 +299,7 @@ class LearningModel(torch.nn.Module):
     # in bulk for all the clauses
     logits_list = []
     for tweak in tweaks_to_try:
-      self.clause_evaluator.setTweaks(tweak)
+      self.clause_evaluator.setTweakVals(tweak)
       logits_for_this_tweak = self.clause_evaluator.myforward(feature_vecs)
       logits_for_this_tweak = torch.squeeze(logits_for_this_tweak,dim=-1)
       # print("logits_for_this_tweak",logits_for_this_tweak.shape)
