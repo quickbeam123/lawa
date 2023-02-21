@@ -55,12 +55,13 @@ NUM_TWEAKS = 0
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
 # Age,Weight                  2
-# Splits,                     3
-# posEq,negEq,posNeq,negNeq,  7
-# VarOcc,VarOcc/W             8,9
-# Sine0,SineMax,SineLevel,    12
-# DistVars,DistVars/W         13,14
-NUM_FEATURES : Final[int] = 2
+# Length,                     3
+# pLen,nLen                   5
+# justEq, justNeq             7
+# VarOcc,VarOcc/W             9
+# Sine0,SineMax,SineLevel,   12
+# Splits                     13
+NUM_FEATURES : Final[int] =  12
 
 # todo: think of normalization / regularization ...
 
