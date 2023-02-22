@@ -171,17 +171,40 @@ def worker(q_in, q_out):
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(model_file_path))
 
-      learn_model = IC.LearningModel(local_model,*proof_tuple)
-      learn_model.eval()
+      always_improved = True
 
-      # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
-      # print(tweaks_to_try)
+      if HP.NUM_TWEAKS == 0:
+        learn_model = IC.LearningModel(local_model,*proof_tuple)
+        learn_model.eval()
+        # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
+        # print(tweaks_to_try)
+        loss = learn_model.forward([tweak_start])
+        out_tweak = tweak_start
+        # print("min-ning at",min_idx)
+      else:
+        local_optimizer = torch.optim.Adam([{'params': local_model.getTweaksAsParams(), 'lr': HP.TWEAKS_LEARNING_RATE}])
+        local_model.train()
 
-      loss = learn_model.forward([tweak_start])
+        out_tweak = tweak_start
+        # print("Starting with",out_tweak)
+        last_loss = float('inf')
 
-      # print("min-ning at",min_idx)
+        for i in range(HP.VALIDATION_TWEAK_DESCENT_STEPS):
+          local_optimizer.zero_grad()
+          learn_model = IC.LearningModel(local_model,*proof_tuple)
+          loss = learn_model.forward([out_tweak])
+          loss.backward()
+          local_optimizer.step()
+          out_tweak = local_model.getTweakVals()
 
-      q_out.put((job_kind,input,(fact*loss.item(),tweak_start)))
+          now_loss = loss.item()
+          if now_loss >= last_loss:
+            always_improved = False
+          last_loss = now_loss
+
+          # print("Step",i,"loss",now_loss,out_tweak)
+
+      q_out.put((job_kind,input,(fact*loss.item(),out_tweak,always_improved)))
     elif job_kind == JK_TRAIN:
       (prob,temp,used_tweak,fact,trace_file_path,model_file_path) = input
 
@@ -530,25 +553,32 @@ if __name__ == "__main__":
           for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob in for_validation)
 
         weighted_validation_loss = 0.0
+        num_valids = 0
+        num_improves = 0
 
         def process_results_from_eval(job_kind,input,result):
           global weighted_validation_loss
+          global num_valids
+          global num_improves
 
           assert job_kind == JK_EVAL
           (prob,temp,tweak_start,fact,trace_file_path,model_file_path) = input
-          (loss,out_tweak) = result
+          (loss,out_tweak,always_improved) = result
 
           weighted_validation_loss += loss # multiplied by fact already in the child
 
-          # print("Test eval on",prob,"updated tweak from",tweak_start,"to",out_tweak)
-
+          # print("Validating on",prob,"updated tweak from",tweak_start,"to",out_tweak)
           tweak_map[prob][temp] = out_tweak
+
+          num_valids += 1
+          if always_improved:
+            num_improves += 1
 
           return 1
 
         do_in_parallel(tasks,parallelism,process_results_from_eval)
 
-        print("Weighted valid-loss",weighted_validation_loss)
+        print("Weighted valid-loss",weighted_validation_loss,"validated on",num_valids,"always improved on",num_improves)
         sys.stdout.flush()
         eval_losses[stage2iter % VIW] = weighted_validation_loss
         stage2iter += 1

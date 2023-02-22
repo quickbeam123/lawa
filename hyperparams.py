@@ -42,6 +42,9 @@ VALID_IMPROVE_WINDOW = 2
 # what fraction of problems for which we have traces do we use as validation traces (only relevant if VALID_IMPROVE_WINDOW > 1)
 VALIDATION_SET_FRAC = 0.2
 
+# when computing the validation loss, we make a few descent steps just with the tweak part
+VALIDATION_TWEAK_DESCENT_STEPS = 5
+
 # if it seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
 
@@ -101,7 +104,7 @@ OPTIMIZER_ADAM = 1
 OPTIMIZER = OPTIMIZER_ADAM
 
 LEARNING_RATE : Final[float] = 0.001
-TWEAKS_LEARNING_RATE : Final[float] = 0.01
+TWEAKS_LEARNING_RATE : Final[float] = 0.005
 
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
