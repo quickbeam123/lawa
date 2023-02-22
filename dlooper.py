@@ -134,8 +134,8 @@ JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training tra
   # input:     (mission,prob,temp,opts)
   # output:    filename where got saved if got a non-degenerate trace; or None
 JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
-  # input:     (prob,temp,tweak_start,tweak_std,fact,trace_file_path,model_file_path)
-  # output:    (best_loss,best_tweak) out of the HP.NUM_HILL_TRIES_ON_EVAL tries with different tweaks from around tweak_start
+  # input:     (prob,temp,tweak_start,fact,trace_file_path,model_file_path)
+  # output:    (last_loss,last_tweak,always_improved)
 JK_TRAIN = 3   # with train also do loss.backward and send the gradients back
   # input:     (prob,temp,used_tweak,fact,trace_file_path,model_file_path)
   # output:    the computed loss # the out tweak will be recovered from the returned model_file_path (after optimizer step)
@@ -419,48 +419,50 @@ if __name__ == "__main__":
       for mission in MISSIONS:
         ilim = HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST
         for ti,temp in enumerate(HP.TEMPERATURES):  # we us ti in the filename too, for the case temps are repeated
-          seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
-
           res_filename = "{}_t{}_ti{}.pt".format(mission,temp,ti)
-          result_metas.append((res_filename,mission,temp,seed,ilim))
+          result_metas.append((res_filename,mission,temp,ilim))
 
           # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
           opts1 = "-t {} -i {} -p off".format(ilim2tlim(ilim),ilim)
           # will stay the same
-          opts2_base = " --random_seed {} -npcc {} -nnf {} -npcct {}".format(seed,script_model_file_path,HP.NUM_FEATURES,temp)
+          opts2_base = " -npcc {} -nnf {} -npcct {}".format(script_model_file_path,HP.NUM_FEATURES,temp)
 
           for prob in prob_lists[mission]:
-            if HP.NUM_TWEAKS > 0:
-              if prob in tweak_map and temp in tweak_map[prob]:
-                used_tweak = tweak_map[prob][temp]
-                # print("Reusing tweak",used_tweak,"from last time for",prob)
-              elif have_tweak_std:
-                used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
-                # print("Will try tweak",used_tweak,"for",prob)
-                # TODO: there also was the option to draw a tweak that already exists somewhere in the map
-                # (but with a different problem)
-                # in any case, this is only interesting for solving more problems during training,
-                # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
-              else:
-                used_tweak = HP.NUM_TWEAKS*[0.0,]
-                # print("Defaulting tweak",used_tweak,"for",prob)
-
-              tweak_str = ",".join([str(t) for t in used_tweak])
-              # print(tweak_str)
-              opts2 = opts2_base + " -npccw {}".format(tweak_str)
+            if HP.NUM_TWEAKS == 0:
+              yield (JK_PERFORM,(res_filename,mission,prob,temp,[],opts1,opts2_base + " --random_seed {}".format(random.randint(1,0x7fffff))))
             else:
-              used_tweak = []
-              opts2 = opts2_base
+              for _ in range(HP.NUM_PERFORMS_ON_HARD_PROBLEMS if prob not in trace_index else 1):
+                if prob in tweak_map and temp in tweak_map[prob]:
+                  used_tweak = tweak_map[prob][temp]
+                  # print("Reusing tweak",used_tweak,"from last time for",prob)
+                elif have_tweak_std:
+                  used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
+                  # print("Will try tweak",used_tweak,"for",prob)
+                  # TODO: there also was the option to draw a tweak that already exists somewhere in the map
+                  # (but with a different problem)
+                  # in any case, this is only interesting for solving more problems during training,
+                  # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
+                else:
+                  used_tweak = HP.NUM_TWEAKS*[0.0,]
+                  # print("Defaulting tweak",used_tweak,"for",prob)
 
-            yield (JK_PERFORM,(res_filename,mission,prob,temp,used_tweak,opts1,opts2))
+                tweak_str = ",".join([str(t) for t in used_tweak])
+                # print(tweak_str)
+                opts2 = opts2_base + " -npccw {} --random_seed {}".format(tweak_str,random.randint(1,0x7fffff))
+
+                yield (JK_PERFORM,(res_filename,mission,prob,temp,used_tweak,opts1,opts2))
 
     def process_results_from_perform_and_gather(job_kind,input,result):
       workers_freed = 1
       if job_kind == JK_PERFORM:
         (res_filename,mission,prob,temp,used_tweak,opts1,opts2) = input
-        result_dicts[res_filename][prob] = result
 
         (status,instructions,activations) = result
+        # we add things conditionally, because under NUM_PERFORMS_ON_HARD_PROBLEMS > 1, we want to keep the good results
+        if prob not in result_dicts[res_filename] or status == "uns":
+          # either this is the first one we are getting, or it's a "uns"
+          result_dicts[res_filename][prob] = result
+
         if status == "uns":
           tweak_map[prob][temp] = used_tweak
 
@@ -497,13 +499,13 @@ if __name__ == "__main__":
 
     # let's report what happened so far:
     prev_mission = None
-    for (res_filename,mission,temp,seed,ilim) in result_metas:
+    for (res_filename,mission,temp,ilim) in result_metas:
       if mission != prev_mission:
         print(" ",mission)
         seen_successes = set()
         prev_mission = mission
       results = result_dicts[res_filename]
-      torch.save(("temp: {} seed: {} ilim:".format(temp,seed,ilim),results), os.path.join(cur_dir,res_filename))
+      torch.save(("temp: {} ilim: {}".format(temp,ilim),results), os.path.join(cur_dir,res_filename))
 
       successes = {prob for prob,(status,instructions,activations) in results.items() if status == "uns"}
       num_new = len(successes-seen_successes)

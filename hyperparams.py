@@ -57,14 +57,8 @@ NUM_TWEAKS = 1
 # note the indixing issue: ACTIVE_FROM == 0 means we are training the main newtwork (at index 0), whose formal tweak is the constant 1.0
 ACTIVE_FROM = 1
 
-# when evaluating on test problems, where do we get our tweak?
-# we do a blind hill climb around what we used last time (with some spread determined below)
-# and keep the best scoring one!
-NUM_HILL_TRIES_ON_EVAL = 5
-
-# we take the std of the tweaks seen so far (both train and test)
-# sample from gauss ball with mean = the last tweak, and std = the above std times the blow factor:
-TWEAK_SEARCH_SPREAD_FACTOR = 0.1
+# CAREFUL; when this is > 1, results become overly optimistic!
+NUM_PERFORMS_ON_HARD_PROBLEMS = 3
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
