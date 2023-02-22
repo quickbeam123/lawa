@@ -417,6 +417,10 @@ if __name__ == "__main__":
     def get_perform_tasks():
       # for both missions and all temperatures
       for mission in MISSIONS:
+        # don't test with bling tweaks (for now)
+        if HP.NUM_TWEAKS > 0 and mission == "test":
+          continue
+
         ilim = HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST
         for ti,temp in enumerate(HP.TEMPERATURES):  # we us ti in the filename too, for the case temps are repeated
           res_filename = "{}_t{}_ti{}.pt".format(mission,temp,ti)
