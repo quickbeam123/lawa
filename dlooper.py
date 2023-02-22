@@ -95,6 +95,15 @@ def possibly_load_trace_index(load_dir,old_index):
 
 TWEAK_MAP = "tweak_map.pt"
 
+def get_empty_tweak_map():
+  # each problem (both train and test) and a temp are associated with at most one tweak, a list of floats of len = HP.NUM_TWEAKS
+  return defaultdict(dict) # problem -> temp -> tweak (which is a list)
+
+def enum_all_tweaks(tweak_map):
+  for _prob,temp_dict in tweak_map.items():
+    for _temp, tweak in temp_dict.items():
+      yield tweak
+
 def save_tweak_map(cur_dir,tweak_map):
   tweak_map_file_path = os.path.join(cur_dir,TWEAK_MAP)
   torch.save(tweak_map, tweak_map_file_path)
@@ -103,10 +112,13 @@ def possibly_load_tweak_map(load_dir,old_map):
   tweak_map_file_path = os.path.join(load_dir,TWEAK_MAP)
   if os.path.exists(tweak_map_file_path):
     new_map = torch.load(tweak_map_file_path)
-    print("Loaded tweak map from",load_dir,"with",len(new_map),"entries")
-    for key,tweak in new_map.items():
-      while len(tweak) < HP.NUM_TWEAKS:
-        tweak.append(0.0)
+    num_probs = len(new_map)
+    num_prob_temps = sum(len(temp_dict) for _prob,temp_dict in new_map.items())
+    print("Loaded tweak map from",load_dir,"for",num_probs,"probs and",num_prob_temps,"prob_temps")
+    for _prob,temp_dict in new_map.items():
+      for _temp, tweak in temp_dict.items():
+        while len(tweak) < HP.NUM_TWEAKS:
+          tweak.append(0.0)
     return new_map
   return old_map
 
@@ -252,7 +264,7 @@ if __name__ == "__main__":
 
   trace_index = get_empty_trace_index()
 
-  tweak_map = {} # each problem (both train and test) is associated with at most one tweak, a list of floats of len = HP.NUM_TWEAKS
+  tweak_map = get_empty_tweak_map()
   # note that when loaded, these tweaks might be too short and the default semantics should be to pad each by 0s to the desired length
   assert HP.NUM_TWEAKS == 0 or HP.CUMULATIVE > 0, "let's not think about what it should mean to work with proper tweaks and not be CUMULATIVE"
 
@@ -361,7 +373,7 @@ if __name__ == "__main__":
     have_tweak_std = False
     if len(tweak_map) > 0:
       have_tweak_std = True
-      tweak_std = numpy.std(list(tweak_map.values()),axis=0)
+      tweak_std = numpy.std(list(enum_all_tweaks(tweak_map)),axis=0)
       print("  tweak_std now",tweak_std)
 
     # for this iteration, we write stuff here:
@@ -396,8 +408,8 @@ if __name__ == "__main__":
 
           for prob in prob_lists[mission]:
             if HP.NUM_TWEAKS > 0:
-              if prob in tweak_map:
-                used_tweak = tweak_map[prob]
+              if prob in tweak_map and temp in tweak_map[prob]:
+                used_tweak = tweak_map[prob][temp]
                 # print("Reusing tweak",used_tweak,"from last time for",prob)
               elif have_tweak_std:
                 used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
@@ -427,7 +439,7 @@ if __name__ == "__main__":
 
         (status,instructions,activations) = result
         if status == "uns":
-          tweak_map[prob] = used_tweak
+          tweak_map[prob][temp] = used_tweak
 
           if mission == "train":
             ilim = 10*HP.INSTRUCTION_LIMIT
@@ -513,7 +525,7 @@ if __name__ == "__main__":
         eval_models[stage2iter % VIW] = eval_model_file_path
 
         fact = 1/len(for_validation)
-        tasks = ((JK_EVAL,(prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],
+        tasks = ((JK_EVAL,(prob,temp,tweak_map[prob][temp] if prob in tweak_map and temp in tweak_map[prob] else HP.NUM_TWEAKS*[0.0,],
           fact/len(temp_dict),loop_trace_file_path_list[0][1],eval_model_file_path))
           for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob in for_validation)
 
@@ -530,7 +542,7 @@ if __name__ == "__main__":
 
           # print("Test eval on",prob,"updated tweak from",tweak_start,"to",out_tweak)
 
-          tweak_map[prob] = out_tweak
+          tweak_map[prob][temp] = out_tweak
 
           return 1
 
@@ -572,7 +584,7 @@ if __name__ == "__main__":
         train_model_version = 0
         def get_train_tasks():
           fact = 1/(len(trace_index)-len(for_validation))
-          proto_tasks = [[prob,temp,tweak_map[prob] if prob in tweak_map else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),loop_trace_file_path_list[0][1]]
+          proto_tasks = [[prob,temp,tweak_map[prob][temp] if prob in tweak_map and temp in tweak_map[prob] else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),loop_trace_file_path_list[0][1]]
             for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob not in for_validation]
           random.shuffle(proto_tasks)
 
@@ -608,8 +620,8 @@ if __name__ == "__main__":
 
           # here we have a new updated tweak inside model
           new_tweak = model.getTweakVals()
-          # print("Training on",prob,"updated tweak from",used_tweak,"to",new_tweak)
-          tweak_map[prob] = new_tweak
+          # print("Training on",prob,"under temp",temp,"Updated tweak from",used_tweak,"to",new_tweak)
+          tweak_map[prob][temp] = new_tweak
 
           os.remove(train_model_file_path)
           return 1

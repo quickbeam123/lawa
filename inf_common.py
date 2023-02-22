@@ -18,8 +18,6 @@ import numpy as np
 
 import sys, random, math
 
-from itertools import chain
-
 import hyperparams as HP
 
 EVENT_ADD = 0
