@@ -456,17 +456,18 @@ if __name__ == "__main__":
       workers_freed = 1
       if job_kind == JK_PERFORM:
         (res_filename,mission,prob,temp,used_tweak,opts1,opts2) = input
-
         (status,instructions,activations) = result
+
+        had_unsat_already = (prob in result_dicts[res_filename] and result_dicts[res_filename][prob][0] == "uns")
+
         # we add things conditionally, because under NUM_PERFORMS_ON_HARD_PROBLEMS > 1, we want to keep the good results
-        if prob not in result_dicts[res_filename] or status == "uns":
-          # either this is the first one we are getting, or it's a "uns"
+        if not had_unsat_already:
           result_dicts[res_filename][prob] = result
 
         if status == "uns":
           tweak_map[prob][temp] = used_tweak
 
-          if mission == "train":
+          if mission == "train" and not had_unsat_already:
             ilim = 10*HP.INSTRUCTION_LIMIT
             task = (JK_GATHER,(prob,temp,get_trace_file_path(prob,loop,temp),"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
             # print("PUT:",task)
