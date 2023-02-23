@@ -170,7 +170,7 @@ class TweakedClauseEvaluator(torch.nn.Module):
 
   # return the active parameters (except the tweaks)
   def getActiveParams(self):
-    for network in self.networks[HP.ACTIVE_FROM]:
+    for network in self.networks[HP.ACTIVE_FROM:]:
       for param in network.parameters():
         yield param
 
