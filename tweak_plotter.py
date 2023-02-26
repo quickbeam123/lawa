@@ -37,11 +37,11 @@ if __name__ == "__main__":
 
   folder = sys.argv[1]
 
-  (loop,model_state_dict,optimizer_state_dict) = torch.load(os.path.join(folder,"loop-model-and-optimizer.tar"))
+  (loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict) = torch.load(os.path.join(folder,"info-model-and-optimizer.tar"))
 
   model = IC.get_initial_model()
   model.load_state_dict(model_state_dict)
-  print("Loaded some model of loop",loop)
+  print("Loaded some model of loop",loop,"num_tweaks",num_tweaks,"active_from",active_from)
 
   proof_tuple = torch.load(sys.argv[2])
   print("Loaded proof_tuple with",len(proof_tuple[0]),"clauses and",len(proof_tuple[1]),"journal steps")
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     temp = trace_name_spl[-1][:-3]
     prob_name = "/".join(trace_name_spl[1:-1])
 
-    prob_tweak = tweak_map[prob_name]
+    prob_tweak = tweak_map[prob_name][temp]
 
     print(f"Loaded prob's ({prob_name}) of temp {temp} tweak: {prob_tweak}")
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
   def eval_with_vamp(fsX,fsY):
     # return [random.uniform(0.0,1.0) for _ in fsX]
-    pool = Pool(processes=60)
+    pool = Pool(processes=10)
     results = pool.map(eval_one, list(zip(fsX,fsY)))
     pool.close()
     pool.join()

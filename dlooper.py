@@ -67,11 +67,8 @@ def possibly_load_info_model_and_optimizer_state(load_dir):
     return True,(loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict)
   return False,()
 
-def default_defaultdict_of_list():
-  return defaultdict(list)
-
 def get_empty_trace_index():
-  return defaultdict(default_defaultdict_of_list) # problem -> temp -> [(loop when obtained,trace_file_name)]
+  return defaultdict(IC.default_defaultdict_of_list) # problem -> temp -> [(loop when obtained,trace_file_name)]
 
 def trace_index_content_summary(index):
   num_probs = len(index)
