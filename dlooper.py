@@ -274,13 +274,16 @@ if __name__ == "__main__":
   # Load training and testing problem lists
   prob_lists = load_train_tests_problem_lists(campaign_dir)
 
+  global_learning_rate = HP.LEARNING_RATE
+  print("Global learning rate:",global_learning_rate)
+
   # Initializing a model and an optimizer (might still get a better one below from load_dir if given)
   model = IC.get_initial_model()
-  parameter_list = [{'params':model.getActiveParams()},{'params': model.getTweaksAsParams(), 'lr': HP.TWEAKS_LEARNING_RATE}]
+  parameter_list = [{'params':model.getActiveParams()},{'params': model.getTweaksAsParams()}]
   if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
-    optimizer = torch.optim.SGD(parameter_list, lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
+    optimizer = torch.optim.SGD(parameter_list, lr=global_learning_rate, momentum=HP.MOMENTUM)
   elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-    optimizer = torch.optim.Adam(parameter_list, lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(parameter_list, lr=global_learning_rate, weight_decay=HP.WEIGHT_DECAY)
 
   trace_index = get_empty_trace_index()
 
@@ -312,11 +315,11 @@ if __name__ == "__main__":
     # (TODO: in principle a larger class of things can be adaptively changed after resumig the training process)
     if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
       for param_group in optimizer.param_groups:
-        param_group['lr'] = HP.LEARNING_RATE
+        param_group['lr'] = global_learning_rate
         param_group['momentum'] = HP.MOMENTUM
     elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
       for param_group in optimizer.param_groups:
-        param_group['lr'] = HP.LEARNING_RATE
+        param_group['lr'] = global_learning_rate
         param_group['weight_decay'] = HP.WEIGHT_DECAY
 
   if not loaded_model:
@@ -542,6 +545,10 @@ if __name__ == "__main__":
       for_validation = set()
     print("Will train on",len(trace_index)-len(for_validation),"problems,",len(for_validation),"set aside for validation.")
 
+    last_train_loss = float('inf')
+    inc_lr_wish = False
+    dec_lr_wish = False
+
     while True:
       if VIW > 1:
         # EVAL on validation problems
@@ -587,13 +594,13 @@ if __name__ == "__main__":
         eval_losses[stage2iter % VIW] = weighted_validation_loss
         stage2iter += 1
         if stage2iter >= VIW: # we have written everywhere (no None there anymore)
-          oldest_idx = stage2iter % VIW
+          oldest_idx = stage2iter % VIW # note we just increased stage2iter after the last write
           oldest_val = eval_losses[oldest_idx]
           if all((el >= oldest_val for el in eval_losses)):
             print("Validation loss didn't improve for",VIW-1,"iterations now")
             if stage2iter == VIW:
-              # TODO: halve the LR when this happens?
-              print("Actually, it never improved! Will apply one training step anyway!")
+              print("Actually, it never improved! Will apply one training step anyway! (But request smaller LR, if adaptive.)")
+              dec_lr_wish = True
               model.load_state_dict(torch.load(eval_models[1]))
             else:
               model.load_state_dict(torch.load(eval_models[oldest_idx]))
@@ -602,6 +609,7 @@ if __name__ == "__main__":
             break
           if stage2iter > HP.MAX_TEST_IMPROVE_ITER:
             print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
+            inc_lr_wish = True
             best_idx = 0
             best_idx_val = eval_losses[0]
             for i,eloss in enumerate(eval_losses):
@@ -614,59 +622,77 @@ if __name__ == "__main__":
             break
 
       # TRAIN on train problems
-      for _ in range(HP.NUM_TRAIN_CYCLES_BETWEEN_EVALS):
-        train_model_version = 0
-        def get_train_tasks():
-          fact = 1/(len(trace_index)-len(for_validation))
-          proto_tasks = [[prob,temp,tweak_map[prob][temp] if prob in tweak_map and temp in tweak_map[prob] else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),loop_trace_file_path_list[0][1]]
-            for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob not in for_validation]
-          random.shuffle(proto_tasks)
+      # for _ in range(HP.NUM_TRAIN_CYCLES_BETWEEN_EVALS):
+      train_model_version = 0
+      def get_train_tasks():
+        fact = 1/(len(trace_index)-len(for_validation))
+        proto_tasks = [[prob,temp,tweak_map[prob][temp] if prob in tweak_map and temp in tweak_map[prob] else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),loop_trace_file_path_list[0][1]]
+          for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob not in for_validation]
+        random.shuffle(proto_tasks)
 
-          global train_model_version
-          for arg_list in proto_tasks:
-            train_model_version += 1
-            train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
-            torch.save(model.state_dict(), train_model_file_path)
-            arg_list.append(train_model_file_path)
-            yield (JK_TRAIN,tuple(arg_list))
+        global train_model_version
+        for arg_list in proto_tasks:
+          train_model_version += 1
+          train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
+          torch.save(model.state_dict(), train_model_file_path)
+          arg_list.append(train_model_file_path)
+          yield (JK_TRAIN,tuple(arg_list))
 
-        weighted_train_loss = 0.0
+      weighted_train_loss = 0.0
 
-        def process_results_from_train(job_kind,input,result):
-          global weighted_train_loss
+      def process_results_from_train(job_kind,input,result):
+        global weighted_train_loss
 
-          assert job_kind == JK_TRAIN
-          (prob,temp,used_tweak,fact,trace_file_path,train_model_file_path) = input
-          loss = result
+        assert job_kind == JK_TRAIN
+        (prob,temp,used_tweak,fact,trace_file_path,train_model_file_path) = input
+        loss = result
 
-          weighted_train_loss += loss # multiplied by fact already in the child
-          # print(input,result)
+        weighted_train_loss += loss # multiplied by fact already in the child
+        # print(input,result)
 
-          model.setTweakVals(used_tweak)
+        model.setTweakVals(used_tweak)
 
-          # copy from result parameters to our model's gradients
-          grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
-          # copy_grads_back_from_param
-          for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
-            param.grad = param_copy
+        # copy from result parameters to our model's gradients
+        grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
+        # copy_grads_back_from_param
+        for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
+          param.grad = param_copy
 
-          optimizer.step()
+        optimizer.step()
 
-          # here we have a new updated tweak inside model
-          new_tweak = model.getTweakVals()
-          # print("Training on",prob,"under temp",temp,"Updated tweak from",used_tweak,"to",new_tweak)
-          tweak_map[prob][temp] = new_tweak
+        # here we have a new updated tweak inside model
+        new_tweak = model.getTweakVals()
+        # print("Training on",prob,"under temp",temp,"Updated tweak from",used_tweak,"to",new_tweak)
+        tweak_map[prob][temp] = new_tweak
 
-          os.remove(train_model_file_path)
-          return 1
+        os.remove(train_model_file_path)
+        return 1
 
-        do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
+      do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
 
-        print("Weighted train-loss",weighted_train_loss)
-        sys.stdout.flush()
+      print("Weighted train-loss",weighted_train_loss)
+      sys.stdout.flush()
+
+      if weighted_train_loss > last_train_loss:
+        print("Train loss hiccup - interrtupting!")
+        dec_lr_wish = True
+        break
+      last_train_loss = weighted_train_loss
 
       if VIW == 1:
         break
+
+    # readjust lr
+    if HP.ADAPTIVE_LR != 1.0 and (inc_lr_wish or dec_lr_wish):
+      if inc_lr_wish:
+        global_learning_rate *= HP.ADAPTIVE_LR
+      elif dec_lr_wish:
+        global_learning_rate /= HP.ADAPTIVE_LR
+
+      print("Adapting learning rate, changing to",global_learning_rate)
+
+      for param_group in optimizer.param_groups:
+        param_group['lr'] = global_learning_rate
 
     # stage 2
     print("  Stage 2 took",time.time()-stage_start_time,"seconds and",stage2iter-0.5,"eval/train iterations")
