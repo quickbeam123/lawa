@@ -513,7 +513,7 @@ if __name__ == "__main__":
       num_new = len(successes-seen_successes)
       seen_successes = seen_successes | successes
       if len(results):
-        print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temp,len(successes)/len(results),len(successes),len(results),num_new,len(seen_successes)))
+        print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temp,100.0*len(successes)/len(results),len(successes),len(results),num_new,len(seen_successes)))
     print()
     print("  Stage 1 took",time.time()-stage_start_time)
     print()
