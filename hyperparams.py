@@ -19,6 +19,7 @@ TEMPERATURES = ["0.0","1.0"]
 # 0 - don't do it (i.e., only learn from the proofs discovered during this eval)
 # >0 - for each prob and temp, there is CUMULATIVE-many latests traces stored in a list and we learn from all of them!
 CUMULATIVE : Final[int] = 2
+# for CUMULATIVE > 1 the extra ones are collected but not really used for anything (as the moment)!
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
 # in clooper, this might be especially important as otherwise easy problems will train |TEMPERATURES|-times more than
@@ -42,8 +43,8 @@ VALID_IMPROVE_WINDOW = 2
 # what fraction of problems for which we have traces do we use as validation traces (only relevant if VALID_IMPROVE_WINDOW > 1)
 VALIDATION_SET_FRAC = 0.2
 
-# when computing the validation loss, we make a few descent steps just with the tweak part
-VALIDATION_TWEAK_DESCENT_STEPS = 5
+# when computing the loss (during validation) or before we actually train (in training), we make a few descent steps just with the tweak part
+TWEAK_DESCENT_STEPS = 5
 
 # if it seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
@@ -51,11 +52,11 @@ MAX_TEST_IMPROVE_ITER = 30
 # there is always going to be (1+NUM_TWEAKS) many copies of the main network in the trained model
 # also, each problem will maintain a list of NUM_TWEAKS many tweaks which best describe it
 # by convention, we train those tweaks which correspond to active_networks (e.g. ACTIVE_FROM==2 means we train all except the first tweak)
-NUM_TWEAKS = 0
+NUM_TWEAKS = 1
 
 # with NUM_TWEAKS > 0, it makes sense to fix some the main, default, network (as well as some tweaks?) and only train (some of the) tweaky parts
 # note the indixing issue: ACTIVE_FROM == 0 means we are training the main newtwork (at index 0), whose formal tweak is the constant 1.0
-ACTIVE_FROM = 0
+ACTIVE_FROM = 1
 
 # CAREFUL; when this is > 1, results become overly optimistic!
 NUM_PERFORMS_ON_HARD_PROBLEMS = 3

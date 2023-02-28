@@ -186,7 +186,7 @@ def worker(q_in, q_out):
         # print("Starting with",out_tweak)
         last_loss = float('inf')
 
-        for i in range(HP.VALIDATION_TWEAK_DESCENT_STEPS):
+        for i in range(HP.TWEAK_DESCENT_STEPS):
           local_optimizer.zero_grad()
           learn_model = IC.LearningModel(local_model,*proof_tuple)
           loss = learn_model.forward([out_tweak])
@@ -541,6 +541,7 @@ if __name__ == "__main__":
       traced_problems = list(trace_index.keys())
       random.shuffle(traced_problems)
       for_validation = set(traced_problems[:int(HP.VALIDATION_SET_FRAC*len(traced_problems))])
+      for_training = set(traced_problems) - for_validation
     else:
       for_validation = set()
     print("Will train on",len(trace_index)-len(for_validation),"problems,",len(for_validation),"set aside for validation.")
@@ -558,40 +559,49 @@ if __name__ == "__main__":
           os.remove(eval_models[stage2iter % VIW])
         eval_models[stage2iter % VIW] = eval_model_file_path
 
-        fact = 1/len(for_validation)
-        tasks = ((JK_EVAL,(prob,temp,tweak_map[prob][temp] if prob in tweak_map and temp in tweak_map[prob] else HP.NUM_TWEAKS*[0.0,],
-          fact/len(temp_dict),loop_trace_file_path_list[0][1],eval_model_file_path))
-          for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob in for_validation)
-
-        weighted_validation_loss = 0.0
-        num_valids = 0
-        num_improves = 0
+        def get_eval_tasks(prob_set):
+          fact = 1/len(prob_set)
+          return ((JK_EVAL,(prob,temp,tweak_map[prob][temp] if prob in tweak_map and temp in tweak_map[prob] else HP.NUM_TWEAKS*[0.0,],
+            fact/len(temp_dict),loop_trace_file_path_list[0][1],eval_model_file_path))
+            for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob in prob_set)
 
         def process_results_from_eval(job_kind,input,result):
-          global weighted_validation_loss
-          global num_valids
+          global weighted_eval_loss
+          global num_eval_tasks
           global num_improves
 
           assert job_kind == JK_EVAL
           (prob,temp,tweak_start,fact,trace_file_path,model_file_path) = input
           (loss,out_tweak,always_improved) = result
 
-          weighted_validation_loss += loss # multiplied by fact already in the child
+          weighted_eval_loss += loss # multiplied by fact already in the child
 
           # print("Validating on",prob,"updated tweak from",tweak_start,"to",out_tweak)
           tweak_map[prob][temp] = out_tweak
 
-          num_valids += 1
+          num_eval_tasks += 1
           if always_improved:
             num_improves += 1
 
           return 1
 
-        do_in_parallel(tasks,parallelism,process_results_from_eval)
+        if HP.NUM_TWEAKS > 0:
+          # we do eval also on train to have the tweaks descend analogously
+          weighted_eval_loss = 0.0
+          num_eval_tasks = 0
+          num_improves = 0
+          do_in_parallel(get_eval_tasks(for_training),parallelism,process_results_from_eval)
+          print("Eval loss on train",weighted_eval_loss,"num tasks",num_eval_tasks,"always improved on",num_improves)
+          sys.stdout.flush()
 
-        print("Weighted valid-loss",weighted_validation_loss,"validated on",num_valids,"always improved on",num_improves)
+        weighted_eval_loss = 0.0
+        num_eval_tasks = 0
+        num_improves = 0
+        do_in_parallel(get_eval_tasks(for_validation),parallelism,process_results_from_eval)
+        print("Eval loss on valid",weighted_eval_loss,"num tasks",num_eval_tasks,"always improved on",num_improves)
         sys.stdout.flush()
-        eval_losses[stage2iter % VIW] = weighted_validation_loss
+
+        eval_losses[stage2iter % VIW] = weighted_eval_loss
         stage2iter += 1
         if stage2iter >= VIW: # we have written everywhere (no None there anymore)
           oldest_idx = stage2iter % VIW # note we just increased stage2iter after the last write
@@ -670,7 +680,7 @@ if __name__ == "__main__":
 
       do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
 
-      print("Weighted train-loss",weighted_train_loss)
+      print("TrainLoss on train",weighted_train_loss)
       sys.stdout.flush()
 
       if weighted_train_loss > last_train_loss:
