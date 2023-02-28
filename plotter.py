@@ -26,6 +26,8 @@ if __name__ == "__main__":
   # for each problem and file keep storing the number of activations it took to solve it (provided we got uns)
   details = defaultdict(lambda : defaultdict(list))
 
+  totals = { mission : None for mission in MISSIONS}
+
   for exper_dir in sys.argv[1:]:
     print(exper_dir)
     _root, dirs, _files = next(os.walk(exper_dir))
@@ -57,6 +59,13 @@ if __name__ == "__main__":
         # print("    ",file)
         (meta,results) = torch.load(os.path.join(cur_dir,file))
         # print("      ",meta)
+
+        for mission in MISSIONS:
+          if file.startswith(mission):
+            if totals[mission] is None:
+              totals[mission] = len(results)
+            else:
+              assert len(results) == totals[mission]
 
         successes = sum(1 for prob,(status,instructions,activations) in results.items() if status == "uns")
 
@@ -140,7 +149,7 @@ if __name__ == "__main__":
 
       handles.append(h)
 
-    print(mission,"maxed with",mission_max,"at",mission_max_at)
+    print(mission,"maxed with",mission_max,"percent",100.0*mission_max/totals[mission],"at",mission_max_at)
 
     # ax1.set_ylim(ymin=0)
 
