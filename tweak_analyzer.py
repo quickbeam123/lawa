@@ -7,6 +7,11 @@ from collections import defaultdict
 import torch
 import numpy as np
 
+def enum_temp0_tweaks(tweak_map):
+  for _prob,temp_dict in tweak_map.items():
+    if '0.0' in temp_dict:
+      yield temp_dict['0.0']
+
 if __name__ == "__main__":
   # Load a tweak map and do some plotting
   #
@@ -15,16 +20,23 @@ if __name__ == "__main__":
   x_idx = 0
   y_idx = 1
 
-  with open("probinfo7.5.0.pkl",'rb') as f:
+  with open("probinfo8.1.2.pkl",'rb') as f:
     probinfo = pickle.load(f,encoding='utf-8')
 
   tweak_map = torch.load(sys.argv[1])
+
+  print(np.std(list(enum_temp0_tweaks(tweak_map)),axis=0))
+
   Xs = []
   Ys = []
   Ls = []
   Zs = [] # problem TPTP ratings
 
-  for prob,tweak in tweak_map.items():
+  for prob,temp_dict in tweak_map.items():
+    if '0.0' not in temp_dict:
+      continue
+    tweak = temp_dict['0.0']
+
     if np.linalg.norm(tweak) > 0.000001:
       Xs.append(tweak[x_idx])
       Ys.append(tweak[y_idx])
