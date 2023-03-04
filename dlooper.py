@@ -86,7 +86,18 @@ def possibly_load_trace_index(load_dir,old_index):
   trace_index_file_path = os.path.join(load_dir,TRACE_INDEX)
   if os.path.exists(trace_index_file_path):
     new_index = torch.load(trace_index_file_path)
+    # only keep temp records that we also work with
+    to_del = set()
+    for _prob,temp_dict in new_index.items():
+      for temp, trace_list in temp_dict.items():
+        if temp not in HP.TEMPERATURES:
+          to_del.add(temp)
+      for temp in to_del:
+        if temp in temp_dict:
+          del temp_dict[temp]
     print("Loaded a trace_index with",trace_index_content_summary(new_index))
+    if to_del:
+      print("  dropped records for temps:",to_del)
     return new_index
   return old_index
 
