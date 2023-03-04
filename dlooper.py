@@ -546,7 +546,7 @@ if __name__ == "__main__":
       for_validation = set()
     print("Will train on",len(trace_index)-len(for_validation),"problems,",len(for_validation),"set aside for validation.")
 
-    last_train_loss = float('inf')
+    # last_train_loss = float('inf')
     inc_lr_wish = False
     dec_lr_wish = False
 
@@ -683,11 +683,13 @@ if __name__ == "__main__":
       print("TrainLoss on train",weighted_train_loss)
       sys.stdout.flush()
 
+      '''
       if weighted_train_loss > last_train_loss:
         print("Train loss hiccup - interrtupting!")
         dec_lr_wish = True
         break
       last_train_loss = weighted_train_loss
+      '''
 
       if VIW == 1:
         break
