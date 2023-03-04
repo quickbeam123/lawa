@@ -143,7 +143,7 @@ JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training tra
   # output:    filename where got saved if got a non-degenerate trace; or None
 JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
   # input:     (prob,temp,tweak_start,fact,trace_file_path,model_file_path)
-  # output:    (last_loss,last_tweak,always_improved)
+  # output:    (last_loss,last_tweak,numiter,telapsed,finished)
 JK_TRAIN = 3   # with train also do loss.backward and send the gradients back
   # input:     (prob,temp,used_tweak,fact,trace_file_path,model_file_path)
   # output:    the computed loss # the out tweak will be recovered from the returned model_file_path (after optimizer step)
@@ -179,7 +179,7 @@ def worker(q_in, q_out):
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(model_file_path))
 
-      always_improved = True
+      finished = True
 
       if HP.NUM_TWEAKS == 0:
         learn_model = IC.LearningModel(local_model,*proof_tuple)
@@ -196,8 +196,10 @@ def worker(q_in, q_out):
         out_tweak = tweak_start
         # print("Starting with",out_tweak)
         last_loss = float('inf')
-
-        for i in range(HP.TWEAK_DESCENT_STEPS):
+        start_time = time.time()
+        numiter = 0
+        while True:
+          numiter += 1
           local_optimizer.zero_grad()
           learn_model = IC.LearningModel(local_model,*proof_tuple)
           loss = learn_model.forward([out_tweak])
@@ -205,14 +207,20 @@ def worker(q_in, q_out):
           local_optimizer.step()
           out_tweak = local_model.getTweakVals()
 
+          telapsed = time.time() - start_time
           now_loss = loss.item()
-          if now_loss >= last_loss:
-            always_improved = False
+
+          if now_loss > last_loss:
+            break
           last_loss = now_loss
 
-          # print("Step",i,"loss",now_loss,out_tweak)
+          if telapsed > HP.TWEAK_DESCENT_MAX_SECOND:
+            finished = False
+            break
 
-      q_out.put((job_kind,input,(fact*loss.item(),out_tweak,always_improved)))
+        # print("EVALed:",prob,"for",numiter,"iter in time",telapsed,"finished:",finished,"last_loss",last_loss)
+
+      q_out.put((job_kind,input,(fact*loss.item(),out_tweak,numiter,telapsed,finished)))
     elif job_kind == JK_TRAIN:
       (prob,temp,used_tweak,fact,trace_file_path,model_file_path) = input
 
@@ -579,11 +587,13 @@ if __name__ == "__main__":
         def process_results_from_eval(job_kind,input,result):
           global weighted_eval_loss
           global num_eval_tasks
-          global num_improves
+          global num_finisheds
+          global total_time
+          global total_iter
 
           assert job_kind == JK_EVAL
           (prob,temp,tweak_start,fact,trace_file_path,model_file_path) = input
-          (loss,out_tweak,always_improved) = result
+          (loss,out_tweak,numiter,telapsed,finished) = result
 
           weighted_eval_loss += loss # multiplied by fact already in the child
 
@@ -591,8 +601,10 @@ if __name__ == "__main__":
           tweak_map[prob][temp] = out_tweak
 
           num_eval_tasks += 1
-          if always_improved:
-            num_improves += 1
+          total_iter += numiter
+          total_time += telapsed
+          if finished:
+            num_finisheds += 1
 
           return 1
 
@@ -600,16 +612,22 @@ if __name__ == "__main__":
           # we do eval also on train to have the tweaks descend analogously
           weighted_eval_loss = 0.0
           num_eval_tasks = 0
-          num_improves = 0
+          num_finisheds = 0
+          total_time = 0.0
+          total_iter = 0
           do_in_parallel(get_eval_tasks(for_training),parallelism,process_results_from_eval)
-          print("Eval loss on train",weighted_eval_loss,"num tasks",num_eval_tasks,"always improved on",num_improves)
+          print("Eval loss on train",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
+          print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
           sys.stdout.flush()
 
         weighted_eval_loss = 0.0
         num_eval_tasks = 0
-        num_improves = 0
+        num_finisheds = 0
+        total_time = 0.0
+        total_iter = 0
         do_in_parallel(get_eval_tasks(for_validation),parallelism,process_results_from_eval)
-        print("Eval loss on valid",weighted_eval_loss,"num tasks",num_eval_tasks,"always improved on",num_improves)
+        print("Eval loss on valid",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
+        print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
         sys.stdout.flush()
 
         eval_losses[stage2iter % VIW] = weighted_eval_loss

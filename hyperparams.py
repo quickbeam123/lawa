@@ -13,12 +13,12 @@ INSTRUCTION_LIMIT_TEST = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.0","1.0"]
+TEMPERATURES = ["0.0"]
 
 # learn from the last proof you found for this setting
 # 0 - don't do it (i.e., only learn from the proofs discovered during this eval)
 # >0 - for each prob and temp, there is CUMULATIVE-many latests traces stored in a list and we learn from all of them!
-CUMULATIVE : Final[int] = 2
+CUMULATIVE : Final[int] = 1
 # for CUMULATIVE > 1 the extra ones are collected but not really used for anything (as the moment)!
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
@@ -44,10 +44,10 @@ VALID_IMPROVE_WINDOW = 2
 VALIDATION_SET_FRAC = 0.2
 
 # when computing the loss (during validation) or before we actually train (in training), we make a few descent steps just with the tweak part
-TWEAK_DESCENT_STEPS = 5
+TWEAK_DESCENT_MAX_SECOND = 30
 
 # if it seems to be taking forever to converge, let's just rerun the perform/gather part
-MAX_TEST_IMPROVE_ITER = 30
+MAX_TEST_IMPROVE_ITER = 10
 
 # there is always going to be (1+NUM_TWEAKS) many copies of the main network in the trained model
 # also, each problem will maintain a list of NUM_TWEAKS many tweaks which best describe it
@@ -99,10 +99,10 @@ OPTIMIZER_ADAM = 1
 OPTIMIZER = OPTIMIZER_ADAM
 
 # the default of 1.0 means "don't adapt", for adapting, use a number > 1.0 (unless you want to reverse the logic)
-ADAPTIVE_LR = 2.0
+ADAPTIVE_LR = 1.2
 
-LEARNING_RATE : Final[float] = 0.001
-TWEAKS_LEARNING_RATE : Final[float] = 0.001
+LEARNING_RATE : Final[float] = 0.0001
+TWEAKS_LEARNING_RATE : Final[float] = 0.005
 
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization

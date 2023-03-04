@@ -149,7 +149,8 @@ if __name__ == "__main__":
 
       handles.append(h)
 
-    print(mission,"maxed with",mission_max,"percent",100.0*mission_max/totals[mission],"at",mission_max_at)
+    if totals[mission]:
+      print(mission,"maxed with",mission_max,"percent",100.0*mission_max/totals[mission],"at",mission_max_at)
 
     # ax1.set_ylim(ymin=0)
 
