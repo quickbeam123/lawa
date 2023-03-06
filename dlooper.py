@@ -22,21 +22,24 @@ import torch
 # TODO: is float64 wasteful? (note we do everything in doubles on the vampire side!)
 # torch.set_default_dtype(torch.float64)
 
-MISSIONS = ["train","test"]
+MISSIONS = ["train","valid"]
 
 def print_model_part():
   for i in range(HP.NUM_TWEAKS+1):
     print("Key {}".format(repr(model.getKey(idx=i).weight.data)))
   pass
 
-def load_train_tests_problem_lists(campaign_dir):
+def load_train_valid_problem_lists_and_sets(campaign_dir):
   prob_lists = {}
+  prob_sets = {}
   for mission in MISSIONS:
     prob_list_file = os.path.join(campaign_dir,mission+".txt")
     with open(prob_list_file,"r") as f:
       lines = f.readlines()
-      prob_lists[mission] = [line.rstrip() for line in lines]
-  return prob_lists
+      cur_list = [line.rstrip() for line in lines]
+      prob_lists[mission] = cur_list
+      prob_sets[mission] = set(cur_list)
+  return prob_lists,prob_sets
 
 def claim_loop_dir(loop):
   loop_str = "loop{}".format(loop)
@@ -104,7 +107,7 @@ def possibly_load_trace_index(load_dir,old_index):
 TWEAK_MAP = "tweak_map.pt"
 
 def get_empty_tweak_map():
-  # each problem (both train and test) and a temp are associated with at most one tweak, a list of floats of len = HP.NUM_TWEAKS
+  # each problem (both train and valid) and a temp are associated with at most one tweak, a list of floats of len = HP.NUM_TWEAKS
   return defaultdict(dict) # problem -> temp -> tweak (which is a list)
 
 def enum_all_tweaks(tweak_map):
@@ -253,8 +256,8 @@ def worker(q_in, q_out):
 if __name__ == "__main__":
   # Automating the vamp_perform - model_train - model_export loop.
   # Dlooper uses the general flow of clooper but tries sever new ideas:
-  # - gather traces even on test problems, so that we can "train until test-loss does not improve" (careful, this is no longer unbiased wrt the test set)
-  # - as we do this, we can start reporting the loss observed (both on train and test) and create stats on "what value of loss is enough for this problem to get solved (and under how many iters)"
+  # - gather traces even on valid problems, so that we can "train until valid-loss does not improve"
+  # - as we do this, we can start reporting the loss observed (both on train and valid) and create stats on "what value of loss is enough for this problem to get solved (and under how many iters)"
   # - all these gathered pythonized vampire runs (traces) will go into files and will get communicated with the workers that way (too much RAM used started hurting clooper under CUMULATIVE)
   # - Maybe: subsample long derivation to (HYPERPARAM proper training steps) for some speed (although still need to replay the whole journal and evaluted all mentioned clauses)
   # (to get non-drifting values, we give up on the ``continuous'' aspect idea - TODO: do we have to, really?)
@@ -262,7 +265,7 @@ if __name__ == "__main__":
   #
   # To be called as in: ./dlooper.py loop_count parallelism campaign_folder (must exist) exper_folder (will be created - ideally have this on local/scratch) [optionally, last completed loop dir]
   #
-  # campaign_folder contains "train.txt", "test.txt" - the files listing the problems, and a bunch of train/test_something.pkl's with results of baseline (non-neural) runs for reporting
+  # campaign_folder contains "train.txt", "valid.txt" - the files listing the problems
   #
   # ./dlooper.py 15 70 campaigns/small/ /local/sudamar2/lawa/exper1 [optionally, last completed loop dir]
 
@@ -279,7 +282,7 @@ if __name__ == "__main__":
 
   # Start a new expreriment folder to contain
   # 1) hyperparms and campaing we ran on
-  # 2) loop folders each with train / test results and the model/optimizer from that loop
+  # 2) loop folders each with train / valid results and the model/optimizer from that loop
   # 3) a traces folder with eval / train trace files (which are persistent across the loops but get overwritten to save space in each successive gather stage)
   os.mkdir(exper_dir)
   traces_dir = os.path.join(exper_dir,"traces")
@@ -292,8 +295,8 @@ if __name__ == "__main__":
   with open(os.path.join(exper_dir,"campaign.txt"),"w") as f:
     f.write(campaign_dir)
 
-  # Load training and testing problem lists
-  prob_lists = load_train_tests_problem_lists(campaign_dir)
+  # Load training and validation problem lists
+  prob_lists,prob_sets = load_train_valid_problem_lists_and_sets(campaign_dir)
 
   global_learning_rate = HP.LEARNING_RATE
   print("Global learning rate:",global_learning_rate)
@@ -438,11 +441,7 @@ if __name__ == "__main__":
     def get_perform_tasks():
       # for both missions and all temperatures
       for mission in MISSIONS:
-        # don't test with bling tweaks (for now)
-        if HP.NUM_TWEAKS > 0 and mission == "test":
-          continue
-
-        ilim = HP.INSTRUCTION_LIMIT if mission == "train" else HP.INSTRUCTION_LIMIT_TEST
+        ilim = HP.INSTRUCTION_LIMIT
         for ti,temp in enumerate(HP.TEMPERATURES):  # we us ti in the filename too, for the case temps are repeated
           res_filename = "{}_t{}_ti{}.pt".format(mission,temp,ti)
           result_metas.append((res_filename,mission,temp,ilim))
@@ -465,8 +464,6 @@ if __name__ == "__main__":
                   # print("Will try tweak",used_tweak,"for",prob)
                   # TODO: there also was the option to draw a tweak that already exists somewhere in the map
                   # (but with a different problem)
-                  # in any case, this is only interesting for solving more problems during training,
-                  # what we don't have a cheap solution for how to reasoably search for tweaks for the test problems
                 else:
                   used_tweak = HP.NUM_TWEAKS*[0.0,]
                   # print("Defaulting tweak",used_tweak,"for",prob)
@@ -492,7 +489,7 @@ if __name__ == "__main__":
         if status == "uns":
           tweak_map[prob][temp] = used_tweak
 
-          if mission == "train" and not had_unsat_already:
+          if not had_unsat_already:
             ilim = 10*HP.INSTRUCTION_LIMIT
             task = (JK_GATHER,(prob,temp,get_trace_file_path(prob,loop,temp),"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
             # print("PUT:",task)
@@ -558,20 +555,12 @@ if __name__ == "__main__":
     eval_losses = [None]*VIW
     stage2iter = 0
 
-    if VIW > 1:
-      traced_problems = list(trace_index.keys())
-      random.shuffle(traced_problems)
-      for_validation = set(traced_problems[:int(HP.VALIDATION_SET_FRAC*len(traced_problems))])
-      for_training = set(traced_problems) - for_validation
-    else:
-      for_validation = set()
-    print("Will train on",len(trace_index)-len(for_validation),"problems,",len(for_validation),"set aside for validation.")
-
     # last_train_loss = float('inf')
     inc_lr_wish = False
     dec_lr_wish = False
 
     while True:
+      print("stage2iter:",stage2iter)
       if VIW > 1:
         # EVAL on validation problems
         eval_model_file_path = os.path.join(HP.SCRATCH,"eval-model-state_{}_{}.tar".format(os.getpid(),stage2iter))
@@ -617,7 +606,7 @@ if __name__ == "__main__":
           num_finisheds = 0
           total_time = 0.0
           total_iter = 0
-          do_in_parallel(get_eval_tasks(for_training),parallelism,process_results_from_eval)
+          do_in_parallel(get_eval_tasks(prob_sets["train"]),parallelism,process_results_from_eval)
           print("Eval loss on train",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
           print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
           sys.stdout.flush()
@@ -627,7 +616,7 @@ if __name__ == "__main__":
         num_finisheds = 0
         total_time = 0.0
         total_iter = 0
-        do_in_parallel(get_eval_tasks(for_validation),parallelism,process_results_from_eval)
+        do_in_parallel(get_eval_tasks(prob_sets["valid"]),parallelism,process_results_from_eval)
         print("Eval loss on valid",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
         print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
         sys.stdout.flush()
@@ -648,8 +637,8 @@ if __name__ == "__main__":
             for eval_model_file_path in eval_models:
               os.remove(eval_model_file_path)
             break
-          if stage2iter > HP.MAX_TEST_IMPROVE_ITER:
-            print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
+          if stage2iter > HP.MAX_VALID_IMPROVE_ITER:
+            print(f"Taking too long to converge (stage2iter > HP.MAX_VALID_IMPROVE_ITER={HP.MAX_VALID_IMPROVE_ITER}), will take the best from the last HP.VALID_IMPROVE_WINDOW={HP.VALID_IMPROVE_WINDOW} observed.")
             inc_lr_wish = True
             best_idx = 0
             best_idx_val = eval_losses[0]
@@ -666,9 +655,9 @@ if __name__ == "__main__":
       # for _ in range(HP.NUM_TRAIN_CYCLES_BETWEEN_EVALS):
       train_model_version = 0
       def get_train_tasks():
-        fact = 1/(len(trace_index)-len(for_validation))
+        fact = 1/(len(prob_sets["train"]))
         proto_tasks = [[prob,temp,tweak_map[prob][temp] if prob in tweak_map and temp in tweak_map[prob] else HP.NUM_TWEAKS*[0.0,],fact/len(temp_dict),loop_trace_file_path_list[0][1]]
-          for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob not in for_validation]
+          for prob, temp_dict in trace_index.items() for temp,loop_trace_file_path_list in temp_dict.items() if prob in prob_sets["train"]]
         random.shuffle(proto_tasks)
 
         global train_model_version

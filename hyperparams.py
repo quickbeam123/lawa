@@ -8,12 +8,11 @@ INTRAOP_PARALLELISM = 1
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000
-INSTRUCTION_LIMIT_TEST = 5000
 
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.0"]
+TEMPERATURES = ["0.0","0.5","0.1"]
 
 # learn from the last proof you found for this setting
 # 0 - don't do it (i.e., only learn from the proofs discovered during this eval)
@@ -38,28 +37,28 @@ NUM_TRAIN_CYCLES_BETWEEN_EVALS = 1
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest valid-eval loss value out of VALID_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
-VALID_IMPROVE_WINDOW = 2
+VALID_IMPROVE_WINDOW = 3
 
 # what fraction of problems for which we have traces do we use as validation traces (only relevant if VALID_IMPROVE_WINDOW > 1)
-VALIDATION_SET_FRAC = 0.2
+# VALIDATION_SET_FRAC = 0.2
 
 # when computing the loss (during validation) or before we actually train (in training), we make a few descent steps just with the tweak part
 TWEAK_DESCENT_MAX_SECOND = 30
 
 # if it seems to be taking forever to converge, let's just rerun the perform/gather part
-MAX_TEST_IMPROVE_ITER = 10
+MAX_VALID_IMPROVE_ITER = 30
 
 # there is always going to be (1+NUM_TWEAKS) many copies of the main network in the trained model
 # also, each problem will maintain a list of NUM_TWEAKS many tweaks which best describe it
 # by convention, we train those tweaks which correspond to active_networks (e.g. ACTIVE_FROM==2 means we train all except the first tweak)
-NUM_TWEAKS = 1
+NUM_TWEAKS = 0
 
 # with NUM_TWEAKS > 0, it makes sense to fix some the main, default, network (as well as some tweaks?) and only train (some of the) tweaky parts
 # note the indixing issue: ACTIVE_FROM == 0 means we are training the main newtwork (at index 0), whose formal tweak is the constant 1.0
-ACTIVE_FROM = 1
+ACTIVE_FROM = 0
 
 # CAREFUL; when this is > 1, results become overly optimistic!
-NUM_PERFORMS_ON_HARD_PROBLEMS = 5
+NUM_PERFORMS_ON_HARD_PROBLEMS = 1
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
@@ -99,9 +98,9 @@ OPTIMIZER_ADAM = 1
 OPTIMIZER = OPTIMIZER_ADAM
 
 # the default of 1.0 means "don't adapt", for adapting, use a number > 1.0 (unless you want to reverse the logic)
-ADAPTIVE_LR = 1.2
+ADAPTIVE_LR = 1.0
 
-LEARNING_RATE : Final[float] = 0.0001
+LEARNING_RATE : Final[float] = 0.0005
 TWEAKS_LEARNING_RATE : Final[float] = 0.005
 
 MOMENTUM = 0.9 # only for SGD
