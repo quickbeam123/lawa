@@ -59,7 +59,7 @@ NUM_TWEAKS = 1
 ACTIVE_FROM = 1
 
 # CAREFUL; when this is > 1, results become overly optimistic!
-NUM_PERFORMS_ON_HARD_PROBLEMS = 3
+NUM_PERFORMS_ON_HARD_PROBLEMS = 5
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)

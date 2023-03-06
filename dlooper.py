@@ -180,6 +180,8 @@ def worker(q_in, q_out):
       local_model.load_state_dict(torch.load(model_file_path))
 
       finished = True
+      numiter = 0
+      start_time = time.time()
 
       if HP.NUM_TWEAKS == 0:
         learn_model = IC.LearningModel(local_model,*proof_tuple)
@@ -189,6 +191,7 @@ def worker(q_in, q_out):
         loss = learn_model.forward([tweak_start])
         out_tweak = tweak_start
         # print("min-ning at",min_idx)
+        telapsed = time.time() - start_time
       else:
         local_optimizer = torch.optim.Adam([{'params': local_model.getTweaksAsParams(), 'lr': HP.TWEAKS_LEARNING_RATE}])
         local_model.train()
@@ -196,8 +199,7 @@ def worker(q_in, q_out):
         out_tweak = tweak_start
         # print("Starting with",out_tweak)
         last_loss = float('inf')
-        start_time = time.time()
-        numiter = 0
+
         while True:
           numiter += 1
           local_optimizer.zero_grad()
