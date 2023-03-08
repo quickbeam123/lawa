@@ -11,7 +11,7 @@ INSTRUCTION_LIMIT_TEST = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["0.0","0.5","1.0"]
+TEMPERATURES = ["1.0","0.5","0.0"]
 
 # in clooper:
 # learn from the last proof you found for this setting
@@ -39,7 +39,7 @@ TRAINING_PARALLELISM = 20
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest test-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrive that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 3
+TEST_IMPROVE_WINDOW = 5
 
 # if the seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
@@ -60,7 +60,7 @@ NUM_TWEAKS = 0
 # VarOcc,VarOcc/W             8,9
 # Sine0,SineMax,SineLevel,    12
 # DistVars,DistVars/W         13,14
-NUM_FEATURES : Final[int] = 2
+NUM_FEATURES : Final[int] = 12
 
 # todo: think of normalization / regularization ...
 

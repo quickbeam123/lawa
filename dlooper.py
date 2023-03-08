@@ -60,7 +60,7 @@ def possibly_load_loop_model_and_optimizer_state(load_dir,loop,model,optimizer):
   return loop,False
 
 def get_empty_trace_index():
-  return { m : defaultdict(dict) for m in MISSIONS} # mission -> problem -> temp -> (loop when obtained,trace_file_name)
+  return { m : {} for m in MISSIONS} # mission -> problem -> (temp,trace_file_name) # newly we only keep the hottest solutions!
 
 TRACE_INDEX = "trace-index.pt"
 
@@ -344,6 +344,12 @@ if __name__ == "__main__":
           for prob in prob_lists[mission]:
             yield (JK_PERFORM,(res_filename,mission,prob,temp,opts1,opts2))
 
+    def has_none_as_hot(trace_index_for_mission,prob,newtemp):
+      if prob not in trace_index_for_mission:
+        return True
+      (temp,_trace) = trace_index_for_mission[prob]
+      return float(temp) < float(newtemp)
+
     def process_results_from_perform_and_gather(job_kind,input,result):
       workers_freed = 0
       if job_kind == JK_PERFORM:
@@ -351,7 +357,7 @@ if __name__ == "__main__":
         result_dicts[res_filename][prob] = result
 
         (status,instructions,activations) = result
-        if status == "uns":
+        if status == "uns" and has_none_as_hot(trace_index[mission],prob,temp):
           ilim = 10*HP.INSTRUCTION_LIMIT
           task = (JK_GATHER,(mission,prob,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
           # print("PUT:",task)
@@ -362,8 +368,8 @@ if __name__ == "__main__":
         (mission,prob,temp,opts) = input
         trace_file_path = result
         # the trace pkl has been saved to a file, let's just remember that we have it:
-        if trace_file_path is not None:
-          trace_index[mission][prob][temp] = (loop,trace_file_path)
+        if trace_file_path is not None and has_none_as_hot(trace_index[mission],prob,temp):
+          trace_index[mission][prob] = (temp,trace_file_path)
         workers_freed = 1
       else:
         assert False, f"Surprised by job_kind {job_kind}"
@@ -397,6 +403,16 @@ if __name__ == "__main__":
       print()
       sys.stdout.flush()
 
+    for m in MISSIONS:
+      print("trace_index for",m,"has")
+      hist = defaultdict(int)
+      for prob,(temp,_) in trace_index[m].items():
+        hist[temp] += 1
+      for i,(temp,cnt) in enumerate(sorted(hist.items(),reverse = True)):
+        print("  temp",temp,"has" if i == 0 else "adds",cnt,"traces")
+    print()
+    sys.stdout.flush()
+
     # STAGE 2: alternate EVAL, TRAIN, EVAL until no longer improving
     stage_start_time = time.time()
 
@@ -417,7 +433,7 @@ if __name__ == "__main__":
 
         # it's not clear whether test loss should reflect the magic-accum formula of clooper (that tries to pull more strongly on not-so-recently solved problems)
         fact = 1/len(trace_index["test"])
-        tasks = ((JK_EVAL,(prob,temp,fact/len(temp_dict),trace_file_path,eval_model_file_path)) for prob, temp_dict in trace_index["test"].items() for temp,(_,trace_file_path) in temp_dict.items())
+        tasks = ((JK_EVAL,(prob,temp,fact,trace_file_path,eval_model_file_path)) for prob, (_,trace_file_path) in trace_index["test"].items())
 
         weighted_test_loss = 0.0
 
@@ -471,7 +487,7 @@ if __name__ == "__main__":
       def get_train_tasks():
         fact = 1/len(trace_index["train"])
         # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-        proto_tasks = [[prob,temp,fact/len(temp_dict),trace_file_path] for prob, temp_dict in trace_index["train"].items() for temp,(_,trace_file_path) in temp_dict.items()]
+        proto_tasks = [[prob,temp,fact,trace_file_path] for prob, (_,trace_file_path) in trace_index["train"].items()]
         random.shuffle(proto_tasks)
 
         global train_model_version
