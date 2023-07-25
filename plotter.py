@@ -56,6 +56,9 @@ if __name__ == "__main__":
 
         successes = sum(1 for prob,(status,instructions,activations) in results.items() if status == "uns")
 
+        # this will give you PER-CENT instead
+        # successes = successes / len(results.items())
+
         # print("     -> ",successes)
 
         for prob,(status,instructions,activations) in results.items():
