@@ -1,0 +1,42 @@
+Main scripts:
+-------------
+
+dlooper.py
+- the main orchestration script
+
+inf_common.py
+- the main library, supporting running vampire and setting up the models
+
+hyperparams.py
+- where all the setting for running a dlooper experiment reside
+
+
+plotter.py
+- show how training progresses in an exper
+
+
+2dplotter.py
+- mainly for the awr heatmap picture (what does a trained model produce for logits given a clause of "these" coordinates)
+
+
+GSD/tweak related but currently not under version control in "main":
+--------------------------------------------------------------------
+tweak_analyzer.py
+- visualize a tweak_map, i.e., where did TPTP problems end up getting?
+
+tweak_plotter.py
+- for a single problem's trace, show its heatmap and perhaps overlay this with actually success rates achieved with particular tweaks
+
+
+Lightweight auxiliary scripts of no big importance:
+----------------------------------------------------
+greedyResults.py, model_printer.py
+
+
+Ancient scripts no longer used (thus can be ignored):
+-----------------------------------------------------
+train_storage_manager.py, clooper.py
+
+Scripts related to evaluating vampire normaly used elsewhere (and just copy-pasted here)
+----------------------------------------------------------------------------------------
+filenamify_path.sh, run_in_parallel_plus_local.sh, run_lawa_vampire_old.sh, parallel, analyze_results_instr.py
