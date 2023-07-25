@@ -314,7 +314,7 @@ if __name__ == "__main__":
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
 
-    if HP.CUMMULATIVE == 0: # forget what we solved until now
+    if HP.CUMULATIVE == 0: # forget what we solved until now
       trace_index = get_empty_trace_index()
 
     # STAGE 1: PERFORM and GATHER (TODO: could/should be done in one call to workers?)
@@ -398,7 +398,7 @@ if __name__ == "__main__":
     print()
     sys.stdout.flush()
 
-    if HP.CUMMULATIVE > 0:
+    if HP.CUMULATIVE > 0:
       print("Registering",len(trace_index["train"]),"train and",len(trace_index["test"]),"test problems in trace_index.")
       print()
       sys.stdout.flush()
