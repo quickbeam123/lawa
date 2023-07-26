@@ -11,7 +11,8 @@ INSTRUCTION_LIMIT_TEST = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES = ["1.0","0.5","0.0"]
+TEMPERATURES  = 10*["0.0"]+["1.0"]
+ONLY_TRAIN_ON = "0.0"
 
 # in clooper:
 # learn from the last proof you found for this setting
@@ -22,7 +23,7 @@ TEMPERATURES = ["1.0","0.5","0.0"]
 # Idea: super easy problems will get to 1 (ten times less then max) and stay there
 # on the other hand, hard problems will be pulling harder (as long as they stay unsolved)
 # in dlooper, for now, just boolean like functionality (no extra multiplier)
-CUMULATIVE : Final[int] = 1
+CUMULATIVE : Final[int] = 0
 
 # only learn from the first proof found for each problem (when traversing the training results in the TEMPERATURES lists)
 # in clooper, this might be especially important as otherwise easy problems will train |TEMPERATURES|-times more than
@@ -39,7 +40,7 @@ TRAINING_PARALLELISM = 20
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest test-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 5
+TEST_IMPROVE_WINDOW = 3
 
 # if the seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
@@ -90,7 +91,7 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.0005
+LEARNING_RATE : Final[float] = 0.0007
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

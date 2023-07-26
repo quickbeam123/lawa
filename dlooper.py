@@ -60,7 +60,7 @@ def possibly_load_loop_model_and_optimizer_state(load_dir,loop,model,optimizer):
   return loop,False
 
 def get_empty_trace_index():
-  return { m : {} for m in MISSIONS} # mission -> problem -> (temp,trace_file_name) # newly we only keep the hottest solutions!
+  return { m : defaultdict(list) for m in MISSIONS} # mission -> problem -> [(temp,trace_file_name)]
 
 TRACE_INDEX = "trace-index.pt"
 
@@ -82,20 +82,20 @@ def ilim2tlim(ilim):
 
 # Kinds of jobs a worker can be asked to do
 JK_PERFORM = 0 # runs vampire in "real-time" mode to assess its performance
-  # input:     (res_filename,mission,prob,temp,opts1,opts2)
+  # input:     (res_filename,mission,prob,ti,temp,opts1,opts2)
   # output:    result as coming from IC.vampire_eval
 JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training trace
-  # input:     (mission,prob,temp,opts)
+  # input:     (mission,prob,ti,temp,opts)
   # output:    filename where got saved if got a non-degenerate trace; or None
 JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
-  # input:     (prob,temp,fact,trace_file_path,model_file_path)
+  # input:     (prob,fact,trace_file_path,model_file_path)
   # output:    the computed loss
 JK_TRAIN = 3   #
-  # input:     (prob,temp,fact,trace_file_path,model_file_path)
+  # input:     (prob,fact,trace_file_path,model_file_path)
   # output:    the computed loss
 
-def get_trace_file_path(mission,prob,temp):
-  return os.path.join(traces_dir,"{}_{}_{}.pt".format(mission,prob.replace("/","_"),temp))
+def get_trace_file_path(mission,prob,ti,temp):
+  return os.path.join(traces_dir,"{}_{}_{}_{}.pt".format(mission,prob.replace("/","_"),ti,temp))
 
 def worker(q_in, q_out):
   # tell each worker we don't want any extra threads
@@ -106,21 +106,21 @@ def worker(q_in, q_out):
     (job_kind,input) = q_in.get()
 
     if job_kind == JK_PERFORM:
-      (res_filename,mission,prob,temp,opts1,opts2) = input
+      (res_filename,mission,prob,ti,temp,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
 
     elif job_kind == JK_GATHER:
-      (mission,prob,temp,opts) = input
+      (mission,prob,ti,temp,opts) = input
       result = IC.vampire_gather(prob,opts)
       trace_file_path = None
       if result is not None and result[0]: # non-degenerate
-        trace_file_path = get_trace_file_path(mission,prob,temp)
+        trace_file_path = get_trace_file_path(mission,prob,ti,temp)
         torch.save(result[1],trace_file_path)
       q_out.put((job_kind,input,trace_file_path))
 
     elif job_kind == JK_EVAL or job_kind == JK_TRAIN:
-      (prob,temp,fact,trace_file_path,model_file_path) = input
+      (prob,fact,trace_file_path,model_file_path) = input
 
       proof_tuple = torch.load(trace_file_path)
 
@@ -330,34 +330,28 @@ if __name__ == "__main__":
           opts2 = " --random_seed {} -npcc {} -nnf {} -npcct {}".format(seed,script_model_file_path,HP.NUM_FEATURES,temp)
 
           for prob in prob_lists[mission]:
-            yield (JK_PERFORM,(res_filename,mission,prob,temp,opts1,opts2))
-
-    def has_none_as_hot(trace_index_for_mission,prob,newtemp):
-      if prob not in trace_index_for_mission:
-        return True
-      (temp,_trace) = trace_index_for_mission[prob]
-      return float(temp) < float(newtemp)
+            yield (JK_PERFORM,(res_filename,mission,prob,ti,temp,opts1,opts2))
 
     def process_results_from_perform_and_gather(job_kind,input,result):
       workers_freed = 0
       if job_kind == JK_PERFORM:
-        (res_filename,mission,prob,temp,opts1,opts2) = input
+        (res_filename,mission,prob,ti,temp,opts1,opts2) = input
         result_dicts[res_filename][prob] = result
 
         (status,instructions,activations) = result
-        if status == "uns" and has_none_as_hot(trace_index[mission],prob,temp):
+        if status == "uns" and (HP.ONLY_TRAIN_ON is None or temp == HP.ONLY_TRAIN_ON):
           ilim = 10*HP.INSTRUCTION_LIMIT
-          task = (JK_GATHER,(mission,prob,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
+          task = (JK_GATHER,(mission,prob,ti,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
           # print("PUT:",task)
           q_in.put(task)
         else:
           workers_freed = 1
       elif job_kind == JK_GATHER:
-        (mission,prob,temp,opts) = input
+        (mission,prob,ti,temp,opts) = input
         trace_file_path = result
         # the trace pkl has been saved to a file, let's just remember that we have it:
-        if trace_file_path is not None and has_none_as_hot(trace_index[mission],prob,temp):
-          trace_index[mission][prob] = (temp,trace_file_path)
+        if trace_file_path is not None:
+          trace_index[mission][prob].append((temp,trace_file_path)) # TODO: this is perhaps not very wise with cummulative, as it would keep growing (while many of the traces would be getting overwritten)
         workers_freed = 1
       else:
         assert False, f"Surprised by job_kind {job_kind}"
@@ -368,19 +362,48 @@ if __name__ == "__main__":
 
     # let's report what happened so far:
     prev_mission = None
-    for (res_filename,mission,temp,seed,ilim) in result_metas:
-      if mission != prev_mission:
-        print(" ",mission)
-        seen_successes = set()
-        prev_mission = mission
-      results = result_dicts[res_filename]
-      torch.save(("temp: {} seed: {} ilim:".format(temp,seed,ilim),results), os.path.join(cur_dir,res_filename))
+    prev_temp = None
+    temp_cnt = 0
+    prob_total = None
+    for (res_filename,mission,temp,seed,ilim) in result_metas+[(None,None,None,None,None)]:
+      if temp != prev_temp or mission != prev_mission:
+        if temp_cnt > 0:
+          # print what we had in prev_temp (if anything)
+          successes = set(prob_cnts)
+          fractional = 0.0
+          for prob,cnt in prob_cnts.items():
+            fractional += cnt/temp_cnt
 
-      successes = {prob for prob,(status,instructions,activations) in results.items() if status == "uns"}
-      num_new = len(successes-seen_successes)
-      seen_successes = seen_successes | successes
-      if len(results):
-        print("    t={}  {:10.4f}% = {} / {}   +{} (accum {})".format(temp,len(successes)/len(results),len(successes),len(results),num_new,len(seen_successes)))
+          num_new = len(successes-seen_successes)
+          seen_successes = seen_successes | successes
+
+          print("    t={}  {:10.4f}% = {:10.1f} / {} ({} attempts) +{} (accum {})".format(prev_temp,fractional/prob_total,fractional,prob_total,temp_cnt,num_new,len(seen_successes)))
+
+        if mission != prev_mission:
+          print(" ",mission)
+          seen_successes = set()
+          prev_mission = mission
+
+        temp_cnt = 0
+        prob_cnts = defaultdict(int)
+
+        prev_temp = temp
+
+      if temp is not None:
+        temp_cnt += 1
+
+        results = result_dicts[res_filename]
+        torch.save(("temp: {} seed: {} ilim:".format(temp,seed,ilim),results), os.path.join(cur_dir,res_filename))
+
+        if prob_total is None:
+          prob_total = len(results)
+        else:
+          # all results are of the same length
+          assert prob_total == len(results)
+        for prob,(status,instructions,activations) in results.items():
+          if status == "uns":
+            prob_cnts[prob] += 1
+
     print()
     print("  Stage 1 took",time.time()-stage_start_time)
     print()
@@ -392,12 +415,11 @@ if __name__ == "__main__":
       sys.stdout.flush()
 
     for m in MISSIONS:
-      print("trace_index for",m,"has")
-      hist = defaultdict(int)
-      for prob,(temp,_) in trace_index[m].items():
-        hist[temp] += 1
-      for i,(temp,cnt) in enumerate(sorted(hist.items(),reverse = True)):
-        print("  temp",temp,"has" if i == 0 else "adds",cnt,"traces")
+      trace_cnt = 0
+      for prob,trace_list in trace_index[m].items():
+        trace_cnt += len(trace_list)
+      print("trace_index for",m,"has\n  ",len(trace_index[m]),"probs with a total of",trace_cnt,"traces")
+
     print()
     sys.stdout.flush()
 
@@ -421,7 +443,7 @@ if __name__ == "__main__":
 
         # it's not clear whether test loss should reflect the magic-accum formula of clooper (that tries to pull more strongly on not-so-recently solved problems)
         fact = 1/len(trace_index["test"])
-        tasks = ((JK_EVAL,(prob,temp,fact,trace_file_path,eval_model_file_path)) for prob, (_,trace_file_path) in trace_index["test"].items())
+        tasks = ((JK_EVAL,(prob,fact/len(trace_list),trace_file_path,eval_model_file_path)) for prob, trace_list in trace_index["test"].items() for (_,trace_file_path) in trace_list )
 
         weighted_test_loss = 0.0
 
@@ -429,7 +451,7 @@ if __name__ == "__main__":
           global weighted_test_loss
 
           assert job_kind == JK_EVAL
-          (prob,temp,fact,trace_file_path,eval_model_file_path) = input
+          (prob,fact,trace_file_path,eval_model_file_path) = input
           loss = result
 
           weighted_test_loss += loss # multiplied by fact already in the child
@@ -475,7 +497,7 @@ if __name__ == "__main__":
       def get_train_tasks():
         fact = 1/len(trace_index["train"])
         # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-        proto_tasks = [[prob,temp,fact,trace_file_path] for prob, (_,trace_file_path) in trace_index["train"].items()]
+        proto_tasks = [[prob,fact/len(trace_list),trace_file_path] for prob, trace_list in trace_index["train"].items() for (_,trace_file_path) in trace_list]
         random.shuffle(proto_tasks)
 
         global train_model_version
@@ -492,7 +514,7 @@ if __name__ == "__main__":
         global weighted_train_loss
 
         assert job_kind == JK_TRAIN
-        (prob,temp,fact,trace_file_path,train_model_file_path) = input
+        (prob,fact,trace_file_path,train_model_file_path) = input
         loss = result
 
         weighted_train_loss += loss # multiplied by fact already in the child
