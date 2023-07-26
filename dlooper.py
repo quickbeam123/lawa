@@ -109,6 +109,7 @@ def worker(q_in, q_out):
       (res_filename,mission,prob,temp,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
+
     elif job_kind == JK_GATHER:
       (mission,prob,temp,opts) = input
       result = IC.vampire_gather(prob,opts)
@@ -117,19 +118,6 @@ def worker(q_in, q_out):
         trace_file_path = get_trace_file_path(mission,prob,temp)
         torch.save(result[1],trace_file_path)
       q_out.put((job_kind,input,trace_file_path))
-    elif job_kind == JK_EVAL:
-      (prob,temp,fact,trace_file_path,model_file_path) = input
-
-      proof_tuple = torch.load(trace_file_path)
-
-      local_model = IC.get_initial_model()
-      local_model.load_state_dict(torch.load(model_file_path))
-
-      learn_model = IC.LearningModel(local_model,*proof_tuple)
-      learn_model.eval()
-      loss = learn_model.forward()
-
-      q_out.put((job_kind,input,loss.item()))
 
     elif job_kind == JK_EVAL or job_kind == JK_TRAIN:
       (prob,temp,fact,trace_file_path,model_file_path) = input
