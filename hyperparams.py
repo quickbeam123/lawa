@@ -11,8 +11,7 @@ INSTRUCTION_LIMIT_TEST = 5000
 # TEMPERATURES = ["1.0"]
 # TEMPERATURES = ["0.00","0.25","0.50","0.75","1.00"]
 # TEMPERATURES = ["0.00","0.125","0.25","0.375","0.50"]
-TEMPERATURES  = 10*["0.0"]+["1.0"]
-ONLY_TRAIN_ON = "0.0"
+TEMPERATURES  = 5*["0.0"]
 
 # in clooper:
 # learn from the last proof you found for this setting
@@ -40,10 +39,13 @@ TRAINING_PARALLELISM = 20
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest test-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 3
+TEST_IMPROVE_WINDOW = 4
+
+# when computing the loss (during validation) or before we actually train (in training), we make a few descent steps just with the tweak part
+TWEAK_DESCENT_MAX_SECOND = 10
 
 # if the seems to be taking forever to converge, let's just rerun the perform/gather part
-MAX_TEST_IMPROVE_ITER = 30
+MAX_TEST_IMPROVE_ITER = 10
 
 # the GSD trick:
 # there is going to be NUM_TWEAKS many extra copies of the main network,
@@ -51,7 +53,10 @@ MAX_TEST_IMPROVE_ITER = 30
 # a unsolved training/test problem tries to get solved with a randomly picked tweak from some of the train problems
 # a solved training problem develops is own tweaking via learning
 # a solved test problem updates it's tweak (the one which worked last time) via hillclimbing
-NUM_TWEAKS = 0
+NUM_TWEAKS = 2
+
+# how much do we value training the generalist and how much the tweaked versions (as a ratio between 0.0 and 1.0)
+GENERALIST_TRAINING_WEIGHT = 0.5
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
@@ -91,7 +96,9 @@ OPTIMIZER_ADAM = 1
 
 OPTIMIZER = OPTIMIZER_ADAM
 
-LEARNING_RATE : Final[float] = 0.0007
+LEARNING_RATE : Final[float] = 0.001
+TWEAKS_LEARNING_RATE : Final[float] = 0.05
+
 MOMENTUM = 0.9 # only for SGD
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

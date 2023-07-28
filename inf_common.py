@@ -131,15 +131,45 @@ def vampire_gather(prob,opts):
   print(output)
   return None # meaning: "A major failure, consider keeping the used model for later debugging"
 
-def get_initial_model():
-  assert HP.CLAUSE_EMBEDDER_LAYERS > 0
-  layer_list = [torch.nn.Linear(HP.NUM_FEATURES,HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
-  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-    layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
-    layer_list.append(torch.nn.ReLU())
-  layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False))
+class TweakyClauseEvaluator(torch.nn.Module):
+  def __init__(self):
+    super().__init__()
 
-  return torch.nn.Sequential(*layer_list)
+    assert HP.CLAUSE_EMBEDDER_LAYERS > 0
+    layer_list = [torch.nn.Linear(HP.NUM_FEATURES,HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
+    for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
+      layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
+      layer_list.append(torch.nn.ReLU())
+
+    self.feature_processor = torch.nn.Sequential(*layer_list)
+    self.default_key = torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False)
+    self.key_tweaker = torch.nn.Linear(HP.NUM_TWEAKS,HP.CLAUSE_INTERAL_SIZE,bias=False)
+    self.tweaks = torch.nn.Parameter(torch.Tensor(HP.NUM_TWEAKS))
+
+  def getKey(self):
+    return self.default_key.weight
+
+  def getTweakVals(self):
+    return self.tweaks.tolist()
+
+  def setTweakVals(self,new_tweaks : List[float]):
+    with torch.no_grad():
+      self.tweaks.data = torch.Tensor(new_tweaks)
+
+  def getTweaksAsParams(self):
+    return [self.tweaks]
+
+  def forward(self,input,tweaked : bool) -> Tensor:
+    if tweaked:
+      processed = self.feature_processor(input)
+      tweaked_key = self.key_tweaker(self.tweaks)
+      master_key = self.default_key.weight + tweaked_key
+      return torch.nn.functional.linear(processed,master_key)
+    else:
+      return self.default_key(self.feature_processor(input))
+
+def get_initial_model():
+  return TweakyClauseEvaluator()
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
@@ -147,16 +177,23 @@ def export_model(model_state_dict,name):
   model.load_state_dict(model_state_dict)
 
   # eval mode and no gradient
-  for part in model:
-    part.eval()
-    for param in part.parameters():
-      param.requires_grad = False
+  model.eval()
+  for param in model.parameters():
+    param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
-    def __init__(self,clause_evaluator : torch.nn.Module):
+    def __init__(self,feature_processor : torch.nn.Module,
+                      default_key : torch.nn.Module, 
+                      key_tweaker : torch.nn.Module):
       super().__init__()
 
-      self.clause_evaluator = clause_evaluator
+      self.feature_processor = feature_processor
+      self.default_key = default_key
+      self.key_tweaker = key_tweaker
+
+    @torch.jit.export
+    def eatMyTweaks(self,tweaks : List[float]):
+      self.default_key.weight.add_(self.key_tweaker(torch.tensor(tweaks)))
 
     @torch.jit.export
     def forward(self,id: int,features : Tensor):
@@ -166,10 +203,11 @@ def export_model(model_state_dict,name):
 
       # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
       tFeatures : Tensor = features.float()
-      val = self.clause_evaluator(tFeatures)
+      processed = self.feature_processor(tFeatures)
+      val = self.default_key(processed)
       return val.item()
 
-  module = NeuralPassiveClauseContainer(model)
+  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key,model.key_tweaker)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -182,35 +220,53 @@ class LearningModel(torch.nn.Module):
     # print(clause_embedder,clause_key)
     # print(clauses,journal,proof_flas)
 
-    self.clause_evaluator = clause_evaluator # the MLP for clause evaluation
+    self.clause_evaluator = clause_evaluator # the TweakedClauseEvaluator for clause evaluation
     self.clauses = clauses                   # id -> (feature_vec)
     self.journal = journal                   # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas             # set of the good ids
     self.warmup_time = warmup_time
     self.select_time = select_time
 
-  def forward(self):
+  def forward(self,tweaks_to_try): # send in a singleton with None, for non-tweaked training (i.e. training of the generalist)
+
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
     id2idx = {}
     for i,(id,features) in enumerate(sorted(self.clauses.items())):
+      # we could also do some cropping, if vampire gave us more and we want thed fewer
+      assert len(features) == HP.NUM_FEATURES
       id2idx[id] = i
       clause_list.append(torch.tensor(features))
     feature_vecs = torch.stack(clause_list)
+    # print("feature_vecs.shape",feature_vecs.shape)
 
     # print("forward-feature_vecs",feature_vecs)
 
-    # in bulk for all the clauses
-    logits = self.clause_evaluator(feature_vecs)
-    # print("forward-logits",logits)
+    outer_dim = len(tweaks_to_try)
+    assert not self.training or outer_dim == 1
 
-    good_action_reward_loss = torch.zeros(1)
+    # in bulk for all the clauses
+    logits_list = []
+    for tweak in tweaks_to_try:
+      tweaked = False
+      if tweak is not None:
+        self.clause_evaluator.setTweakVals(tweak)
+        tweaked = True
+
+      logits_for_this_tweak = self.clause_evaluator.forward(feature_vecs,tweaked)
+      logits_for_this_tweak = torch.squeeze(logits_for_this_tweak,dim=-1)
+      # print("logits_for_this_tweak",logits_for_this_tweak.shape)
+      logits_list.append(logits_for_this_tweak)
+    logits = torch.stack(logits_list)
+    # print("logits.shape",logits.shape)
+
+    good_action_reward_loss = torch.zeros(outer_dim)
     num_good_steps = 0
 
-    time_penalty_loss = torch.zeros(1)
+    time_penalty_loss = torch.zeros(outer_dim)
     time_penalty_volume = 0
 
-    entropy_loss = torch.zeros(1)
+    entropy_loss = torch.zeros(outer_dim)
     num_steps = 0
 
     # TODO: couldn't this be one-off compiled to get much more efficient?
@@ -234,10 +290,13 @@ class LearningModel(torch.nn.Module):
         # print("forward-passive_list",passive_list)
         indices = torch.tensor([id2idx[id] for id in passive_list])
         # print("forward-indices",indices)
-        sub_logits = logits[indices]
+        sub_logits = logits[:,indices]
         # print("forward-sub_logits",sub_logits)
 
-        lsm = torch.nn.functional.log_softmax(sub_logits,dim=0)
+        # print("sub_logits.shape",sub_logits.shape)
+        lsm = torch.nn.functional.log_softmax(sub_logits,dim=-1)
+        # print("lsm.shape",lsm.shape)
+
         if HP.LEARN_FROM_ALL_GOOD:
           good_idxs = []
           for i,id in enumerate(passive_list):
@@ -245,21 +304,22 @@ class LearningModel(torch.nn.Module):
               good_idxs.append(i)
           # print(good_idxs)
           if len(good_idxs):
-            good_action_reward_loss += -sum(lsm[good_idxs])/len(good_idxs)
+            good_action_reward_loss += -torch.sum(lsm[:,good_idxs],dim=-1)/len(good_idxs)
             num_good_steps += 1
         else:
           if recorded_id in self.proof_flas:
             cur_idx = passive_list.index(recorded_id)
-            good_action_reward_loss += -lsm[cur_idx]
+            good_action_reward_loss += -lsm[:,cur_idx]
             num_good_steps += 1
 
         if HP.TIME_PENALTY_MIXING > 0.0:
           cur_idx = passive_list.index(recorded_id)
-          time_penalty_loss += HP.TIME_PENALTY_MIXING*event_time*lsm[cur_idx]
+          time_penalty_loss += HP.TIME_PENALTY_MIXING*event_time*lsm[:,cur_idx]
           time_penalty_volume += event_time
 
         if HP.ENTROPY_COEF > 0.0:
-          minus_entropy = torch.dot(torch.exp(lsm),lsm)
+          # TODO: this needs debugging under tweaks
+          minus_entropy = torch.dot(torch.exp(lsm,dim=-1),lsm)
           if HP.ENTROPY_NORMALIZED:
             minus_entropy /= torch.log(len(lsm))
           entropy_loss += HP.ENTROPY_COEF*minus_entropy
@@ -268,7 +328,7 @@ class LearningModel(torch.nn.Module):
         passive.remove(recorded_id)
 
     something = False
-    loss = torch.zeros(1)
+    loss = torch.zeros(outer_dim)
     for (l,n) in [(good_action_reward_loss,num_good_steps),(time_penalty_loss,time_penalty_volume),(entropy_loss,num_steps)]:
       if n > 0:
         something = True
