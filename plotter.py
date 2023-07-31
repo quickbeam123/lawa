@@ -9,7 +9,7 @@ import os, sys, shutil, pickle, random, atexit, time
 
 from collections import defaultdict
 
-MISSIONS = ["train","test"]
+MISSIONS = ["train","valid"]
 
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
@@ -47,7 +47,7 @@ if __name__ == "__main__":
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
       for file in files:
-        if file in ["train_data.pt","train_storage.pt","parts-model.pt","script-model.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar"]:
+        if file in ["tweak_map.pt","train_data.pt","train_storage.pt","parts-model.pt","script-model.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar"]:
           continue
 
         # print("    ",file)
