@@ -11,13 +11,15 @@ import hyperparams as HP
 
 import torch
 
+TEMP_SCRIPT_MODEL = "temp-script-model.pt"
+
 def eval_one(tweak):
   num_tries = 10
   num_succ = 0
   for i in range(num_tries):
     seed = random.randint(1,0x7fffff)
     twstr = ",".join(str(t) for t in tweak)
-    (status,instructions,activations) = IC.vampire_perfrom(prob_name,"-t 10 -i 5000 -p off --random_seed {} -npcc {} -npcct {} -npccw {}".format(seed,os.path.join(folder,"script-model.pt"),temp,twstr))
+    (status,instructions,activations) = IC.vampire_perfrom(prob_name,"-t 10 -i 5000 -p off --random_seed {} -npcc {} -nnf {} -npcct {} -npccw {}".format(seed,TEMP_SCRIPT_MODEL,HP.NUM_FEATURES,temp,twstr))
     if status == "uns":
       num_succ += 1
   # just for once, also go for a trace and save it
@@ -28,20 +30,20 @@ def eval_one(tweak):
       trace_file_path = "newtrace_{}_{}_{}_{}.pt".format(twstr.replace(",","-"),seed,prob_name.replace("/","_"),temp)
       torch.save(result[1],trace_file_path)
   '''
+  print(num_succ/num_tries)
   return num_succ/num_tries
 
 if __name__ == "__main__":
   # Load a model (loop model optimizer) and a trace and
   #
-  # To be called as in: ./tweak_plotter.py folder_with_everything tmp/test_Problems_GRP_GRP073-1.p_0.0.pt (i.e, a trace)
+  # To be called as in: ./tweak_plotter.py folder_with_exper loop_iter tmp/test_Problems_GRP_GRP073-1.p_0.0.pt (i.e, a trace)
 
   folder = sys.argv[1]
-
-  (loop,num_tweaks,active_from,model_state_dict,optimizer_state_dict) = torch.load(os.path.join(folder,"info-model-and-optimizer.tar"))
+  (loop,model_state_dict,optimizer_state_dict) = torch.load(os.path.join(folder,"loop-model-and-optimizer.tar"))
 
   model = IC.get_initial_model()
   model.load_state_dict(model_state_dict)
-  print("Loaded some model of loop",loop,"num_tweaks",num_tweaks,"active_from",active_from)
+  print("Loaded some model of loop",loop)
 
   proof_tuple = torch.load(sys.argv[2])
   print("Loaded proof_tuple with",len(proof_tuple[0]),"clauses and",len(proof_tuple[1]),"journal steps")
@@ -51,15 +53,16 @@ if __name__ == "__main__":
   if os.path.exists(tweak_map_file_path):
     tweak_map = torch.load(tweak_map_file_path)
 
-    # e.g. train_Problems_COL_COL042-6.p_1.0.pt
+    # e.g. train_Problems_COL_COL042-6.p_8_0.0.pt
     trace_name = sys.argv[2]
     trace_name_spl = trace_name.split("_")
+    prob_name = "/".join(trace_name_spl[1:-2])
+
     temp = trace_name_spl[-1][:-3]
-    prob_name = "/".join(trace_name_spl[1:-1])
+    if prob_name in tweak_map:
+      prob_tweak = tweak_map[prob_name]
 
-    prob_tweak = tweak_map[prob_name][temp]
-
-    print(f"Loaded prob's ({prob_name}) of temp {temp} tweak: {prob_tweak}")
+    print(f"Loaded prob's ({prob_name}) of tweak: {prob_tweak}")
 
   trace_file_path = os.path.join(folder,"trace-index.pt")
   if os.path.exists(trace_file_path):
@@ -76,7 +79,7 @@ if __name__ == "__main__":
 
   import numpy as np
 
-  AXLEN = 0.01
+  AXLEN = 3.00
   STEPS = 25
   BIGSTEPS = 5
 
@@ -113,10 +116,13 @@ if __name__ == "__main__":
     fsX.append(prob_tweak[0])
     fsY.append(prob_tweak[1])
 
+  IC.export_model(model.state_dict(),TEMP_SCRIPT_MODEL)
+
   def eval_with_vamp(fsX,fsY):
     # return [random.uniform(0.0,1.0) for _ in fsX]
-    pool = Pool(processes=10)
+    pool = Pool(processes=120)
     results = pool.map(eval_one, list(zip(fsX,fsY)))
+    # print(fsX,fsY,results)
     pool.close()
     pool.join()
     del pool
