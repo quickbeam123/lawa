@@ -20,6 +20,11 @@ import sys, random, math
 
 import hyperparams as HP
 
+from collections import defaultdict
+
+def default_defaultdict_of_list():
+  return defaultdict(list)
+
 EVENT_ADD = 0
 EVENT_REM = 1
 EVENT_SEL = 2

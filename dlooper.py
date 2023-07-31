@@ -105,10 +105,10 @@ def ilim2tlim(ilim):
 
 # Kinds of jobs a worker can be asked to do
 JK_PERFORM = 0 # runs vampire in "real-time" mode to assess its performance
-  # input:     (res_filename,mission,prob,temp,ti,used_tweak,opts1,opts2)
+  # input:     (res_filename,gatherwish,mission,prob,used_tweak,opts1,opts2)
   # output:    result as coming from IC.vampire_eval
 JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training trace
-  # input:     (mission,prob,ti,temp,opts)
+  # input:     (mission,prob,counter,opts)
   # output:    filename where got saved if got a non-degenerate trace; or None
 JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
   # input:     (prob,fact,tweak_start,trace_file_paths,model_file_path)
@@ -117,8 +117,8 @@ JK_TRAIN = 3   #
   # input:     (prob,fact,used_tweak,trace_file_paths,train_model_file_path)
   # output:    the computed loss
 
-def get_trace_file_path(mission,prob,ti,temp):
-  return os.path.join(traces_dir,"{}_{}_{}_{}.pt".format(mission,prob.replace("/","_"),ti,temp))
+def get_trace_file_path(mission,prob,counter):
+  return os.path.join(traces_dir,"{}_{}_{}.pt".format(mission,prob.replace("/","_"),counter))
 
 def worker(q_in, q_out):
   # tell each worker we don't want any extra threads
@@ -129,16 +129,16 @@ def worker(q_in, q_out):
     (job_kind,input) = q_in.get()
 
     if job_kind == JK_PERFORM:
-      (res_filename,mission,prob,ti,temp,used_tweak,opts1,opts2) = input
+      (res_filename,gatherwish,mission,prob,used_tweak,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
 
     elif job_kind == JK_GATHER:
-      (mission,prob,ti,temp,opts) = input
+      (mission,prob,counter,opts) = input
       result = IC.vampire_gather(prob,opts)
       trace_file_path = None
       if result is not None and result[0]: # non-degenerate
-        trace_file_path = get_trace_file_path(mission,prob,ti,temp)
+        trace_file_path = get_trace_file_path(mission,prob,counter)
         torch.save(result[1],trace_file_path)
       q_out.put((job_kind,input,trace_file_path))
 
@@ -395,80 +395,100 @@ if __name__ == "__main__":
     if HP.CUMULATIVE == 0: # forget what we solved until now
       trace_index = get_empty_trace_index()
     else:
-      assert False, "Didn't think of CUMULATIVE yet"
+      assert False, "Didn't think of CUMULATIVE yet" # see esp. process_results_from_perform_and_gather/GATHER
 
-    # STAGE 1: PERFORM and GATHER (TODO: could/should be done in one call to workers?)
+    # STAGE 1: PERFORM and GATHER
     stage_start_time = time.time()
 
-    result_metas = [] # res_filename(s) with additional info, in order
-    result_dicts = defaultdict(dict) # for saving results to a file
+    # There is going to be files to store the results, ...
+    result_metas = [] # ... will store the file names and some additional info (in order of generation)
+    result_dicts = defaultdict(lambda : IC.default_defaultdict_of_list()) # ... will collect the dicts to go into the respective files
 
     script_model_file_path = os.path.join(cur_dir,"script-model.pt")
     IC.export_model(model.state_dict(),script_model_file_path)
 
     def get_perform_tasks():
-      # for both missions and all temperatures
-      for mission in MISSIONS:
-        ilim = HP.INSTRUCTION_LIMIT
-        for ti,temp in enumerate(HP.TEMPERATURES):  # we us ti in the filename too, for the case temps are repeated
-          seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
+      for generalist in [True, False]:
+        # the generalist' round is only for PERF, no GATHERing, (so that we know how the generalists fares after accomodating from the tweaking)
+        # but if we are fully into GENERALIST_TRAINING_WEIGHT, we still gather (essentially for the generalist) via the False branch
+        if generalist and HP.GENERALIST_TRAINING_WEIGHT == 1.0:
+          continue
 
-          res_filename = "{}_t{}_ti{}.pt".format(mission,temp,ti)
-          result_metas.append((res_filename,mission,temp,seed,ilim))
+        for mission in MISSIONS:
+          ilim = HP.INSTRUCTION_LIMIT
 
-          # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
-          opts1 = "-t {} -i {} -p off".format(ilim2tlim(ilim),ilim)
-          # will stay the same
-          opts2_base = " -npcc {} -nnf {} -npcct {}".format(script_model_file_path,HP.NUM_FEATURES,temp)
+          if generalist:
+            res_filename = f"{mission}_generalist.pt"
+          else:
+            res_filename = f"{mission}_tweaked.pt"
+          result_metas.append((res_filename,mission,ilim))
 
-          for prob in prob_lists[mission]:
-            if HP.NUM_TWEAKS == 0:
-              yield (JK_PERFORM,(res_filename,mission,prob,temp,ti,[],opts1,opts2_base + " --random_seed {}".format(seed)))
-            else:
-              if prob in tweak_map:
-                used_tweak = tweak_map[prob]
-                # print("Reusing tweak",used_tweak,"from last time for",prob)
-              elif have_tweak_std:
-                used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
-                # print("Will try tweak",used_tweak,"for",prob)
-                # TODO: there also was the option to draw a tweak that already exists somewhere in the map
-                # (but with a different problem)
+          for i in range(HP.NUM_PERFORMS[generalist]):
+            seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
+
+            # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
+            opts1 = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
+            # will stay the same
+            opts2_base = f" -npcc {script_model_file_path} -nnf {HP.NUM_FEATURES}"
+
+            for prob in prob_lists[mission]:
+              if generalist or HP.NUM_TWEAKS == 0:
+                yield (JK_PERFORM,(res_filename,not generalist,mission,prob,[],opts1,opts2_base + f" --random_seed {seed}"))
               else:
-                used_tweak = HP.NUM_TWEAKS*[0.0,]
-                # print("Defaulting tweak",used_tweak,"for",prob)
+                if prob in tweak_map:
+                  used_tweak = tweak_map[prob]
+                  # print("Reusing tweak",used_tweak,"from last time for",prob)
+                elif len(tweak_map) > 0: # steal somebody else's
+                  steal_from = random.choice(list(tweak_map.keys()))
+                  used_tweak = tweak_map[steal_from]
+                  # print(f"Stealing tweak {used_tweak} from {steal_from} for {prob}")
+                  '''
+                  elif have_tweak_std:
+                    used_tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
+                    # print("Will try tweak",used_tweak,"for",prob)
+                  '''
+                else:
+                  used_tweak = HP.NUM_TWEAKS*[0.0,]
+                  # print("Defaulting tweak",used_tweak,"for",prob)
 
-              tweak_str = ",".join([str(t) for t in used_tweak])
-              # print(tweak_str)
-              opts2 = opts2_base + " -npccw {} --random_seed {}".format(tweak_str,seed)
+                tweak_str = ",".join([str(t) for t in used_tweak])
+                # print(tweak_str)
+                opts2 = opts2_base + f" -npccw {tweak_str} --random_seed {seed}"
 
-              yield (JK_PERFORM,(res_filename,mission,prob,temp,ti,used_tweak,opts1,opts2))
+                yield (JK_PERFORM,(res_filename,not generalist,mission,prob,used_tweak,opts1,opts2))
+
+    per_prob_trace_cnt = defaultdict(int)
 
     def process_results_from_perform_and_gather(job_kind,input,result):
+      global per_prob_trace_cnt
       workers_freed = 0
       if job_kind == JK_PERFORM:
-        (res_filename,mission,prob,temp,ti,used_tweak,opts1,opts2) = input
-        result_dicts[res_filename][prob] = result
+        (res_filename,gatherwish,mission,prob,used_tweak,opts1,opts2) = input
+        result_dicts[res_filename][prob].append(result)
 
         (status,instructions,activations) = result
-        if status == "uns" and (prob not in tweak_map or tweak_map[prob] == used_tweak):
+        if status == "uns" and gatherwish and (prob not in tweak_map or tweak_map[prob] == used_tweak):
           # Either this prob got solved for the first time, or
-          # it has a well-stablised tweak (which got used for all tries)
+          # it has a well-establised tweak (which got used for all tries)
           # or it got by chance solved for second/third time (in this iter) with a tweak we know of already
           # (the main goal is to have one tweak for all traces we will be using)
           tweak_map[prob] = used_tweak
 
+          per_prob_trace_cnt[prob] += 1
+          counter = per_prob_trace_cnt[prob]
+
           ilim = 10*HP.INSTRUCTION_LIMIT
-          task = (JK_GATHER,(mission,prob,ti,temp,"-t {} -i {} -spt on".format(ilim2tlim(ilim),ilim)+opts2))
+          task = (JK_GATHER,(mission,prob,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on"+opts2))
           # print("PUT:",task)
           q_in.put(task)
         else:
           workers_freed = 1
       elif job_kind == JK_GATHER:
-        (mission,prob,ti,temp,opts) = input
+        (mission,prob,counter,opts) = input
         trace_file_path = result
         # the trace pkl has been saved to a file, let's just remember that we have it:
         if trace_file_path is not None:
-          trace_index[mission][prob].append((temp,trace_file_path)) # TODO: this is perhaps not very wise with cummulative, as it would keep growing (while many of the traces would be getting overwritten)
+          trace_index[mission][prob].append(trace_file_path) # TODO: this is perhaps not very wise with cumulative, as it would keep growing (while many of the traces would be getting overwritten)
         workers_freed = 1
       else:
         assert False, f"Surprised by job_kind {job_kind}"
@@ -477,51 +497,27 @@ if __name__ == "__main__":
 
     do_in_parallel(get_perform_tasks(),parallelism,process_results_from_perform_and_gather)
 
-    # let's report what happened so far:
-    prev_mission = None
-    prev_temp = None
-    temp_cnt = 0
-    prob_total = None
-    for (res_filename,mission,temp,seed,ilim) in result_metas+[(None,None,None,None,None)]:
-      if temp != prev_temp or mission != prev_mission:
-        if temp_cnt > 0:
-          # print what we had in prev_temp (if anything)
-          successes = set(prob_cnts)
-          fractional = 0.0
-          for prob,cnt in prob_cnts.items():
-            fractional += cnt/temp_cnt
+    # let's report what happened so far (and save the results into files, for later analysis):
+    for (res_filename,mission,ilim) in result_metas:
+      results = result_dicts[res_filename]
+      torch.save((f"ilim: {ilim}",results), os.path.join(cur_dir,res_filename))
 
-          num_new = len(successes-seen_successes)
-          seen_successes = seen_successes | successes
-
-          print("    t={}  {:10.4f}% = {:10.1f} / {} ({} attempts) +{} (accum {})".format(prev_temp,fractional/prob_total,fractional,prob_total,temp_cnt,num_new,len(seen_successes)))
-
-        if mission is None:
-          break
-        if mission != prev_mission:
-          print(" ",mission)
-          seen_successes = set()
-          prev_mission = mission
-
-        temp_cnt = 0
-        prob_cnts = defaultdict(int)
-
-        prev_temp = temp
-
-      if temp is not None:
-        temp_cnt += 1
-
-        results = result_dicts[res_filename]
-        torch.save(("temp: {} seed: {} ilim:".format(temp,seed,ilim),results), os.path.join(cur_dir,res_filename))
-
-        if prob_total is None:
-          prob_total = len(results)
+      prob_solved = 0
+      prob_fractional = 0.0
+      attempts = None
+      for prob,runs in results.items():
+        succs = sum(1 for (status,instructions,activations) in runs if status == "uns")
+        if attempts is None:
+          attempts = len(runs)
         else:
-          # all results are of the same length
-          assert prob_total == len(results)
-        for prob,(status,instructions,activations) in results.items():
-          if status == "uns":
-            prob_cnts[prob] += 1
+          assert attempts == len(runs)
+
+        if succs > 0:
+          prob_solved += 1
+        prob_fractional += succs/attempts
+
+      print(res_filename)
+      print("    {:10.4f}% = {:10.1f} / {} ({} attempts) {} total".format(prob_fractional/len(results),prob_fractional,len(results),attempts,prob_solved))
 
     print()
     print("  Stage 1 took",time.time()-stage_start_time)
@@ -547,6 +543,8 @@ if __name__ == "__main__":
 
     print()
     sys.stdout.flush()
+
+    exit(0)
 
     # STAGE 2: alternate EVAL, TRAIN, EVAL until no longer improving
     stage_start_time = time.time()
