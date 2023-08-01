@@ -546,8 +546,6 @@ if __name__ == "__main__":
     print()
     sys.stdout.flush()
 
-    exit(0)
-
     # STAGE 2: alternate EVAL, TRAIN, EVAL until no longer improving
     stage_start_time = time.time()
 
@@ -570,10 +568,10 @@ if __name__ == "__main__":
           fact = 1/len(trace_index[mission])
           if generalists:
             fact *= HP.GENERALIST_TRAINING_WEIGHT
-            return ((JK_EVAL,(prob,fact,None,[trace_file_path for (_,trace_file_path) in trace_list],eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
+            return ((JK_EVAL,(prob,fact,None,trace_list,eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
           elif HP.GENERALIST_TRAINING_WEIGHT < 1.0:
-            fact *= (1-HP.GENERALIST_TRAINING_WEIGHT)
-            return ((JK_EVAL,(prob,fact,tweak_map[prob],[trace_file_path for (_,trace_file_path) in trace_list],eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
+            fact *= (1.0-HP.GENERALIST_TRAINING_WEIGHT)
+            return ((JK_EVAL,(prob,fact,tweak_map[prob],trace_list,eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
           else:
             return []
 
@@ -665,10 +663,10 @@ if __name__ == "__main__":
 
         coef = HP.GENERALIST_TRAINING_WEIGHT
         if coef > 0.0:
-          proto_tasks += [[prob,fact*coef,None,[trace_file_path for (_,trace_file_path) in trace_list]] for prob, trace_list in trace_index["train"].items()]
+          proto_tasks += [[prob,fact*coef,None,trace_list] for prob, trace_list in trace_index["train"].items()]
         coef = 1.0-coef
         if coef > 0.0:
-          proto_tasks += [[prob,fact*coef,tweak_map[prob],[trace_file_path for (_,trace_file_path) in trace_list]] for prob, trace_list in trace_index["train"].items()]
+          proto_tasks += [[prob,fact*coef,tweak_map[prob],trace_list] for prob, trace_list in trace_index["train"].items()]
 
         random.shuffle(proto_tasks)
 
