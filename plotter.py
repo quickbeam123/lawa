@@ -11,6 +11,8 @@ from collections import defaultdict
 
 MISSIONS = ["train","valid"]
 
+MAXINT = 2^32
+
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
   #
@@ -28,21 +30,18 @@ if __name__ == "__main__":
 
   for exper_dir in sys.argv[1:]:
     print(exper_dir)
-    loop = 0
+    root, dirs, files = next(os.walk(exper_dir))
+    loop = MAXINT
+    for dir in dirs:
+      if dir.startswith("loop"):
+        dirs_loop = int(dir[4:])
+        if dirs_loop < loop:
+          loop = dirs_loop
     while True:
       loop_str = "loop{}".format(loop)
       cur_dir = os.path.join(exper_dir,loop_str)
       if not os.path.isdir(cur_dir):
-        if loop == 0:
-          loop = 1
-          continue
-        elif loop == 1:  # the dlooper way: the continueing exper does not start from 0
-          time += 1
-          loop = time
-          # print("Setting loop to",loop)
-          continue
-        else:
-          break
+        break
 
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
@@ -54,17 +53,14 @@ if __name__ == "__main__":
         (meta,results) = torch.load(os.path.join(cur_dir,file))
         # print("      ",meta)
 
-        successes = sum(1 for prob,(status,instructions,activations) in results.items() if status == "uns")
-
-        # this will give you PER-CENT instead
-        # successes = successes / len(results.items())
+        fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
 
         # print("     -> ",successes)
 
-        for prob,(status,instructions,activations) in results.items():
-          details[prob][file].append((activations if status == "uns" else None,time))
+        for prob,runs in results.items():
+          details[prob][file].append((sum(activations if status == "uns" else 0 for (status,instructions,activations) in runs)/len(runs),time))
 
-        expers[file].append((successes,time))
+        expers[file].append((fractional,time))
 
       loop += 1
       time += 1
