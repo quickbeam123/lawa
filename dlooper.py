@@ -474,8 +474,8 @@ if __name__ == "__main__":
           # (the main goal is to have one tweak for all traces we will be using)
           tweak_map[prob] = used_tweak
 
-          per_prob_trace_cnt[prob] += 1
           counter = per_prob_trace_cnt[prob]
+          per_prob_trace_cnt[prob] += 1
 
           ilim = 10*HP.INSTRUCTION_LIMIT
           task = (JK_GATHER,(mission,prob,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on"+opts2))
