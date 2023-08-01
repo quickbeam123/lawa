@@ -541,6 +541,8 @@ if __name__ == "__main__":
           lost += 1
       print(f"Lost {lost} problems since last iter (and now forgotten their tweaks, to start sampling from scratch next iter)")
 
+    save_trace_index(cur_dir,trace_index)
+
     print()
     sys.stdout.flush()
 
