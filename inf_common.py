@@ -21,6 +21,7 @@ import sys, random, math
 import hyperparams as HP
 
 from collections import defaultdict
+from itertools import chain
 
 def default_defaultdict_of_list():
   return defaultdict(list)
@@ -163,6 +164,9 @@ class TweakyClauseEvaluator(torch.nn.Module):
 
   def getTweaksAsParams(self):
     return [self.tweaks]
+
+  def getTheFullTweakyPartAsParams(self):
+    return chain([self.tweaks],self.key_tweaker.parameters())
 
   def forward(self,input,tweaked : bool) -> Tensor:
     if tweaked:

@@ -8,7 +8,7 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 INSTRUCTION_LIMIT = 5000
 
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
-NUM_PERFORMS = {False : 10, True: 3} # how many to look for tweaks and how many to just show the performance of the generalist
+NUM_PERFORMS = {False : 3, True: 3} # how many to look for tweaks and how many to just show the performance of the generalist
 
 # in clooper:
 # learn from the last proof you found for this setting
@@ -43,7 +43,7 @@ MAX_TEST_IMPROVE_ITER = 30
 NUM_TWEAKS = 2
 
 # how much do we value training the generalist and how much the tweaked versions (as a ratio between 0.0 and 1.0)
-GENERALIST_TRAINING_WEIGHT = 0.9
+GENERALIST_TRAINING_WEIGHT = 1.0
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
