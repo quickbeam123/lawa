@@ -19,7 +19,7 @@ def eval_one(tweak):
   for i in range(num_tries):
     seed = random.randint(1,0x7fffff)
     twstr = ",".join(str(t) for t in tweak)
-    (status,instructions,activations) = IC.vampire_perfrom(prob_name,"-t 10 -i 5000 -p off --random_seed {} -npcc {} -nnf {} -npcct {} -npccw {}".format(seed,TEMP_SCRIPT_MODEL,HP.NUM_FEATURES,temp,twstr))
+    (status,instructions,activations) = IC.vampire_perfrom(prob,"-t 10 -i 5000 -p off --random_seed {} -npcc {} -nnf {} -npccw {}".format(seed,TEMP_SCRIPT_MODEL,HP.NUM_FEATURES,twstr))
     if status == "uns":
       num_succ += 1
   # just for once, also go for a trace and save it
@@ -36,7 +36,7 @@ def eval_one(tweak):
 if __name__ == "__main__":
   # Load a model (loop model optimizer) and a trace and
   #
-  # To be called as in: ./tweak_plotter.py folder_with_exper tmp/test_Problems_GRP_GRP073-1.p_0.0.pt (i.e, a trace)
+  # To be called as in: ./tweak_plotter.py deleteme/loop13 Problems/GRP/GRP703-10.p
 
   folder = sys.argv[1]
   (loop,model_state_dict,optimizer_state_dict) = torch.load(os.path.join(folder,"loop-model-and-optimizer.tar"))
@@ -45,39 +45,28 @@ if __name__ == "__main__":
   model.load_state_dict(model_state_dict)
   print("Loaded some model of loop",loop)
 
-  proof_tuple = torch.load(sys.argv[2])
-  print("Loaded proof_tuple with",len(proof_tuple[0]),"clauses and",len(proof_tuple[1]),"journal steps")
+  trace_index_file_path = os.path.join(folder,"trace-index.pt")
+  trace_index = torch.load(trace_index_file_path)
+  print("Loaded a trace index with",len(trace_index["train"]),"train and",len(trace_index["valid"]),"validation problems registered.")
 
-  prob_tweak = None
+  prob = sys.argv[2]
+  print("Plotting for",prob)
+  trace_list = None
+  for mission in ["train","valid"]:
+    if prob in trace_index[mission]:
+      trace_list = trace_index["train"][prob]
+      break
+  assert trace_list is not None
+  print("  from mission",mission,"with",len(trace_list),"traces")
+
   tweak_map_file_path = os.path.join(folder,"tweak_map.pt")
-  if os.path.exists(tweak_map_file_path):
-    tweak_map = torch.load(tweak_map_file_path)
-
-    # e.g. train_Problems_COL_COL042-6.p_8_0.0.pt
-    trace_name = sys.argv[2]
-    trace_name_spl = trace_name.split("_")
-    prob_name = "/".join(trace_name_spl[1:-2])
-
-    temp = trace_name_spl[-1][:-3]
-    if prob_name in tweak_map:
-      prob_tweak = tweak_map[prob_name]
-
-    print(f"Loaded prob's ({prob_name}) of tweak: {prob_tweak}")
-
-  trace_file_path = os.path.join(folder,"trace-index.pt")
-  if os.path.exists(trace_file_path):
-    # print("Found trace-index.pt")
-    trace_index = torch.load(trace_file_path)
-    for m,mdict in trace_index.items():
-      if prob_name in mdict:
-        print("Found the problem (",prob_name,") in trace-index.pt under",m)
-
-  learn_model = IC.LearningModel(model,*proof_tuple)
-  learn_model.eval()
+  tweak_map = torch.load(tweak_map_file_path)
+  print("  with tweak",tweak_map[prob])
+  prob_tweak = tweak_map[prob]
 
   import numpy as np
 
-  AXLEN = 3.00
+  AXLEN = float(1+int(max(abs(t) for t in prob_tweak)))
   STEPS = 25
   BIGSTEPS = 5
 
@@ -91,11 +80,19 @@ if __name__ == "__main__":
   suby = y[BIGSTEPS//2::BIGSTEPS]
   sX, sY = np.meshgrid(subx, suby)
 
+  local_fact = 1/len(trace_list)
+  proof_tuples = [torch.load(trace_file_path) for trace_file_path in trace_list]
+
   def get_loss(Xs, Ys):
     # return Xs
     with torch.no_grad():
       stack_of_tweaks = np.column_stack((Xs.ravel(),Ys.ravel()))
-      losses = learn_model.forward(stack_of_tweaks)
+      losses = torch.zeros(stack_of_tweaks.shape[0])
+      for proof_tuple in proof_tuples:
+        learn_model = IC.LearningModel(model,*proof_tuple)
+        learn_model.eval()
+        losses += local_fact*learn_model.forward(stack_of_tweaks)
+
       return losses.reshape(Xs.shape)
 
   extent = np.min(x), np.max(x), np.min(y), np.max(y)
