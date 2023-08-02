@@ -55,7 +55,7 @@ if __name__ == "__main__":
         print(probname,info[0])
 
   import matplotlib.pyplot as plt
-  cm = plt.cm.get_cmap('RdYlBu_r')
+  cm = plt.colormaps['RdYlBu_r']
   fig = plt.figure()
   if is3d:
     ax = fig.add_subplot(projection='3d')
