@@ -30,13 +30,13 @@ def eval_one(tweak):
       trace_file_path = "newtrace_{}_{}_{}_{}.pt".format(twstr.replace(",","-"),seed,prob_name.replace("/","_"),temp)
       torch.save(result[1],trace_file_path)
   '''
-  print(num_succ/num_tries)
+  # print(num_succ/num_tries)
   return num_succ/num_tries
 
 if __name__ == "__main__":
   # Load a model (loop model optimizer) and a trace and
   #
-  # To be called as in: ./tweak_plotter.py folder_with_exper loop_iter tmp/test_Problems_GRP_GRP073-1.p_0.0.pt (i.e, a trace)
+  # To be called as in: ./tweak_plotter.py folder_with_exper tmp/test_Problems_GRP_GRP073-1.p_0.0.pt (i.e, a trace)
 
   folder = sys.argv[1]
   (loop,model_state_dict,optimizer_state_dict) = torch.load(os.path.join(folder,"loop-model-and-optimizer.tar"))
@@ -71,8 +71,6 @@ if __name__ == "__main__":
     for m,mdict in trace_index.items():
       if prob_name in mdict:
         print("Found the problem (",prob_name,") in trace-index.pt under",m)
-        for t,trace in mdict[prob_name].items():
-          print("  has trace for t=",t,trace)
 
   learn_model = IC.LearningModel(model,*proof_tuple)
   learn_model.eval()
