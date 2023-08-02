@@ -279,10 +279,7 @@ if __name__ == "__main__":
 
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
-  if HP.OPTIMIZER == HP.OPTIMIZER_SGD:
-    optimizer = torch.optim.SGD(model.parameters(), lr=HP.LEARNING_RATE, momentum=HP.MOMENTUM)
-  elif HP.OPTIMIZER == HP.OPTIMIZER_ADAM:
-    optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+  optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   trace_index = get_empty_trace_index()
 
