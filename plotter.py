@@ -46,7 +46,8 @@ if __name__ == "__main__":
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
       for file in files:
-        if file in ["tweak_map.pt","train_data.pt","train_storage.pt","parts-model.pt","script-model.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar","trace-index.pt"]:
+        if file in ["tweak_map.pt","train_data.pt","train_storage.pt","parts-model.pt",
+                    "script-model.pt","script-model-after.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar","trace-index.pt"]:
           continue
 
         # print("    ",file)
