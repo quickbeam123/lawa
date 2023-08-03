@@ -152,6 +152,10 @@ class TweakyClauseEvaluator(torch.nn.Module):
     self.key_tweaker = torch.nn.Linear(HP.NUM_TWEAKS,HP.CLAUSE_INTERAL_SIZE,bias=False)
     self.tweaks = torch.nn.Parameter(torch.Tensor(HP.NUM_TWEAKS))
 
+  def forceNewNumTweaks(self,numtweaks):
+    self.key_tweaker = torch.nn.Linear(numtweaks,HP.CLAUSE_INTERAL_SIZE,bias=False)
+    self.tweaks = torch.nn.Parameter(torch.Tensor(numtweaks))
+
   def getKey(self):
     return self.default_key.weight
 
@@ -192,7 +196,7 @@ def export_model(model_state_dict,name):
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
     def __init__(self,feature_processor : torch.nn.Module,
-                      default_key : torch.nn.Module, 
+                      default_key : torch.nn.Module,
                       key_tweaker : torch.nn.Module):
       super().__init__()
 
