@@ -605,7 +605,7 @@ if __name__ == "__main__":
           lost += 1
         if not prob in has_trace_for:
           del tweak_map[prob]
-          discarded = 0
+          discarded += 1
 
       print(f"Lost {lost} problems since last iter (and now forgotten their tweaks, to start sampling from scratch next iter)")
       print(f"  also discarded {discarded} problems, because they are solved trivially and didn't generate traces.")
