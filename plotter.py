@@ -46,11 +46,11 @@ if __name__ == "__main__":
       print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
       for file in files:
-        if file in ["tweak_map.pt","train_data.pt","train_storage.pt","parts-model.pt",
+        if file in ["tweak_map.pt","train_data.pt","train_storage.pt","parts-model.pt","after-train-tweak_map.pt",
                     "script-model.pt","script-model-after.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar","trace-index.pt"]:
           continue
 
-        # print("    ",file)
+        print("    ",file)
         (meta,results) = torch.load(os.path.join(cur_dir,file))
         # print("      ",meta)
 

@@ -450,12 +450,6 @@ if __name__ == "__main__":
 
     loop_start_time = time.time()
 
-    have_tweak_std = False
-    if len(tweak_map) > 0:
-      have_tweak_std = True
-      tweak_std = numpy.std(list(tweak_map.values()),axis=0)
-      print("  tweak_std now",tweak_std)
-
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
 
@@ -525,6 +519,7 @@ if __name__ == "__main__":
                 yield (JK_PERFORM,(res_filename,not generalist,mission,prob,used_tweak,opts1,opts2))
 
     per_prob_trace_cnt = defaultdict(int)
+    currently_solving = set()
 
     def process_results_from_perform_and_gather(job_kind,input,result):
       global per_prob_trace_cnt
@@ -552,6 +547,7 @@ if __name__ == "__main__":
           workers_freed = 1
       elif job_kind == JK_GATHER:
         (mission,prob,counter,opts) = input
+        currently_solving.add(prob)
         trace_file_path = result
         # the trace pkl has been saved to a file, let's just remember that we have it:
         if trace_file_path is not None:
@@ -599,14 +595,20 @@ if __name__ == "__main__":
       print("trace_index for",m,"has\n  ",len(trace_index[m]),"probs with a total of",trace_cnt,"traces")
 
     if HP.CUMULATIVE == 0:
-      currently_solving = set().union(*[set(trace_index[m]) for m in MISSIONS])
+      has_trace_for = set().union(*[set(trace_index[m]) for m in MISSIONS])
       # forget about tweaks for problems we did not solve this time!
       lost = 0
+      discarded = 0
       for prob in list(tweak_map.keys()):
         if not prob in currently_solving:
           del tweak_map[prob]
           lost += 1
+        if not prob in has_trace_for:
+          del tweak_map[prob]
+          discarded = 0
+
       print(f"Lost {lost} problems since last iter (and now forgotten their tweaks, to start sampling from scratch next iter)")
+      print(f"  also discarded {discarded} problems, because they are solved trivially and didn't generate traces.")
 
     save_trace_index(cur_dir,trace_index)
 
@@ -614,190 +616,209 @@ if __name__ == "__main__":
     sys.stdout.flush()
 
     # STAGE 2: alternate EVAL, TRAIN, EVAL until no longer improving
-    stage_start_time = time.time()
+    for trainOnlyTweaks in [True,False]:
+      internal_optimizer = optimizer
+      effective_generalist_training_weight = HP.GENERALIST_TRAINING_WEIGHT
+      if trainOnlyTweaks:
+        effective_generalist_training_weight = 0.0
+        print("First learn only the tweaky part!")
+        internal_optimizer = torch.optim.Adam(model.getTheFullTweakyPartAsParams(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+      else:
+        print("The second round is a changing also the generalist.")
 
-    TIW = HP.TEST_IMPROVE_WINDOW
-    assert TIW > 0
-    eval_models = [None]*TIW
-    eval_losses = [None]*TIW
-    tweak_maps =  [None]*TIW
-    stage2iter = 0
+      print()
+      sys.stdout.flush()
+      stage_start_time = time.time()
 
-    while True:
-      if TIW > 1:
-        # EVAL on test problems
-        eval_model_file_path = os.path.join(HP.SCRATCH,"eval-model-state_{}_{}.tar".format(os.getpid(),stage2iter))
-        torch.save(model.state_dict(), eval_model_file_path)
-        if eval_models[stage2iter % TIW] is not None:
-          os.remove(eval_models[stage2iter % TIW])
-        eval_models[stage2iter % TIW] = eval_model_file_path
+      TIW = HP.TEST_IMPROVE_WINDOW
+      assert TIW > 0
+      eval_models = [None]*TIW
+      eval_losses = [None]*TIW
+      tweak_maps =  [None]*TIW
+      stage2iter = 0
 
-        def get_eval_tasks(mission,generalists):
-          fact = 1/len(trace_index[mission])
-          if generalists:
-            fact *= HP.GENERALIST_TRAINING_WEIGHT
-            return ((JK_EVAL,(prob,fact,False,None,trace_list,eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
-          elif HP.GENERALIST_TRAINING_WEIGHT < 1.0:
-            fact *= (1.0-HP.GENERALIST_TRAINING_WEIGHT)
-            return ((JK_EVAL,(prob,fact,True,tweak_map[prob],trace_list,eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
-          else:
+      while True:
+        if TIW > 1:
+          # EVAL on test problems
+          eval_model_file_path = os.path.join(HP.SCRATCH,"eval-model-state_{}_{}.tar".format(os.getpid(),stage2iter))
+          torch.save(model.state_dict(), eval_model_file_path)
+          if eval_models[stage2iter % TIW] is not None:
+            os.remove(eval_models[stage2iter % TIW])
+          eval_models[stage2iter % TIW] = eval_model_file_path
+
+          def get_eval_tasks(mission,generalists):
+            fact = 1/len(trace_index[mission])
+            if generalists and effective_generalist_training_weight > 0.0:
+              fact *= effective_generalist_training_weight
+              return ((JK_EVAL,(prob,fact,False,None,trace_list,eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
+            if not generalists and effective_generalist_training_weight < 1.0:
+              fact *= (1.0-effective_generalist_training_weight)
+              return ((JK_EVAL,(prob,fact,True,tweak_map[prob],trace_list,eval_model_file_path)) for prob, trace_list in trace_index[mission].items())
             return []
 
-        def process_results_from_eval(job_kind,input,result):
-          global weighted_eval_loss
-          global num_eval_tasks
-          global num_finisheds
-          global total_time
-          global total_iter
+          def process_results_from_eval(job_kind,input,result):
+            global weighted_eval_loss
+            global num_eval_tasks
+            global num_finisheds
+            global total_time
+            global total_iter
 
-          assert job_kind == JK_EVAL
-          (prob,fact,descend_tw,tweak_start,trace_list,model_file_path) = input
-          (loss,out_tweak,numiter,telapsed,finished) = result
+            assert job_kind == JK_EVAL
+            (prob,fact,descend_tw,tweak_start,trace_list,model_file_path) = input
+            (loss,out_tweak,numiter,telapsed,finished) = result
 
-          weighted_eval_loss += loss # multiplied by fact already in the child
+            weighted_eval_loss += loss # multiplied by fact already in the child
 
-          if tweak_start is not None:
-            assert descend_tw
-            # print("Validating on",prob,"updated tweak from",tweak_start,"to",out_tweak)
-            tweak_map[prob] = out_tweak
-            num_eval_tasks += 1
-            total_iter += numiter
-            total_time += telapsed
-            if finished:
-              num_finisheds += 1
+            if tweak_start is not None:
+              assert descend_tw
+              # print("Validating on",prob,"updated tweak from",tweak_start,"to",out_tweak)
+              tweak_map[prob] = out_tweak
+              num_eval_tasks += 1
+              total_iter += numiter
+              total_time += telapsed
+              if finished:
+                num_finisheds += 1
 
-          return 1
+            return 1
 
-        weighted_eval_loss = 0.0
-        num_eval_tasks = 0
-        num_finisheds = 0
-        total_time = 0.0
-        total_iter = 0
-        do_in_parallel(chain(get_eval_tasks("valid",True),get_eval_tasks("valid",False)),parallelism,process_results_from_eval)
-        print("Eval loss on valid",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
-        if num_eval_tasks > 0:
-          print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
-        sys.stdout.flush()
-
-        eval_losses[stage2iter % TIW] = weighted_eval_loss
-
-        if HP.GENERALIST_TRAINING_WEIGHT < 1.0:
-          # we do eval also on train to have the tweaks descend analogously
           weighted_eval_loss = 0.0
           num_eval_tasks = 0
           num_finisheds = 0
           total_time = 0.0
           total_iter = 0
-          do_in_parallel(get_eval_tasks("train",False),parallelism,process_results_from_eval)
-          weighted_eval_loss /= (1-HP.GENERALIST_TRAINING_WEIGHT) # because we only did the tweaky (non-generalist) part
-          print("  Repositioned tweaks on train; achieved (tweaky) loss:",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
-          print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
+          do_in_parallel(chain(get_eval_tasks("valid",True),get_eval_tasks("valid",False)),parallelism,process_results_from_eval)
+          print("Eval loss on valid",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
+          if num_eval_tasks > 0:
+            print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
           sys.stdout.flush()
 
-        tweak_maps[stage2iter % TIW] = tweak_map.copy()
+          eval_losses[stage2iter % TIW] = weighted_eval_loss
 
-        stage2iter += 1
-        if stage2iter >= TIW: # we have written everywhere (no None there anymore)
-          oldest_idx = stage2iter % TIW
-          oldest_val = eval_losses[oldest_idx]
-          if all((el >= oldest_val for el in eval_losses)):
-            print("Eval loss didn't improve for",TIW-1,"iterations now")
-            if stage2iter == TIW:
-              # TODO: halve the LR when this happens?
-              print("Actually, it never improved! Will apply one training step anyway!")
-              model.load_state_dict(torch.load(eval_models[1]))
-              tweak_map = tweak_maps[1]
-            else:
-              model.load_state_dict(torch.load(eval_models[oldest_idx]))
-              tweak_map = tweak_maps[oldest_idx]
-            for eval_model_file_path in eval_models:
-              os.remove(eval_model_file_path)
-            break
-          if stage2iter > HP.MAX_TEST_IMPROVE_ITER:
-            print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
-            best_idx = 0
-            best_idx_val = eval_losses[0]
-            for i,eloss in enumerate(eval_losses):
-              if eloss < best_idx_val:
-                best_idx_val = eloss
-                best_idx = i
-            model.load_state_dict(torch.load(eval_models[best_idx]))
-            tweak_map = tweak_maps[best_idx]
-            for eval_model_file_path in eval_models:
-              os.remove(eval_model_file_path)
-            break
+          if effective_generalist_training_weight < 1.0:
+            # we do eval also on train to have the tweaks descend analogously
+            weighted_eval_loss = 0.0
+            num_eval_tasks = 0
+            num_finisheds = 0
+            total_time = 0.0
+            total_iter = 0
+            do_in_parallel(get_eval_tasks("train",False),parallelism,process_results_from_eval)
+            weighted_eval_loss /= (1-effective_generalist_training_weight) # because we only did the tweaky (non-generalist) part
+            print("  Repositioned tweaks on train; achieved (tweaky) loss:",weighted_eval_loss,"num tasks",num_eval_tasks,"finished on",num_finisheds)
+            print("   average iter",total_iter/num_eval_tasks,"average time",total_time/num_eval_tasks)
+            sys.stdout.flush()
 
-      # TRAIN on train problems
-      train_model_version = 0
-      def get_train_tasks():
-        fact = 1/len(trace_index["train"])
+          tweak_maps[stage2iter % TIW] = tweak_map.copy()
 
-        # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-        proto_tasks = []
+          stage2iter += 1
+          if stage2iter >= TIW: # we have written everywhere (no None there anymore)
+            oldest_idx = stage2iter % TIW
+            oldest_val = eval_losses[oldest_idx]
+            if all((el >= oldest_val for el in eval_losses)):
+              print("Eval loss didn't improve for",TIW-1,"iterations now")
+              if stage2iter == TIW:
+                # TODO: halve the LR when this happens?
+                print("Actually, it never improved! Will apply one training step anyway!")
+                model.load_state_dict(torch.load(eval_models[1]))
+                tweak_map = tweak_maps[1]
+              else:
+                model.load_state_dict(torch.load(eval_models[oldest_idx]))
+                tweak_map = tweak_maps[oldest_idx]
+              for eval_model_file_path in eval_models:
+                os.remove(eval_model_file_path)
+              break
+            if stage2iter > HP.MAX_TEST_IMPROVE_ITER:
+              print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
+              best_idx = 0
+              best_idx_val = eval_losses[0]
+              for i,eloss in enumerate(eval_losses):
+                if eloss < best_idx_val:
+                  best_idx_val = eloss
+                  best_idx = i
+              model.load_state_dict(torch.load(eval_models[best_idx]))
+              tweak_map = tweak_maps[best_idx]
+              for eval_model_file_path in eval_models:
+                os.remove(eval_model_file_path)
+              break
 
-        coef = HP.GENERALIST_TRAINING_WEIGHT
-        if coef > 0.0:
-          proto_tasks += [[prob,fact*coef,None,trace_list] for prob, trace_list in trace_index["train"].items()]
-        coef = 1.0-coef
-        if coef > 0.0:
-          proto_tasks += [[prob,fact*coef,tweak_map[prob],trace_list] for prob, trace_list in trace_index["train"].items()]
+        # TRAIN on train problems
+        train_model_version = 0
+        def get_train_tasks():
+          fact = 1/len(trace_index["train"])
 
-        random.shuffle(proto_tasks)
+          # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
+          proto_tasks = []
 
-        global train_model_version
-        for arg_list in proto_tasks:
-          train_model_version += 1
-          train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
-          torch.save(model.state_dict(), train_model_file_path)
-          arg_list.append(train_model_file_path)
-          yield (JK_TRAIN,tuple(arg_list))
+          coef = effective_generalist_training_weight
+          if coef > 0.0:
+            proto_tasks += [[prob,fact*coef,None,trace_list] for prob, trace_list in trace_index["train"].items()]
+          coef = 1.0-coef
+          if coef > 0.0:
+            proto_tasks += [[prob,fact*coef,tweak_map[prob],trace_list] for prob, trace_list in trace_index["train"].items()]
 
-      weighted_train_loss = 0.0
+          random.shuffle(proto_tasks)
 
-      def process_results_from_train(job_kind,input,result):
-        global weighted_train_loss
+          global train_model_version
+          for arg_list in proto_tasks:
+            train_model_version += 1
+            train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
+            torch.save(model.state_dict(), train_model_file_path)
+            arg_list.append(train_model_file_path)
+            yield (JK_TRAIN,tuple(arg_list))
 
-        assert job_kind == JK_TRAIN
-        (prob,fact,used_tweak,trace_file_paths,train_model_file_path) = input
-        loss = result
+        weighted_train_loss = 0.0
 
-        weighted_train_loss += loss # multiplied by fact already in the child
-        # print(input,result)
+        def process_results_from_train(job_kind,input,result):
+          global weighted_train_loss
 
-        if used_tweak is not None:
-          model.setTweakVals(used_tweak)
+          assert job_kind == JK_TRAIN
+          (prob,fact,used_tweak,trace_file_paths,train_model_file_path) = input
+          loss = result
 
-        # copy from result parameters to our model's gradients
-        grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
-        # copy_grads_back_from_param
-        for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
-          param.grad = param_copy
+          weighted_train_loss += loss # multiplied by fact already in the child
+          # print(input,result)
 
-        optimizer.step()
+          if used_tweak is not None:
+            model.setTweakVals(used_tweak)
 
-        # here we have a new updated tweak inside model
-        if used_tweak is not None:
-          new_tweak = model.getTweakVals()
-          # print("Training on",prob,"Updated tweak from",used_tweak,"to",new_tweak)
-          tweak_map[prob] = new_tweak
+          # copy from result parameters to our model's gradients
+          grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
+          # copy_grads_back_from_param
+          for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
+            param.grad = param_copy
 
-        os.remove(train_model_file_path)
-        return 1
+          internal_optimizer.step()
 
-      do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
+          # here we have a new updated tweak inside model
+          if used_tweak is not None:
+            new_tweak = model.getTweakVals()
+            # print("Training on",prob,"Updated tweak from",used_tweak,"to",new_tweak)
+            tweak_map[prob] = new_tweak
 
-      print("Weighted train loss",weighted_train_loss)
+          os.remove(train_model_file_path)
+          return 1
+
+        do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
+
+        print("Weighted train loss",weighted_train_loss)
+        print()
+        sys.stdout.flush()
+
+        if TIW == 1:
+          os.remove(eval_model_file_path)
+          break
+
+      # stage 2
+      print()
+      print(f"  Stage 2 - trainOnlyTweaks {trainOnlyTweaks} took {time.time()-stage_start_time} seconds and {stage2iter-0.5} eval/train iterations")
       print()
       sys.stdout.flush()
 
-      if TIW == 1:
-        os.remove(eval_model_file_path)
-        break
+    tweak_map_file_path = os.path.join(cur_dir,"after-train-"+TWEAK_MAP)
+    torch.save(tweak_map, tweak_map_file_path)
 
-    # stage 2
-    print("  Stage 2 took",time.time()-stage_start_time,"seconds and",stage2iter-0.5,"eval/train iterations")
-    print()
-    sys.stdout.flush()
+    if len(tweak_map) > 0:
+      tweak_std = numpy.std(list(tweak_map.values()),axis=0)
+      print("  tweak_std now",tweak_std)
 
     print_model_part()
     save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
@@ -837,7 +858,7 @@ if __name__ == "__main__":
       best_prob_success = defaultdict(int)
       print("Old tweak_map",len(tweak_map))
 
-      num_tweaks_tested = 0
+      num_prob_tweaks_tested = 0
 
       prob_tweaks_to_try = list(tweak_map.items())
       random.shuffle(prob_tweaks_to_try)
@@ -849,6 +870,8 @@ if __name__ == "__main__":
 
         print(f"Tested tweak {tweak} from prob {the_prob}")
         success = False
+        if the_prob not in prob_successes:
+          print("Not solved with its own tweak at all:",the_prob)
         for prob,cnt in prob_successes.items():
           if prob not in new_tweak_map:
             print("  newly solved",prob,"with",cnt,"hits")
@@ -867,19 +890,55 @@ if __name__ == "__main__":
         sys.stdout.flush()
         print()
 
-        num_tweaks_tested += 1
+        num_prob_tweaks_tested += 1
 
         if success:
           since_last_success = 0
         else:
           since_last_success += 1
         if since_last_success > 10:
-          print("Taking too long to solve new problems -- aborting")
+          print("Taking too long to solve new problems -- abort trying problem's native tweaks")
+          break
+
+      # do it one more time, but now with random tweaks
+      since_last_success = 0
+      num_rand_tweaks_tested = 0
+      while True:
+        tweak = list(numpy.random.normal(HP.NUM_TWEAKS*[0.0],tweak_std))
+        prob_successes = defaultdict(int)
+        do_in_parallel(get_eval_with_tweak_tasks(tweak),parallelism,process_results)
+
+        print(f"Tested tweak {tweak}")
+        success = False
+        for prob,cnt in prob_successes.items():
+          if prob not in new_tweak_map:
+            print("  newly solved",prob,"with",cnt,"hits")
+            best_prob_success[prob] = cnt
+            new_tweak_map[prob] = tweak
+            success = True
+          elif cnt > best_prob_success[prob]:
+            print("  improved on",prob,"with",cnt,"currently",best_prob_success[prob])
+            best_prob_success[prob] = cnt
+            new_tweak_map[prob] = tweak
+            success = True
+
+        print("Know how to solve",len(new_tweak_map),"at the moment")
+        sys.stdout.flush()
+        print()
+
+        num_rand_tweaks_tested += 1
+
+        if success:
+          since_last_success = 0
+        else:
+          since_last_success += 1
+        if since_last_success > 10:
+          print("Taking too long to solve new problems -- abort trying random tweaks")
           break
 
       tweak_map = new_tweak_map
 
-      print("  Stage 3 took",time.time()-stage_start_time,"seconds and tested",num_tweaks_tested,"different tweaks")
+      print("  Stage 3 took",time.time()-stage_start_time,"seconds and tested",num_prob_tweaks_tested,"problem's tweaks and",num_rand_tweaks_tested,"random ones")
       print()
       sys.stdout.flush()
 
