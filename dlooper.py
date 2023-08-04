@@ -100,7 +100,7 @@ def possibly_load_tweak_map(load_dir,old_map):
   return old_map
 
 def ilim2tlim(ilim):
-  secs = max(5,ilim // 200) # it's 10 times more than the instrlimit on a 2GHz machine
+  secs = max(5,ilim // 1000) # it's 2 times more than the instrlimit on a 2GHz machine
   return secs
 
 # Kinds of jobs a worker can be asked to do
