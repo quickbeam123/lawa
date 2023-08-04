@@ -231,7 +231,7 @@ class LearningModel(torch.nn.Module):
     super().__init__()
 
     # print(clause_embedder,clause_key)
-    # print(clauses,journal,proof_flas)
+    # print(f"clause {len(clauses)} journal {len(journal)} proof_flas {len(proof_flas)}")
 
     self.clause_evaluator = clause_evaluator # the TweakedClauseEvaluator for clause evaluation
     self.clauses = clauses                   # id -> (feature_vec)

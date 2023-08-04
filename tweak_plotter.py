@@ -54,12 +54,13 @@ if __name__ == "__main__":
   trace_list = None
   for mission in ["train","valid"]:
     if prob in trace_index[mission]:
-      trace_list = trace_index["train"][prob]
+      trace_list = trace_index[mission][prob]
       break
   assert trace_list is not None
   print("  from mission",mission,"with",len(trace_list),"traces")
 
   tweak_map_file_path = os.path.join(folder,"tweak_map.pt")
+  # tweak_map_file_path = os.path.join(folder,"after-train-tweak_map.pt")
   tweak_map = torch.load(tweak_map_file_path)
   print("  with tweak",tweak_map[prob])
   prob_tweak = tweak_map[prob]
