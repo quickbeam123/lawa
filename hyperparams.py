@@ -40,10 +40,10 @@ TWEAK_DESCENT_MAX_SECOND = 10
 MAX_TEST_IMPROVE_ITER = 30
 
 # the GSD trick - specifieas the dimension of the tweak vector
-NUM_TWEAKS = 3
+NUM_TWEAKS = 2
 
 # how much do we value training the generalist and how much the tweaked versions (as a ratio between 0.0 and 1.0)
-GENERALIST_TRAINING_WEIGHT = 0.5
+GENERALIST_TRAINING_WEIGHT = 0.0
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
@@ -77,7 +77,7 @@ ENTROPY_COEF = 0.0
 ENTROPY_NORMALIZED = True
 
 LEARNING_RATE : Final[float] = 0.001
-TWEAKS_LEARNING_RATE : Final[float] = 0.05
+TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
