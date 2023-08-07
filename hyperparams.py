@@ -40,7 +40,7 @@ TWEAK_DESCENT_MAX_SECOND = 10
 MAX_TEST_IMPROVE_ITER = 30
 
 # the GSD trick - specifieas the dimension of the tweak vector
-NUM_TWEAKS = 2
+NUM_TWEAKS = 3
 
 # how much do we value training the generalist and how much the tweaked versions (as a ratio between 0.0 and 1.0)
 GENERALIST_TRAINING_WEIGHT = 0.0

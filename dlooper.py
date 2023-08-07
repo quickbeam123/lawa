@@ -862,7 +862,8 @@ if __name__ == "__main__":
 
       prob_tweaks_to_try = list(tweak_map.items())
       random.shuffle(prob_tweaks_to_try)
-      prob_tweaks_to_try = [(None,HP.NUM_TWEAKS*[0.0])]+prob_tweaks_to_try
+      if HP.GENERALIST_TRAINING_WEIGHT > 0.0:
+        prob_tweaks_to_try = [(None,HP.NUM_TWEAKS*[0.0])]+prob_tweaks_to_try
 
       for the_prob,tweak in prob_tweaks_to_try:
         prob_successes = defaultdict(int)
@@ -900,6 +901,7 @@ if __name__ == "__main__":
           print("Taking too long to solve new problems -- abort trying problem's native tweaks")
           break
 
+      print()
       # do it one more time, but now with random tweaks
       since_last_success = 0
       num_rand_tweaks_tested = 0
@@ -921,6 +923,11 @@ if __name__ == "__main__":
             best_prob_success[prob] = cnt
             new_tweak_map[prob] = tweak
             success = True
+          elif cnt == best_prob_success[prob]:
+            # for the specialist's training mode
+            # (to more uniformly distribute problems among tweaks)?
+            if random.random() < 0.1:
+              new_tweak_map[prob] = tweak
 
         print("Know how to solve",len(new_tweak_map),"at the moment")
         sys.stdout.flush()

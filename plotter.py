@@ -50,7 +50,7 @@ if __name__ == "__main__":
                     "script-model.pt","script-model-after.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar","trace-index.pt"]:
           continue
 
-        print("    ",file)
+        # print("    ",file)
         (meta,results) = torch.load(os.path.join(cur_dir,file))
         # print("      ",meta)
 
