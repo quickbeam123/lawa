@@ -59,8 +59,8 @@ if __name__ == "__main__":
   assert trace_list is not None
   print("  from mission",mission,"with",len(trace_list),"traces")
 
-  tweak_map_file_path = os.path.join(folder,"tweak_map.pt")
-  # tweak_map_file_path = os.path.join(folder,"after-train-tweak_map.pt")
+  # tweak_map_file_path = os.path.join(folder,"tweak_map.pt")
+  tweak_map_file_path = os.path.join(folder,"after-train-tweak_map.pt")
   tweak_map = torch.load(tweak_map_file_path)
   print("  with tweak",tweak_map[prob])
   prob_tweak = tweak_map[prob]
@@ -90,6 +90,8 @@ if __name__ == "__main__":
       stack_of_tweaks = np.column_stack((Xs.ravel(),Ys.ravel()))
       losses = torch.zeros(stack_of_tweaks.shape[0])
       for proof_tuple in proof_tuples:
+        clauses,journal,proof_flas,warmup_time,select_time = proof_tuple
+        print(f"clause {len(clauses)} journal {len(journal)} proof_flas {len(proof_flas)}")
         learn_model = IC.LearningModel(model,*proof_tuple)
         learn_model.eval()
         losses += local_fact*learn_model.forward(stack_of_tweaks)
