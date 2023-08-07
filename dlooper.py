@@ -603,7 +603,7 @@ if __name__ == "__main__":
         if not prob in currently_solving:
           del tweak_map[prob]
           lost += 1
-        if not prob in has_trace_for:
+        elif not prob in has_trace_for:
           del tweak_map[prob]
           discarded += 1
 
