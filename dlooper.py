@@ -26,7 +26,7 @@ MISSIONS = ["train","valid"]
 
 def print_model_part():
   print("Key {}".format(repr(model.default_key.weight.data)))
-  print("Tweaker {}".format(repr(model.key_tweaker.weight.data)))
+  print("Tweaker {}".format(repr(model.processor_tweaker.weight.data)))
   pass
 
 def load_train_valid_problem_lists(campaign_dir):

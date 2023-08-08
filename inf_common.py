@@ -149,11 +149,11 @@ class TweakyClauseEvaluator(torch.nn.Module):
 
     self.feature_processor = torch.nn.Sequential(*layer_list)
     self.default_key = torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False)
-    self.key_tweaker = torch.nn.Linear(HP.NUM_TWEAKS,HP.CLAUSE_INTERAL_SIZE,bias=False)
+    self.processor_tweaker = torch.nn.Linear(HP.NUM_TWEAKS,HP.CLAUSE_INTERAL_SIZE,bias=False)
     self.tweaks = torch.nn.Parameter(torch.Tensor(HP.NUM_TWEAKS))
 
   def forceNewNumTweaks(self,numtweaks):
-    self.key_tweaker = torch.nn.Linear(numtweaks,HP.CLAUSE_INTERAL_SIZE,bias=False)
+    self.processor_tweaker = torch.nn.Linear(numtweaks,HP.CLAUSE_INTERAL_SIZE,bias=False)
     self.tweaks = torch.nn.Parameter(torch.Tensor(numtweaks))
 
   def getKey(self):
@@ -170,14 +170,14 @@ class TweakyClauseEvaluator(torch.nn.Module):
     return [self.tweaks]
 
   def getTheFullTweakyPartAsParams(self):
-    return chain([self.tweaks],self.key_tweaker.parameters())
+    return chain([self.tweaks],self.processor_tweaker.parameters())
 
   def forward(self,input,tweaked : bool) -> Tensor:
     if tweaked:
-      processed = self.feature_processor(input)
-      tweaked_key = self.key_tweaker(self.tweaks)
-      master_key = self.default_key.weight + tweaked_key
-      return torch.nn.functional.linear(processed,master_key)
+      assert HP.CLAUSE_EMBEDDER_LAYERS == 1, "just to simplify the comupation below (could be generalized easily)"
+      tweaked_bias = self.processor_tweaker(self.tweaks)
+      intermediate = torch.nn.functional.linear(input,self.feature_processor[0].weight,self.feature_processor[0].bias + tweaked_bias)
+      return  self.default_key(torch.nn.functional.relu(intermediate))
     else:
       return self.default_key(self.feature_processor(input))
 
@@ -197,16 +197,18 @@ def export_model(model_state_dict,name):
   class NeuralPassiveClauseContainer(torch.nn.Module):
     def __init__(self,feature_processor : torch.nn.Module,
                       default_key : torch.nn.Module,
-                      key_tweaker : torch.nn.Module):
+                      processor_tweaker : torch.nn.Module):
       super().__init__()
 
       self.feature_processor = feature_processor
       self.default_key = default_key
-      self.key_tweaker = key_tweaker
+      self.processor_tweaker = processor_tweaker
 
     @torch.jit.export
     def eatMyTweaks(self,tweaks : List[float]):
-      self.default_key.weight.add_(self.key_tweaker(torch.tensor(tweaks)))
+      assert HP.CLAUSE_EMBEDDER_LAYERS == 1, "just to simplify the computation in forward (could be generalized easily)"
+
+      self.feature_processor[0].bias.add_(self.processor_tweaker(torch.tensor(tweaks)))
 
     @torch.jit.export
     def forward(self,id: int,features : Tensor):
@@ -220,7 +222,7 @@ def export_model(model_state_dict,name):
       val = self.default_key(processed)
       return val.item()
 
-  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key,model.key_tweaker)
+  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key,model.processor_tweaker)
   script = torch.jit.script(module)
   script.save(name)
 
