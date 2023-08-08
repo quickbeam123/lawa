@@ -619,11 +619,14 @@ if __name__ == "__main__":
     for trainOnlyTweaks in [True,False]:
       internal_optimizer = optimizer
       effective_generalist_training_weight = HP.GENERALIST_TRAINING_WEIGHT
+
       if trainOnlyTweaks:
+        if effective_generalist_training_weight == 1.0:
+          continue
         effective_generalist_training_weight = 0.0
         print("First learn only the tweaky part!")
         internal_optimizer = torch.optim.Adam(model.getTheFullTweakyPartAsParams(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
-      else:
+      elif effective_generalist_training_weight < 1.0:
         print("The second round is a changing also the generalist.")
 
       print()
