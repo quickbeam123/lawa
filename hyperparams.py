@@ -8,7 +8,7 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 INSTRUCTION_LIMIT = 5000
 
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
-NUM_PERFORMS = {False : 3, True: 3} # how many to look for tweaks and how many to just show the performance of the generalist
+NUM_PERFORMS = {False : 1, True: 1} # how many to look for tweaks and how many to just show the performance of the generalist
 
 # in clooper:
 # learn from the last proof you found for this setting
@@ -36,7 +36,7 @@ TEST_IMPROVE_WINDOW = 5
 # when computing the loss (during validation) or before we actually train (in training), we make a few descent steps just with the tweak part
 TWEAK_DESCENT_MAX_SECOND = 10
 
-# if the seems to be taking forever to converge, let's just rerun the perform/gather part
+# if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
 
 # the GSD trick - specifieas the dimension of the tweak vector
@@ -67,9 +67,6 @@ CLAUSE_INTERAL_SIZE : Final[int] = 16
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
 LEARN_FROM_ALL_GOOD = True
 # Time penalty mixing makes more conceptual sense only with "principled" (false)
-
-# a coeff of how much of a penalty we want to distribute (per successfule run we learn from) in comparison to the reward 1.0 (split across the good selections) we give per problem
-TIME_PENALTY_MIXING = 0.0
 
 # a coeff of how much the entropy regularization term should influence the overall loss
 ENTROPY_COEF = 0.0

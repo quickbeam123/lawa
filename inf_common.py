@@ -62,16 +62,13 @@ def vampire_gather(prob,opts):
     output = subprocess.getoutput(to_run)
 
     clauses = {}         # id -> (feature_vec)
-    journal = []         # [event,id,time], where event is one of EVENT_ADD EVENT_SEL EVENT_REM,
-                         # time only for EVENT_SEL
+    journal = []         # [event,id], where event is one of EVENT_ADD EVENT_SEL EVENT_REM,
     proof_flas = set()
 
     warmup_time = None  # how long it took till first selection
-    select_time = 0     # how long all the followup selections took together (strictly speaking, this is redundant)
 
     # just temporaries, here during the parsing
     num_sels = 0
-    last_sel_idx = None
 
     for line in output.split("\n"):
       if "% Instruction limit reached!" in line:
@@ -90,19 +87,9 @@ def vampire_gather(prob,opts):
         spl = line.split()
         id = int(spl[1])
         journal.append([EVENT_ADD,id])
-      elif line.startswith("t: "):
-        spl = line.split()
-        prev_act_cost = int(spl[1])
-        if last_sel_idx is None:
-          warmup_time = prev_act_cost
-        else:
-          assert len(journal[last_sel_idx]) == 2
-          journal[last_sel_idx].append(prev_act_cost)
-          select_time += prev_act_cost
       elif line.startswith("s: "):
         spl = line.split()
         id = int(spl[1])
-        last_sel_idx = len(journal)
         journal.append([EVENT_SEL,id])
         num_sels += 1
       elif line.startswith("r: "):
@@ -123,15 +110,9 @@ def vampire_gather(prob,opts):
       # print("Will retry!")
       continue
 
-    # print(prob,"had total act cost",act_cost_sum)
-    if last_sel_idx is not None:
-      assert len(journal[last_sel_idx]) == 2 # still waiting for its time
-      # so, let's formally satisfy it (pretending the last selection finished things off in 0 time):
-      journal[last_sel_idx].append(0)
-
     # a success
     # in the first coordinate, however, we still say whether there is non-trivial stuff to learn from
-    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,proof_flas,warmup_time,select_time))
+    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,proof_flas,warmup_time))
 
   print("Repeatedly failing:",to_run)
   print(output)
@@ -205,10 +186,10 @@ def export_model(model_state_dict,name):
       self.processor_tweaker = processor_tweaker
 
     @torch.jit.export
-    def eatMyTweaks(self,tweaks : List[float]):
+    def eatMyTweaks(self,tweaks : Tensor):
       assert HP.CLAUSE_EMBEDDER_LAYERS == 1, "just to simplify the computation in forward (could be generalized easily)"
 
-      self.feature_processor[0].bias.add_(self.processor_tweaker(torch.tensor(tweaks)))
+      self.feature_processor[0].bias.add_(self.processor_tweaker(tweaks))
 
     @torch.jit.export
     def forward(self,id: int,features : Tensor):
@@ -217,8 +198,8 @@ def export_model(model_state_dict,name):
       assert len(features) == HP.NUM_FEATURES
 
       # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
-      tFeatures : Tensor = features.float()
-      processed = self.feature_processor(tFeatures)
+      # tFeatures : Tensor = features.float()
+      processed = self.feature_processor(features)
       val = self.default_key(processed)
       return val.item()
 
@@ -229,7 +210,7 @@ def export_model(model_state_dict,name):
 class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_evaluator : torch.nn.Module,
-      clauses,journal,proof_flas,warmup_time,select_time):
+      clauses,journal,proof_flas,warmup_time):
     super().__init__()
 
     # print(clause_embedder,clause_key)
@@ -240,7 +221,6 @@ class LearningModel(torch.nn.Module):
     self.journal = journal                   # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas             # set of the good ids
     self.warmup_time = warmup_time
-    self.select_time = select_time
 
   def forward(self,tweaks_to_try): # send in a singleton with None, for non-tweaked training (i.e. training of the generalist)
 
@@ -248,7 +228,7 @@ class LearningModel(torch.nn.Module):
     clause_list = []
     id2idx = {}
     for i,(id,features) in enumerate(sorted(self.clauses.items())):
-      # we could also do some cropping, if vampire gave us more and we want thed fewer
+      # we could also do some cropping, if vampire gave us more and we wanted fewer
       assert len(features) == HP.NUM_FEATURES
       id2idx[id] = i
       clause_list.append(torch.tensor(features))
@@ -278,9 +258,6 @@ class LearningModel(torch.nn.Module):
     good_action_reward_loss = torch.zeros(outer_dim)
     num_good_steps = 0
 
-    time_penalty_loss = torch.zeros(outer_dim)
-    time_penalty_volume = 0
-
     entropy_loss = torch.zeros(outer_dim)
     num_steps = 0
 
@@ -296,8 +273,6 @@ class LearningModel(torch.nn.Module):
         passive.remove(recorded_id)
       else:
         assert event_tag == EVENT_SEL
-        event_time = event[2]
-
         if len(passive) < 2: # there was no chosing, can't correct the action
           continue
 
@@ -327,11 +302,6 @@ class LearningModel(torch.nn.Module):
             good_action_reward_loss += -lsm[:,cur_idx]
             num_good_steps += 1
 
-        if HP.TIME_PENALTY_MIXING > 0.0:
-          cur_idx = passive_list.index(recorded_id)
-          time_penalty_loss += HP.TIME_PENALTY_MIXING*event_time*lsm[:,cur_idx]
-          time_penalty_volume += event_time
-
         if HP.ENTROPY_COEF > 0.0:
           # TODO: this needs debugging under tweaks
           minus_entropy = torch.dot(torch.exp(lsm,dim=-1),lsm)
@@ -344,7 +314,7 @@ class LearningModel(torch.nn.Module):
 
     something = False
     loss = torch.zeros(outer_dim)
-    for (l,n) in [(good_action_reward_loss,num_good_steps),(time_penalty_loss,time_penalty_volume),(entropy_loss,num_steps)]:
+    for (l,n) in [(good_action_reward_loss,num_good_steps),(entropy_loss,num_steps)]:
       if n > 0:
         something = True
         loss += l/n

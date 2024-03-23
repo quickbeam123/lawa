@@ -19,9 +19,6 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import torch
 
-# TODO: is float64 wasteful? (note we do everything in doubles on the vampire side!)
-# torch.set_default_dtype(torch.float64)
-
 MISSIONS = ["train","valid"]
 
 def print_model_part():
@@ -162,7 +159,7 @@ def worker(q_in, q_out):
           learn_model.eval()
           # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
           # print(tweaks_to_try)
-          loss += local_fact*learn_model.forward([tweak_start]).item()
+          loss += local_fact*learn_model.forward([tweak_start])
         out_tweak = tweak_start
         telapsed = time.time() - start_time
       else:
@@ -391,7 +388,7 @@ if __name__ == "__main__":
   def get_tasks():
     ilim = HP.INSTRUCTION_LIMIT
     opts1 = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
-    opts2_base = f" -npcc {script_model_file_path} -nnf {HP.NUM_FEATURES}"
+    opts2_base = f" -npcc {script_model_file_path} -ncf {HP.NUM_FEATURES}"
 
     for mission in MISSIONS:
       for prob,trace_list in trace_index[mission].items():
@@ -490,7 +487,7 @@ if __name__ == "__main__":
             # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
             opts1 = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
             # will stay the same
-            opts2_base = f" -npcc {script_model_file_path} -nnf {HP.NUM_FEATURES}"
+            opts2_base = f" -npcc {script_model_file_path} -ncf {HP.NUM_FEATURES}"
 
             for prob in prob_lists[mission]:
               if generalist or HP.NUM_TWEAKS == 0:
@@ -843,7 +840,7 @@ if __name__ == "__main__":
         opts1 = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
         for i in range(TOTAL_EVALS):
           seed = random.randint(1,0x7fffff)
-          opts2 = f" -npcc {script_model_file_path} -nnf {HP.NUM_FEATURES} -npccw {tweak_str} --random_seed {seed}"
+          opts2 = f" -npcc {script_model_file_path} -ncf {HP.NUM_FEATURES} -npccw {tweak_str} --random_seed {seed}"
           for mission in MISSIONS:
             for prob in prob_lists[mission]:
               yield (JK_PERFORM,("",False,mission,prob,True,opts1,opts2))
