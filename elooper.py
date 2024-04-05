@@ -90,31 +90,37 @@ def worker(q_in, q_out):
       (res_filename,gatherwish,mission,prob,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
+
     elif job_kind == JK_GATHER:
       (mission,prob,counter,opts) = input
       result = IC.vampire_gather(prob,opts)
       trace_file_path = None
       if result is not None and result[0]: # non-degenerate
+        learn_model = IC.LearningModel(IC.get_initial_model(),*result[1])
+        learn_model.train() # trace it in training mode, so that it hopefully also traces the gradients?
+        traced_model = torch.jit.trace(learn_model,torch.zeros(1))
         trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
-        torch.save(result[1],trace_file_path)
+        traced_model.save(trace_file_path)
       q_out.put((job_kind,input,trace_file_path))
 
     elif job_kind == JK_EVAL:
       (prob,fact,trace_file_paths,model_file_path) = input
 
-      local_model = IC.get_initial_model()
-      local_model.load_state_dict(torch.load(model_file_path))
-
       local_fact = 1/len(trace_file_paths)
-      proof_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
 
-      loss = torch.zeros(1)
-      for proof_tuple in proof_tuples:
-        learn_model = IC.LearningModel(local_model,*proof_tuple)
-        learn_model.eval()
+      dummy = torch.zeros(1)
+      loss = dummy
+      for trace_file_path in trace_file_paths:
+        loaded_model = torch.jit.load(trace_file_path)
+        raw_dict = torch.load(model_file_path)
+        decorated_dict = {"clause_evaluator."+key : value for key,value in raw_dict.items() }
+        loaded_model.load_state_dict(decorated_dict)
+
+        loaded_model.eval()
         # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
         # print(tweaks_to_try)
-        loss += local_fact*learn_model.forward()
+
+        loss += local_fact*loaded_model(dummy)
 
       # print(prob,tweak_start,loss.item())
 
@@ -124,17 +130,19 @@ def worker(q_in, q_out):
       (prob,fact,trace_file_paths,train_model_file_path) = input
 
       local_fact = 1/len(trace_file_paths)
-      proof_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
-
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(train_model_file_path))
 
-      loss = torch.zeros(1)
-      for proof_tuple in proof_tuples:
-        learn_model = IC.LearningModel(local_model,*proof_tuple)
-        learn_model.train()
+      dummy = torch.zeros(1)
+      loss = dummy
+      for trace_file_path in trace_file_paths:
+        loaded_model = torch.jit.load(trace_file_path)
+        decorated_dict = {"clause_evaluator."+key : value for key,value in local_model.state_dict().items() }
+        loaded_model.load_state_dict(decorated_dict)
 
-        loss += local_fact*learn_model.forward()
+        loaded_model.train()
+
+        loss += local_fact*loaded_model.forward(dummy)
 
       loss.backward()
 
@@ -150,7 +158,6 @@ def worker(q_in, q_out):
       torch.save(local_model.state_dict(), train_model_file_path)
 
       q_out.put((job_kind,input,fact*loss.item()))
-
 
 
 if __name__ == "__main__":

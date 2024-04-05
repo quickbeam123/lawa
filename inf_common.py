@@ -186,7 +186,7 @@ class LearningModel(torch.nn.Module):
     self.journal = journal                   # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas             # set of the good ids
 
-  def forward(self):
+  def forward(self,dummy):
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
     id2idx = {}

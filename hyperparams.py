@@ -6,11 +6,11 @@ from typing import Final, List
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
 PROBLEM_LIST = "problemsSTD.txt"
-NUM_TRAIN_PROBLEMS = 300
-NUM_TEST_PROBLEMS = 300
+NUM_TRAIN_PROBLEMS = 100
+NUM_TEST_PROBLEMS = 100
 
 # Data gathering
-INSTRUCTION_LIMIT = 5000
+INSTRUCTION_LIMIT = 1000
 
 # in elooper:
 # keep this false (no support yet)
