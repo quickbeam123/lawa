@@ -2,48 +2,45 @@
 
 from typing import Final, List
 
+# TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
+
+PROBLEM_LIST = "problemsSTD.txt"
+NUM_TRAIN_PROBLEMS = 300
+NUM_TEST_PROBLEMS = 300
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000
 
-# How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
-NUM_PERFORMS = {False : 1, True: 1} # how many to look for tweaks and how many to just show the performance of the generalist
-
-# in clooper:
-# learn from the last proof you found for this setting
-# 0 - don't do it (i.e., only learn from the proofs discovered during this eval)
-# >0 - do do it
-# >1 - each problem has a score starting at CUMULATIVE and dropping by 1 until 1 every iteration where the problem gets solved...
-# ... and increasing by 1 (until the starting max value) if it does not get solved
-# Idea: super easy problems will get to 1 (ten times less then max) and stay there
-# on the other hand, hard problems will be pulling harder (as long as they stay unsolved)
-# in dlooper, for now, just boolean like functionality (no extra multiplier)
+# in elooper:
+# keep this false (no support yet)
+# This is just a reminder it migh make sense to learn from traces we currently (in this loop, with this model) cannot solve
+# - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
+# - definitely an interesting direction for a future research
 CUMULATIVE : Final[int] = 0
 
-# in dlooper, maybe we don't want to parallelize too much
-# (after all, all the workers are modifying the same model
-# so maybe, let's not be too "hogwild"?)
-# specifies the number of cores
+# How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
+# - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
+# - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
+NUM_PERFORMS = 1
+
+
+# in elooper, maybe we don't want to parallelize too much
+# (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
+# specifies the number of cores used while training a model
 TRAINING_PARALLELISM = 20
 
-# also in dlooper:
+# also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
-# for higher values, we wait until the oldest test-eval loss value out of TEST_IMPROVE_WINDOW many
+# for higher values, we wait until the oldest valid-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
 TEST_IMPROVE_WINDOW = 5
-
-# when computing the loss (during validation) or before we actually train (in training), we make a few descent steps just with the tweak part
-TWEAK_DESCENT_MAX_SECOND = 10
 
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
 
-# the GSD trick - specifieas the dimension of the tweak vector
-NUM_TWEAKS = 2
 
-# how much do we value training the generalist and how much the tweaked versions (as a ratio between 0.0 and 1.0)
-GENERALIST_TRAINING_WEIGHT = 1.0
+
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)

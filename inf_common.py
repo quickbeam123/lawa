@@ -65,8 +65,6 @@ def vampire_gather(prob,opts):
     journal = []         # [event,id], where event is one of EVENT_ADD EVENT_SEL EVENT_REM,
     proof_flas = set()
 
-    warmup_time = None  # how long it took till first selection
-
     # just temporaries, here during the parsing
     num_sels = 0
 
@@ -112,13 +110,13 @@ def vampire_gather(prob,opts):
 
     # a success
     # in the first coordinate, however, we still say whether there is non-trivial stuff to learn from
-    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,proof_flas,warmup_time))
+    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,proof_flas))
 
   print("Repeatedly failing:",to_run)
   print(output)
   return None # meaning: "A major failure, consider keeping the used model for later debugging"
 
-class TweakyClauseEvaluator(torch.nn.Module):
+class SimpleClauseEvaluator(torch.nn.Module):
   def __init__(self):
     super().__init__()
 
@@ -130,34 +128,15 @@ class TweakyClauseEvaluator(torch.nn.Module):
 
     self.feature_processor = torch.nn.Sequential(*layer_list)
     self.default_key = torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False)
-    self.processor_tweaker = torch.nn.Linear(HP.NUM_TWEAKS,HP.CLAUSE_INTERAL_SIZE,bias=False)
-    self.tweaks = torch.nn.Parameter(torch.Tensor(HP.NUM_TWEAKS))
-
-  def forceNewNumTweaks(self,numtweaks):
-    self.processor_tweaker = torch.nn.Linear(numtweaks,HP.CLAUSE_INTERAL_SIZE,bias=False)
-    self.tweaks = torch.nn.Parameter(torch.Tensor(numtweaks))
 
   def getKey(self):
     return self.default_key.weight
-
-  def getTweakVals(self):
-    return self.tweaks.tolist()
-
-  def setTweakVals(self,new_tweaks : List[float]):
-    with torch.no_grad():
-      self.tweaks.data = torch.Tensor(new_tweaks)
-
-  def getTweaksAsParams(self):
-    return [self.tweaks]
-
-  def getTheFullTweakyPartAsParams(self):
-    return chain([self.tweaks],self.processor_tweaker.parameters())
 
   def forward(self,input) -> Tensor:
     return self.default_key(self.feature_processor(input))
 
 def get_initial_model():
-  return TweakyClauseEvaluator()
+  return SimpleClauseEvaluator()
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
@@ -171,19 +150,11 @@ def export_model(model_state_dict,name):
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
     def __init__(self,feature_processor : torch.nn.Module,
-                      default_key : torch.nn.Module,
-                      processor_tweaker : torch.nn.Module):
+                      default_key : torch.nn.Module):
       super().__init__()
 
       self.feature_processor = feature_processor
       self.default_key = default_key
-      self.processor_tweaker = processor_tweaker
-
-    @torch.jit.export
-    def eatMyTweaks(self,tweaks : Tensor):
-      assert HP.CLAUSE_EMBEDDER_LAYERS == 1, "just to simplify the computation in forward (could be generalized easily)"
-
-      self.feature_processor[0].bias.add_(self.processor_tweaker(tweaks))
 
     @torch.jit.export
     def forward(self,id: int,features : Tensor):
@@ -197,27 +168,25 @@ def export_model(model_state_dict,name):
       val = self.default_key(processed)
       return val.item()
 
-  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key,model.processor_tweaker)
+  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key)
   script = torch.jit.script(module)
   script.save(name)
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_evaluator : torch.nn.Module,
-      clauses,journal,proof_flas,warmup_time):
+      clauses,journal,proof_flas):
     super().__init__()
 
     # print(clause_embedder,clause_key)
     # print(f"clause {len(clauses)} journal {len(journal)} proof_flas {len(proof_flas)}")
 
-    self.clause_evaluator = clause_evaluator # the TweakedClauseEvaluator for clause evaluation
+    self.clause_evaluator = clause_evaluator # the SimpleClauseEvaluator for clause evaluation
     self.clauses = clauses                   # id -> (feature_vec)
     self.journal = journal                   # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.proof_flas = proof_flas             # set of the good ids
-    self.warmup_time = warmup_time
 
-  def forward(self,dummy): # send in a singleton with None, for non-tweaked training (i.e. training of the generalist)
-
+  def forward(self):
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
     id2idx = {}
@@ -236,7 +205,6 @@ class LearningModel(torch.nn.Module):
 
     # in bulk for all the clauses
     logits_list = []
-
     logits_for_this_tweak = self.clause_evaluator.forward(feature_vecs)
     logits_for_this_tweak = torch.squeeze(logits_for_this_tweak,dim=-1)
     # print("logits_for_this_tweak",logits_for_this_tweak.shape)
