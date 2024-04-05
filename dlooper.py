@@ -159,7 +159,7 @@ def worker(q_in, q_out):
           learn_model.eval()
           # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
           # print(tweaks_to_try)
-          loss += local_fact*learn_model.forward([tweak_start])
+          loss += local_fact*learn_model.forward(loss)
         out_tweak = tweak_start
         telapsed = time.time() - start_time
       else:
@@ -177,7 +177,7 @@ def worker(q_in, q_out):
           loss = torch.zeros(1)
           for proof_tuple in proof_tuples:
             learn_model = IC.LearningModel(local_model,*proof_tuple)
-            loss += local_fact*learn_model.forward([out_tweak])
+            loss += local_fact*learn_model.forward(loss)
           loss.backward()
           local_optimizer.step()
           out_tweak = local_model.getTweakVals()
@@ -212,7 +212,12 @@ def worker(q_in, q_out):
       for proof_tuple in proof_tuples:
         learn_model = IC.LearningModel(local_model,*proof_tuple)
         learn_model.train()
-        loss += local_fact*learn_model.forward([used_tweak])
+
+        traced_model = torch.jit.trace(learn_model,loss)
+
+        print(traced_model.code)
+
+        loss += local_fact*traced_model(loss)
 
       loss.backward()
 

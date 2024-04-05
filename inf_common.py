@@ -153,14 +153,8 @@ class TweakyClauseEvaluator(torch.nn.Module):
   def getTheFullTweakyPartAsParams(self):
     return chain([self.tweaks],self.processor_tweaker.parameters())
 
-  def forward(self,input,tweaked : bool) -> Tensor:
-    if tweaked:
-      assert HP.CLAUSE_EMBEDDER_LAYERS == 1, "just to simplify the comupation below (could be generalized easily)"
-      tweaked_bias = self.processor_tweaker(self.tweaks)
-      intermediate = torch.nn.functional.linear(input,self.feature_processor[0].weight,self.feature_processor[0].bias + tweaked_bias)
-      return  self.default_key(torch.nn.functional.relu(intermediate))
-    else:
-      return self.default_key(self.feature_processor(input))
+  def forward(self,input) -> Tensor:
+    return self.default_key(self.feature_processor(input))
 
 def get_initial_model():
   return TweakyClauseEvaluator()
@@ -222,7 +216,7 @@ class LearningModel(torch.nn.Module):
     self.proof_flas = proof_flas             # set of the good ids
     self.warmup_time = warmup_time
 
-  def forward(self,tweaks_to_try): # send in a singleton with None, for non-tweaked training (i.e. training of the generalist)
+  def forward(self,dummy): # send in a singleton with None, for non-tweaked training (i.e. training of the generalist)
 
     # let's a get a big matrix of feature_vec's, one for each clause (id)
     clause_list = []
@@ -237,21 +231,16 @@ class LearningModel(torch.nn.Module):
 
     # print("forward-feature_vecs",feature_vecs)
 
-    outer_dim = len(tweaks_to_try)
+    outer_dim = 1
     assert not self.training or outer_dim == 1
 
     # in bulk for all the clauses
     logits_list = []
-    for tweak in tweaks_to_try:
-      tweaked = False
-      if tweak is not None:
-        self.clause_evaluator.setTweakVals(tweak)
-        tweaked = True
 
-      logits_for_this_tweak = self.clause_evaluator.forward(feature_vecs,tweaked)
-      logits_for_this_tweak = torch.squeeze(logits_for_this_tweak,dim=-1)
-      # print("logits_for_this_tweak",logits_for_this_tweak.shape)
-      logits_list.append(logits_for_this_tweak)
+    logits_for_this_tweak = self.clause_evaluator.forward(feature_vecs)
+    logits_for_this_tweak = torch.squeeze(logits_for_this_tweak,dim=-1)
+    # print("logits_for_this_tweak",logits_for_this_tweak.shape)
+    logits_list.append(logits_for_this_tweak)
     logits = torch.stack(logits_list)
     # print("logits.shape",logits.shape)
 
