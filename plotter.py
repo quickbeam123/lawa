@@ -9,7 +9,7 @@ import os, sys, shutil, pickle, random, atexit, time
 
 from collections import defaultdict
 
-MISSIONS = ["train","valid"]
+MISSIONS = ["train","test"]
 
 MAXINT = 2^32
 
