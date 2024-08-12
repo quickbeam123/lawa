@@ -534,6 +534,14 @@ if __name__ == "__main__":
     print()
     sys.stdout.flush()
 
+    if HP.LEARNING_RATE_DECAY < 1.0:
+      print("Learning rate decrease")
+      for g in optimizer.param_groups:
+        print(" from",g['lr'],end=" ")
+        g['lr'] *= HP.LEARNING_RATE_DECAY
+        print("to",g['lr'])
+      print()
+
     print_model_part()
     save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
     print()

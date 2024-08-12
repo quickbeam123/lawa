@@ -6,8 +6,8 @@ from typing import Final, List
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
 PROBLEM_LIST = "problemsSTD.txt"
-NUM_TRAIN_PROBLEMS = 300
-NUM_TEST_PROBLEMS = 300
+NUM_TRAIN_PROBLEMS = 5000
+NUM_TEST_PROBLEMS = 5000
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000
@@ -72,6 +72,8 @@ ENTROPY_NORMALIZED = True
 
 LEARNING_RATE : Final[float] = 0.001
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
+
+LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
