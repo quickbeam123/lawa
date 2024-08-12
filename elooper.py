@@ -19,6 +19,9 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import torch
 
+import warnings
+warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
+
 def print_model_part():
   print("Key {}".format(repr(model.default_key.weight.data)))
 
@@ -318,7 +321,7 @@ if __name__ == "__main__":
           # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
           opts1 = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
           # will stay the same
-          opts2_base = f" -npcc {script_model_file_path} -ncf {HP.NUM_FEATURES}"
+          opts2_base = f" -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_FEATURES}"
 
           for prob in prob_lists:
             yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,opts1,opts2_base + f" --random_seed {seed}"))

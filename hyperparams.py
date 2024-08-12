@@ -6,8 +6,8 @@ from typing import Final, List
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
 PROBLEM_LIST = "problemsSTD.txt"
-NUM_TRAIN_PROBLEMS = 5000
-NUM_TEST_PROBLEMS = 5000
+NUM_TRAIN_PROBLEMS = 1000
+NUM_TEST_PROBLEMS = 1000
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000

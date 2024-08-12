@@ -69,10 +69,10 @@ def vampire_gather(prob,opts):
     num_sels = 0
 
     for line in output.split("\n"):
+      # print(line)
       if "% Instruction limit reached!" in line:
         assert not proof_flas
         break # better than "id appeared again for:" failing just below
-      # print(line)
       if line.startswith("i: "):
         spl = line.split()
         id = int(spl[1])
