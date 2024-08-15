@@ -25,6 +25,16 @@ warnings.filterwarnings("ignore", message=r"You are using `torch.load`", categor
 def print_model_part():
   print("Key {}".format(repr(model.default_key.weight.data)))
 
+TRAIN_PROBLEMS_FILE = "train.txt"
+TEST_PROBLEMS_FILE = "test.txt"
+
+def steal_problems_from(folder_with_train_test_problems):
+  with open(os.path.join(folder_with_train_test_problems,TRAIN_PROBLEMS_FILE),"r") as f:
+    train_problems = [line.rstrip() for line in f.readlines()]
+  with open(os.path.join(folder_with_train_test_problems,TEST_PROBLEMS_FILE),"r") as f:
+    test_problems = [line.rstrip() for line in f.readlines()]
+  return train_problems,test_problems
+
 def train_test_problem_split():
   with open(HP.PROBLEM_LIST,"r") as f:
     full_list = [line.rstrip() for line in f.readlines()]
@@ -34,7 +44,7 @@ def train_test_problem_split():
   return our_problems[:HP.NUM_TRAIN_PROBLEMS],our_problems[HP.NUM_TRAIN_PROBLEMS:]
 
 def save_train_test_problems(exper_dir,train_problems,test_problems):
-  for filename,problems in [("train.txt",train_problems),("test.txt",test_problems)]:
+  for filename,problems in [(TRAIN_PROBLEMS_FILE,train_problems),(TEST_PROBLEMS_FILE,test_problems)]:
     with open(os.path.join(exper_dir,filename),"w") as f:
       for p in problems:
         f.write(p)
@@ -182,6 +192,8 @@ if __name__ == "__main__":
   assert parallelism > 0
   exper_dir =  sys.argv[3]
 
+  folder_with_train_test_problems = sys.argv[4] if len(sys.argv) > 4 else None
+
   # loop_count should be the number of epochs, i.e.
   # - the number of times the master model gets trained (for roughtly as many rounds as there are training examples)
   # - evaluted and a checkpoint saved
@@ -199,7 +211,10 @@ if __name__ == "__main__":
   # (CAREFUL: this way can only call looper from lawa folder)
   shutil.copy("hyperparams.py",exper_dir)
 
-  train_problems,test_problems = train_test_problem_split()
+  if folder_with_train_test_problems:
+    train_problems,test_problems = steal_problems_from(folder_with_train_test_problems)
+  else:
+    train_problems,test_problems = train_test_problem_split()
   save_train_test_problems(exper_dir,train_problems,test_problems)
 
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
