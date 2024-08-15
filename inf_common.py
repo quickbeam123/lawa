@@ -157,16 +157,16 @@ def export_model(model_state_dict,name):
       self.default_key = default_key
 
     @torch.jit.export
-    def forward(self,id: int,features : Tensor):
+    def forward(self,features : Tensor):
       # print("NN: Got",id,"with features",features)
 
-      assert len(features) == HP.NUM_FEATURES
+      # assert len(features) == HP.NUM_FEATURES
 
       # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
       # tFeatures : Tensor = features.float()
       processed = self.feature_processor(features)
       val = self.default_key(processed)
-      return val.item()
+      return val
 
   module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key)
   script = torch.jit.script(module)
