@@ -90,11 +90,11 @@ def worker(q_in, q_out):
     (job_kind,input) = q_in.get()
 
     if job_kind == JK_PERFORM:
-      (res_filename,gatherwish,mission,prob,opts1,opts2) = input
+      (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
-      (mission,prob,counter,opts) = input
+      (mission,prob,lrs_trace_file,counter,opts) = input
       result = IC.vampire_gather(prob,opts)
       trace_file_path = None
       if result is not None and result[0]: # non-degenerate
@@ -319,12 +319,19 @@ if __name__ == "__main__":
           seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
           # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
-          opts1 = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
+          opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
           # will stay the same
-          opts2_base = f" -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_FEATURES}"
+          opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_FEATURES}"
 
           for prob in prob_lists:
-            yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,opts1,opts2_base + f" --random_seed {seed}"))
+            opts1 = opts1_base
+            if HP.SATURATION_ALGORITHM == "lrs":
+              lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}_{}_{}.lrs".format(prob.replace("/","_"),i,seed,os.getpid()))
+              opts1 += f" -lstf {lrs_trace_file}"
+            else:
+              lrs_trace_file = ""
+
+            yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
 
     per_prob_trace_cnt = defaultdict(int)
     currently_solving = set()
@@ -333,7 +340,7 @@ if __name__ == "__main__":
       global per_prob_trace_cnt
       workers_freed = 0
       if job_kind == JK_PERFORM:
-        (res_filename,gatherwish,mission,prob,opts1,opts2) = input
+        (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
         result_dicts[res_filename][prob].append(result)
 
         (status,instructions,activations) = result
@@ -342,19 +349,24 @@ if __name__ == "__main__":
           per_prob_trace_cnt[prob] += 1
 
           ilim = 10*HP.INSTRUCTION_LIMIT
-          task = (JK_GATHER,(mission,prob,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on"+opts2))
+          lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
+          task = (JK_GATHER,(mission,prob,lrs_trace_file,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on {lrs_trace_str}"+opts2))
           # print("PUT:",task)
           q_in.put(task)
         else:
           workers_freed = 1
+          if lrs_trace_file and os.path.isfile(lrs_trace_file):
+            os.remove(lrs_trace_file)
       elif job_kind == JK_GATHER:
-        (mission,prob,counter,opts) = input
+        (mission,prob,lrs_trace_file,counter,opts) = input
         currently_solving.add(prob)
         trace_file_path = result
         # the trace pkl has been saved to a file, let's just remember that we have it:
         if trace_file_path is not None:
           trace_index[prob].append(trace_file_path) # TODO: this is perhaps not very wise with CUMULATIVE, as it would keep growing (while many of the traces would be getting overwritten)
         workers_freed = 1
+        if lrs_trace_file and os.path.isfile(lrs_trace_file):
+          os.remove(lrs_trace_file)
       else:
         assert False, f"Surprised by job_kind {job_kind}"
 

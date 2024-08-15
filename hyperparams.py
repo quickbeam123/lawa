@@ -5,12 +5,14 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
+SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+
 PROBLEM_LIST = "problemsSTD.txt"
-NUM_TRAIN_PROBLEMS = 1000
-NUM_TEST_PROBLEMS = 1000
+NUM_TRAIN_PROBLEMS = 3000
+NUM_TEST_PROBLEMS = 3000
 
 # Data gathering
-INSTRUCTION_LIMIT = 5000
+INSTRUCTION_LIMIT = 15000
 
 # in elooper:
 # keep this false (no support yet)
@@ -70,7 +72,7 @@ ENTROPY_COEF = 0.0
 # next time I play with the entropy regularization, let me try the normalized one
 ENTROPY_NORMALIZED = True
 
-LEARNING_RATE : Final[float] = 0.001
+LEARNING_RATE : Final[float] = 0.0005
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
