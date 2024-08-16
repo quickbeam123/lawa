@@ -9,7 +9,8 @@ SATURATION_ALGORITHM = "discount" # can also be "discount" or "otter" (lrs needs
 
 PROBLEM_LIST = "problemsSTD.txt"
 NUM_TRAIN_PROBLEMS = 3000
-NUM_TEST_PROBLEMS = 3000
+EVAL_ON_TEST = False
+NUM_TEST_PROBLEMS = 5000 # just keep 5K for a final TPTP eval
 
 # Data gathering
 INSTRUCTION_LIMIT = 15000
@@ -62,15 +63,17 @@ CLAUSE_INTERAL_SIZE : Final[int] = 16
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 
+MAX_TRAINS_PER_TRACE = 1000
+
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
-LEARN_FROM_ALL_GOOD = True
+# LEARN_FROM_ALL_GOOD = True
 # Time penalty mixing makes more conceptual sense only with "principled" (false)
 
 # a coeff of how much the entropy regularization term should influence the overall loss
-ENTROPY_COEF = 0.0
+# ENTROPY_COEF = 0.0
 # next time I play with the entropy regularization, let me try the normalized one
-ENTROPY_NORMALIZED = True
+# ENTROPY_NORMALIZED = True
 
 LEARNING_RATE : Final[float] = 0.0005
 TWEAKS_LEARNING_RATE : Final[float] = 0.1

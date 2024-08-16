@@ -116,6 +116,38 @@ def vampire_gather(prob,opts):
   print(output)
   return None # meaning: "A major failure, consider keeping the used model for later debugging"
 
+# taking into account that some clauses may have the same feature vector,
+# let's not waste space and time on those and create a compressed trace where
+# each unique feature vector appears only once
+def compress_trace(clauses,journal,proof_flas):
+  id2idx = {}
+  features2idx = {}
+  clause_features = []
+  for cl,features in clauses.items():
+    tfeatures = tuple(features)
+    if tfeatures in features2idx:
+      id2idx[cl] = features2idx[tfeatures]
+    else:
+      newIdx = len(features2idx)
+      features2idx[tfeatures] = newIdx
+      id2idx[cl] = newIdx
+      clause_features.append(features)
+  newjournal = []
+  passive = set() # just for consistency checking in the loop below
+  num_selections = 0
+  for tag,id in journal:
+    if tag == EVENT_ADD:
+      assert id not in passive
+      passive.add(id)
+    else:
+      assert(tag == EVENT_REM or tag == EVENT_SEL)
+      assert id in passive
+      passive.remove(id)
+    if tag == EVENT_SEL:
+      num_selections += 1
+    newjournal.append((tag,id2idx[id],id in proof_flas))
+  return clause_features,newjournal,num_selections
+
 class SimpleClauseEvaluator(torch.nn.Module):
   def __init__(self):
     super().__init__()
@@ -175,30 +207,21 @@ def export_model(model_state_dict,name):
 class LearningModel(torch.nn.Module):
   def __init__(self,
       clause_evaluator : torch.nn.Module,
-      clauses,journal,proof_flas):
+      clause_features,journal,num_selections):
     super().__init__()
 
     # print(clause_embedder,clause_key)
     # print(f"clause {len(clauses)} journal {len(journal)} proof_flas {len(proof_flas)}")
 
     self.clause_evaluator = clause_evaluator # the SimpleClauseEvaluator for clause evaluation
-    self.clauses = clauses                   # id -> (feature_vec)
-    self.journal = journal                   # (id,event), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-    self.proof_flas = proof_flas             # set of the good ids
+    self.clause_features = clause_features   # list of clause features (in a list); idx in the journal is into this list
+    self.journal = journal                   # (event,idx,is_proof_cl), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.num_selections = num_selections     # how many EVENT_SEL are there in journal?
 
   def forward(self):
-    # let's a get a big matrix of feature_vec's, one for each clause (id)
-    clause_list = []
-    id2idx = {}
-    for i,(id,features) in enumerate(sorted(self.clauses.items())):
-      # we could also do some cropping, if vampire gave us more and we wanted fewer
-      assert len(features) == HP.NUM_FEATURES
-      id2idx[id] = i
-      clause_list.append(torch.tensor(features))
-    feature_vecs = torch.stack(clause_list)
+    # let's a get a big matrix of feature_vec's, one for each clause idx
+    feature_vecs = torch.stack([torch.tensor(features) for features in self.clause_features])
     # print("feature_vecs.shape",feature_vecs.shape)
-
-    # print("forward-feature_vecs",feature_vecs)
 
     outer_dim = 1
     assert not self.training or outer_dim == 1
@@ -210,70 +233,45 @@ class LearningModel(torch.nn.Module):
     # print("logits_for_this_tweak",logits_for_this_tweak.shape)
     logits_list.append(logits_for_this_tweak)
     logits = torch.stack(logits_list)
-    # print("logits.shape",logits.shape)
 
     good_action_reward_loss = torch.zeros(outer_dim)
     num_good_steps = 0
 
-    entropy_loss = torch.zeros(outer_dim)
-    num_steps = 0
-
     # TODO: couldn't this be one-off compiled to get much more efficient?
 
-    passive = set()
-    for event in self.journal:
-      event_tag = event[0]
-      recorded_id = event[1]
-      if event_tag == EVENT_ADD:
-        passive.add(recorded_id)
-      elif event_tag == EVENT_REM:
-        passive.remove(recorded_id)
-      else:
-        assert event_tag == EVENT_SEL
-        if len(passive) < 2: # there was no chosing, can't correct the action
-          continue
+    passive = [0]*len(self.clause_features)
+    passive_good = [0]*len(self.clause_features)
+    for tag,idx,isGood in self.journal:
+      if tag == EVENT_ADD:
+        passive[idx] += 1
+        if isGood:
+          passive_good[idx] += 1
+        continue
+      if tag == EVENT_REM:
+        passive[idx] -= 1
+        if isGood:
+          passive_good[idx] -= 1
+        continue
 
-        passive_list = sorted(passive)
-        # print("forward-passive_list",passive_list)
-        indices = torch.tensor([id2idx[id] for id in passive_list])
-        # print("forward-indices",indices)
-        sub_logits = logits[:,indices]
-        # print("forward-sub_logits",sub_logits)
+      assert tag == EVENT_SEL
 
-        # print("sub_logits.shape",sub_logits.shape)
-        lsm = torch.nn.functional.log_softmax(sub_logits,dim=-1)
+      # don't learn from every selection for traces with many-many of them (but got and learn at least once)
+      if sum(passive_good) and (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / self.num_selections):
+
+        # manually computing log_softmax with multiplicities
+        c = torch.max(logits,dim=-1)[0] # the second part, which we ignore, is the argmax' idx
+        logsumexp = torch.log(torch.matmul(torch.exp(logits - c),torch.tensor(passive,dtype=logits.dtype)))
+        lsm = logits-c-logsumexp
         # print("lsm.shape",lsm.shape)
+        # print("lsm",lsm)
+        good_lsm = torch.matmul(lsm,torch.tensor(passive_good,dtype=logits.dtype))
+        # print(good_lsm)
+        good_action_reward_loss += -good_lsm/sum(passive_good)
+        num_good_steps += 1
 
-        if HP.LEARN_FROM_ALL_GOOD:
-          good_idxs = []
-          for i,id in enumerate(passive_list):
-            if id in self.proof_flas:
-              good_idxs.append(i)
-          # print(good_idxs)
-          if len(good_idxs):
-            good_action_reward_loss += -torch.sum(lsm[:,good_idxs],dim=-1)/len(good_idxs)
-            num_good_steps += 1
-        else:
-          if recorded_id in self.proof_flas:
-            cur_idx = passive_list.index(recorded_id)
-            good_action_reward_loss += -lsm[:,cur_idx]
-            num_good_steps += 1
+      passive[idx] -= 1
+      if isGood:
+        passive_good[idx] -= 1
 
-        if HP.ENTROPY_COEF > 0.0:
-          # TODO: this needs debugging under tweaks
-          minus_entropy = torch.dot(torch.exp(lsm,dim=-1),lsm)
-          if HP.ENTROPY_NORMALIZED:
-            minus_entropy /= torch.log(len(lsm))
-          entropy_loss += HP.ENTROPY_COEF*minus_entropy
-          num_steps += 1
-
-        passive.remove(recorded_id)
-
-    something = False
-    loss = torch.zeros(outer_dim)
-    for (l,n) in [(good_action_reward_loss,num_good_steps),(entropy_loss,num_steps)]:
-      if n > 0:
-        something = True
-        loss += l/n
-    assert something, "The training example was still be degenerate!"
-    return loss
+    assert num_good_steps, "The training example was still degenerate!"
+    return good_action_reward_loss/num_good_steps

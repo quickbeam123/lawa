@@ -108,8 +108,9 @@ def worker(q_in, q_out):
       result = IC.vampire_gather(prob,opts)
       trace_file_path = None
       if result is not None and result[0]: # non-degenerate
+        compressed_trace = IC.compress_trace(*result[1])
         trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
-        torch.save(result[1],trace_file_path)
+        torch.save(compressed_trace,trace_file_path)
       q_out.put((job_kind,input,trace_file_path))
 
     elif job_kind == JK_EVAL:
@@ -326,6 +327,8 @@ if __name__ == "__main__":
     def get_perform_tasks():
       ilim = HP.INSTRUCTION_LIMIT
       for mission,gatherwish,prob_lists in [("train",True,train_problems),("test",False,test_problems)]:
+        if not HP.EVAL_ON_TEST and mission == "test":
+          continue
         res_filename = f"{mission}_res.pt"
 
         result_metas.append((res_filename,mission,ilim))
