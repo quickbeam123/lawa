@@ -206,6 +206,7 @@ def export_model(model_state_dict,name):
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
+      verbose,
       clause_evaluator : torch.nn.Module,
       clause_features,journal,num_selections):
     super().__init__()

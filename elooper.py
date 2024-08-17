@@ -64,6 +64,10 @@ def save_loop_model_and_optimizer(cur_dir,loop,model,optimizer):
   loop_model_and_optimizer_state_file_path = os.path.join(cur_dir,LOOP_MODEL_AND_OPTIMIZER)
   torch.save((loop,model.state_dict(),optimizer.state_dict()), loop_model_and_optimizer_state_file_path)
 
+def load_loop_model_and_optimizer(adir):
+  loop_model_and_optimizer_state_file_path = os.path.join(adir,LOOP_MODEL_AND_OPTIMIZER)
+  return torch.load(loop_model_and_optimizer_state_file_path)
+
 def get_empty_trace_index():
   return defaultdict(list) # problem -> [trace_file_name]  # used to more than one with different temperatures, can also have more than one with different seeds
 
@@ -72,6 +76,16 @@ TRACE_INDEX = "trace-index.pt"
 def save_trace_index(cur_dir,trace_index):
   trace_index_file_path = os.path.join(cur_dir,TRACE_INDEX)
   torch.save(trace_index, trace_index_file_path)
+
+def load_trace_index(adir):
+  trace_index_file_path = os.path.join(adir,TRACE_INDEX)
+  return torch.load(trace_index_file_path)
+
+def report_on_trace_index(trace_index):
+  trace_cnt = 0
+  for prob,trace_list in trace_index.items():
+    trace_cnt += len(trace_list)
+  print("trace_index has\n  ",len(trace_index),"probs with a total of",trace_cnt,"traces")
 
 def ilim2tlim(ilim):
   secs = max(5,ilim // 1000) # it's 2 times more than the instrlimit on a 2GHz machine
@@ -124,13 +138,13 @@ def worker(q_in, q_out):
 
       loss = torch.zeros(1)
       for proof_tuple in proof_tuples:
-        learn_model = IC.LearningModel(local_model,*proof_tuple)
+        learn_model = IC.LearningModel(False,local_model,*proof_tuple)
         learn_model.eval()
         # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
         # print(tweaks_to_try)
         loss += local_fact*learn_model.forward()
 
-      # print(prob,tweak_start,loss.item())
+      # print("EVAL on",prob,fact,trace_file_paths,loss.item())
 
       q_out.put((job_kind,input,fact*loss.item()))
 
@@ -143,12 +157,16 @@ def worker(q_in, q_out):
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(train_model_file_path))
 
+      verbose = False # (prob in {'Problems/MSC/MSC015-1.015.p','Problems/SYO/SYO525+1.015.p'})
+
       loss = torch.zeros(1)
       for proof_tuple in proof_tuples:
-        learn_model = IC.LearningModel(local_model,*proof_tuple)
+        learn_model = IC.LearningModel(verbose,local_model,*proof_tuple)
         learn_model.train()
 
         loss += local_fact*learn_model.forward()
+
+      # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
 
       loss.backward()
 
@@ -193,7 +211,7 @@ if __name__ == "__main__":
   assert parallelism > 0
   exper_dir =  sys.argv[3]
 
-  folder_with_train_test_problems = sys.argv[4] if len(sys.argv) > 4 else None
+  folder_with_prev_exper = sys.argv[4] if len(sys.argv) > 4 else None
 
   # loop_count should be the number of epochs, i.e.
   # - the number of times the master model gets trained (for roughtly as many rounds as there are training examples)
@@ -212,8 +230,8 @@ if __name__ == "__main__":
   # (CAREFUL: this way can only call looper from lawa folder)
   shutil.copy("hyperparams.py",exper_dir)
 
-  if folder_with_train_test_problems:
-    train_problems,test_problems = steal_problems_from(folder_with_train_test_problems)
+  if folder_with_prev_exper:
+    train_problems,test_problems = steal_problems_from(folder_with_prev_exper)
   else:
     train_problems,test_problems = train_test_problem_split()
   save_train_test_problems(exper_dir,train_problems,test_problems)
@@ -222,15 +240,28 @@ if __name__ == "__main__":
   model = IC.get_initial_model()
   optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
-  trace_index = get_empty_trace_index()
-
   # temporary model used for the gradient trick
   grad_loader_temp = IC.get_initial_model()
 
-  loop = 0
+  trace_index = get_empty_trace_index()
 
-  cur_dir = claim_loop_dir(loop)
-  save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
+  loop = 0
+  if len(sys.argv) > 5: # we already know the folder, but which loop to copy from there?
+    loop = int(sys.argv[5])
+    load_dir = os.path.join(folder_with_prev_exper,f"loop{loop}")
+    aloop,amodel_state_dict,anoptimizer_state_dict = load_loop_model_and_optimizer(load_dir)
+    assert aloop == loop
+    model.load_state_dict(amodel_state_dict)
+    optimizer.load_state_dict(anoptimizer_state_dict)
+
+    if len(sys.argv) > 6:
+      trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
+      print("Starting from loop",loop,"and a half")
+      report_on_trace_index(trace_index)
+
+  else:
+    cur_dir = claim_loop_dir(loop)
+    save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
 
   print_model_part()
 
@@ -307,127 +338,118 @@ if __name__ == "__main__":
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
 
-    if HP.CUMULATIVE == 0: # forget what we solved until now
-      trace_index = get_empty_trace_index()
-    else:
-      assert False, "Didn't think of CUMULATIVE yet" # see esp. process_results_from_perform_and_gather/GATHER
-
     # ===========================================================================
+    if len(trace_index) == 0:
+      # STAGE 1: PERFORM and GATHER
+      stage_start_time = time.time()
 
-    # STAGE 1: PERFORM and GATHER
-    stage_start_time = time.time()
+      # There is going to be files to store the results, ...
+      result_metas = [] # ... will store the file names and some additional info (in order of generation)
+      result_dicts = defaultdict(lambda : IC.default_defaultdict_of_list()) # ... will collect the dicts to go into the respective files
 
-    # There is going to be files to store the results, ...
-    result_metas = [] # ... will store the file names and some additional info (in order of generation)
-    result_dicts = defaultdict(lambda : IC.default_defaultdict_of_list()) # ... will collect the dicts to go into the respective files
+      script_model_file_path = os.path.join(cur_dir,"script-model.pt")
+      IC.export_model(model.state_dict(),script_model_file_path)
 
-    script_model_file_path = os.path.join(cur_dir,"script-model.pt")
-    IC.export_model(model.state_dict(),script_model_file_path)
+      def get_perform_tasks():
+        ilim = HP.INSTRUCTION_LIMIT
+        for mission,gatherwish,prob_lists in [("train",True,train_problems),("test",False,test_problems)]:
+          if not HP.EVAL_ON_TEST and mission == "test":
+            continue
+          res_filename = f"{mission}_res.pt"
 
-    def get_perform_tasks():
-      ilim = HP.INSTRUCTION_LIMIT
-      for mission,gatherwish,prob_lists in [("train",True,train_problems),("test",False,test_problems)]:
-        if not HP.EVAL_ON_TEST and mission == "test":
-          continue
-        res_filename = f"{mission}_res.pt"
+          result_metas.append((res_filename,mission,ilim))
 
-        result_metas.append((res_filename,mission,ilim))
+          for i in range(HP.NUM_PERFORMS):
+            seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
-        for i in range(HP.NUM_PERFORMS):
-          seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
+            # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
+            opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
+            # will stay the same
+            opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_FEATURES}"
 
-          # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
-          opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
-          # will stay the same
-          opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_FEATURES}"
+            for prob in prob_lists:
+              opts1 = opts1_base
+              if HP.SATURATION_ALGORITHM == "lrs":
+                lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}_{}_{}.lrs".format(prob.replace("/","_"),i,seed,os.getpid()))
+                opts1 += f" -lstf {lrs_trace_file}"
+              else:
+                lrs_trace_file = ""
 
-          for prob in prob_lists:
-            opts1 = opts1_base
-            if HP.SATURATION_ALGORITHM == "lrs":
-              lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}_{}_{}.lrs".format(prob.replace("/","_"),i,seed,os.getpid()))
-              opts1 += f" -lstf {lrs_trace_file}"
-            else:
-              lrs_trace_file = ""
+              yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
 
-            yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
+      per_prob_trace_cnt = defaultdict(int)
+      currently_solving = set()
 
-    per_prob_trace_cnt = defaultdict(int)
-    currently_solving = set()
+      def process_results_from_perform_and_gather(job_kind,input,result):
+        global per_prob_trace_cnt
+        workers_freed = 0
+        if job_kind == JK_PERFORM:
+          (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
+          result_dicts[res_filename][prob].append(result)
 
-    def process_results_from_perform_and_gather(job_kind,input,result):
-      global per_prob_trace_cnt
-      workers_freed = 0
-      if job_kind == JK_PERFORM:
-        (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
-        result_dicts[res_filename][prob].append(result)
+          (status,instructions,activations) = result
+          if status == "uns" and gatherwish:
+            counter = per_prob_trace_cnt[prob]
+            per_prob_trace_cnt[prob] += 1
 
-        (status,instructions,activations) = result
-        if status == "uns" and gatherwish:
-          counter = per_prob_trace_cnt[prob]
-          per_prob_trace_cnt[prob] += 1
-
-          ilim = 10*HP.INSTRUCTION_LIMIT
-          lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
-          task = (JK_GATHER,(mission,prob,lrs_trace_file,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on {lrs_trace_str}"+opts2))
-          # print("PUT:",task)
-          q_in.put(task)
-        else:
+            ilim = 10*HP.INSTRUCTION_LIMIT
+            lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
+            task = (JK_GATHER,(mission,prob,lrs_trace_file,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on {lrs_trace_str}"+opts2))
+            # print("PUT:",task)
+            q_in.put(task)
+          else:
+            workers_freed = 1
+            if lrs_trace_file and os.path.isfile(lrs_trace_file):
+              os.remove(lrs_trace_file)
+        elif job_kind == JK_GATHER:
+          (mission,prob,lrs_trace_file,counter,opts) = input
+          currently_solving.add(prob)
+          trace_file_path = result
+          # the trace pkl has been saved to a file, let's just remember that we have it:
+          if trace_file_path is not None:
+            trace_index[prob].append(trace_file_path) # TODO: this is perhaps not very wise with CUMULATIVE, as it would keep growing (while many of the traces would be getting overwritten)
           workers_freed = 1
           if lrs_trace_file and os.path.isfile(lrs_trace_file):
             os.remove(lrs_trace_file)
-      elif job_kind == JK_GATHER:
-        (mission,prob,lrs_trace_file,counter,opts) = input
-        currently_solving.add(prob)
-        trace_file_path = result
-        # the trace pkl has been saved to a file, let's just remember that we have it:
-        if trace_file_path is not None:
-          trace_index[prob].append(trace_file_path) # TODO: this is perhaps not very wise with CUMULATIVE, as it would keep growing (while many of the traces would be getting overwritten)
-        workers_freed = 1
-        if lrs_trace_file and os.path.isfile(lrs_trace_file):
-          os.remove(lrs_trace_file)
-      else:
-        assert False, f"Surprised by job_kind {job_kind}"
-
-      return workers_freed
-
-    do_in_parallel(get_perform_tasks(),parallelism,process_results_from_perform_and_gather)
-
-    # let's report what happened so far (and save the results into files, for later analysis):
-    for (res_filename,mission,ilim) in result_metas:
-      results = result_dicts[res_filename]
-      torch.save((f"ilim: {ilim}",results), os.path.join(cur_dir,res_filename))
-
-      prob_solved = 0
-      prob_fractional = 0.0
-      attempts = None
-      for prob,runs in results.items():
-        succs = sum(1 for (status,instructions,activations) in runs if status == "uns")
-        if attempts is None:
-          attempts = len(runs)
         else:
-          assert attempts == len(runs)
+          assert False, f"Surprised by job_kind {job_kind}"
 
-        if succs > 0:
-          prob_solved += 1
-        prob_fractional += succs/attempts
+        return workers_freed
 
-      print(res_filename)
-      print("    {:10.4f}% = {:10.1f} / {} ({} attempts) {} total".format(prob_fractional/len(results),prob_fractional,len(results),attempts,prob_solved))
+      do_in_parallel(get_perform_tasks(),parallelism,process_results_from_perform_and_gather)
 
-    print()
-    print("  Stage 1 took",time.time()-stage_start_time)
-    print()
-    sys.stdout.flush()
+      # let's report what happened so far (and save the results into files, for later analysis):
+      for (res_filename,mission,ilim) in result_metas:
+        results = result_dicts[res_filename]
+        torch.save((f"ilim: {ilim}",results), os.path.join(cur_dir,res_filename))
 
-    trace_cnt = 0
-    for prob,trace_list in trace_index.items():
-      trace_cnt += len(trace_list)
-    print("trace_index has\n  ",len(trace_index),"probs with a total of",trace_cnt,"traces")
+        prob_solved = 0
+        prob_fractional = 0.0
+        attempts = None
+        for prob,runs in results.items():
+          succs = sum(1 for (status,instructions,activations) in runs if status == "uns")
+          if attempts is None:
+            attempts = len(runs)
+          else:
+            assert attempts == len(runs)
 
-    save_trace_index(cur_dir,trace_index)
+          if succs > 0:
+            prob_solved += 1
+          prob_fractional += succs/attempts
 
-    print()
-    sys.stdout.flush()
+        print(res_filename)
+        print("    {:10.4f}% = {:10.1f} / {} ({} attempts) {} total".format(prob_fractional/len(results),prob_fractional,len(results),attempts,prob_solved))
+
+      print()
+      print("  Stage 1 took",time.time()-stage_start_time)
+      print()
+      sys.stdout.flush()
+
+      report_on_trace_index(trace_index)
+      save_trace_index(cur_dir,trace_index)
+
+      print()
+      sys.stdout.flush()
 
     # ===========================================================================
 
@@ -444,7 +466,7 @@ if __name__ == "__main__":
 
     trace_problems = list(trace_index)
     if TIW > 1: # we will need to single out the validation traces!
-      random.shuffle(trace_problems)
+      random.shuffle(trace_problems) # Note: this is a source of non-determinism!
       # an 80:20 split
       cut_idx = int(0.8*len(trace_problems))
       train_trace_problems = trace_problems[:cut_idx]
@@ -583,3 +605,6 @@ if __name__ == "__main__":
     print("Loop took",time.time()-loop_start_time)
     print()
     sys.stdout.flush()
+
+    # so that we can distinguish standard run from a "loop and a half" start (which reads a ready trace index and then skips Stage 1)
+    trace_index = get_empty_trace_index()
