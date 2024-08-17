@@ -213,34 +213,40 @@ class LearningModel(torch.nn.Module):
     # print(clause_embedder,clause_key)
     # print(f"clause {len(clauses)} journal {len(journal)} proof_flas {len(proof_flas)}")
 
+    self.verbose = verbose
+
     self.clause_evaluator = clause_evaluator # the SimpleClauseEvaluator for clause evaluation
     self.clause_features = clause_features   # list of clause features (in a list); idx in the journal is into this list
     self.journal = journal                   # (event,idx,is_proof_cl), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.num_selections = num_selections     # how many EVENT_SEL are there in journal?
+
+    if verbose:
+      print("Got verbose")
+      print(len(clause_features))
+      print(len(journal))
+      print(num_selections)
 
   def forward(self):
     # let's a get a big matrix of feature_vec's, one for each clause idx
     feature_vecs = torch.stack([torch.tensor(features) for features in self.clause_features])
     # print("feature_vecs.shape",feature_vecs.shape)
 
-    outer_dim = 1
-    assert not self.training or outer_dim == 1
+    logits = self.clause_evaluator.forward(feature_vecs)
+    logits = logits.squeeze(1) # squeeze-away second dimension, where the feartures were
 
-    # in bulk for all the clauses
-    logits_list = []
-    logits_for_this_tweak = self.clause_evaluator.forward(feature_vecs)
-    logits_for_this_tweak = torch.squeeze(logits_for_this_tweak,dim=-1)
-    # print("logits_for_this_tweak",logits_for_this_tweak.shape)
-    logits_list.append(logits_for_this_tweak)
-    logits = torch.stack(logits_list)
+    # print("logits",logits.shape)
 
-    good_action_reward_loss = torch.zeros(outer_dim)
+    good_action_reward_loss = torch.tensor(0.0)
     num_good_steps = 0
 
     # TODO: couldn't this be one-off compiled to get much more efficient?
 
     passive = [0]*len(self.clause_features)
     passive_good = [0]*len(self.clause_features)
+
+    learn_for_every = self.num_selections / HP.MAX_TRAINS_PER_TRACE
+    learn_for_every_sum = 0.0
+    learn_ord = 0
     for tag,idx,isGood in self.journal:
       if tag == EVENT_ADD:
         passive[idx] += 1
@@ -255,19 +261,40 @@ class LearningModel(torch.nn.Module):
 
       assert tag == EVENT_SEL
 
-      # don't learn from every selection for traces with many-many of them (but got and learn at least once)
-      if sum(passive_good) and (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / self.num_selections):
+      # don't learn from every selection for traces with many-many of them (but go and learn at least once)
+      # if sum(passive_good) and (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / self.num_selections): -- didn't like a non-deterministic solution
+      if sum(passive_good): # can learn
+        if learn_for_every_sum <= learn_ord:
+          learn_for_every_sum += learn_for_every
 
-        # manually computing log_softmax with multiplicities
-        c = torch.max(logits,dim=-1)[0] # the second part, which we ignore, is the argmax' idx
-        logsumexp = torch.log(torch.matmul(torch.exp(logits - c),torch.tensor(passive,dtype=logits.dtype)))
-        lsm = logits-c-logsumexp
-        # print("lsm.shape",lsm.shape)
-        # print("lsm",lsm)
-        good_lsm = torch.matmul(lsm,torch.tensor(passive_good,dtype=logits.dtype))
-        # print(good_lsm)
-        good_action_reward_loss += -good_lsm/sum(passive_good)
-        num_good_steps += 1
+          passive_good_t = torch.tensor(passive_good,dtype=logits.dtype)
+          passive_t = torch.tensor(passive,dtype=logits.dtype)
+
+          masked_logits = logits[passive_t > 0.0]
+          passive_good_t = passive_good_t[passive_t > 0.0]
+          passive_t = passive_t[passive_t > 0.0]
+
+          # print("masked_logits",masked_logits.shape)
+          # print("passive_good_t",passive_good_t.shape)
+          # print("passive_t",passive_t.shape)
+
+          # manually computing log_softmax with multiplicities
+          c = torch.max(masked_logits,dim=-1)[0] # the second part, which we ignore, is the argmax' idx
+          exp_logits = torch.exp(masked_logits - c)
+          # print("exp_logits.shape",exp_logits.shape)
+          logsumexp = torch.log(torch.matmul(exp_logits,passive_t))
+          lsm = masked_logits-c-logsumexp
+          # print("lsm.shape",lsm.shape)
+          # print("lsm",lsm)
+          good_lsm = torch.matmul(lsm,passive_good_t)
+          # print("good_lsm",good_lsm.shape)
+
+          assert not torch.isnan(good_lsm).any(), "Got nan in good_lsm " + str(good_lsm)
+
+          good_action_reward_loss += -good_lsm/sum(passive_good)
+          num_good_steps += 1
+
+        learn_ord += 1
 
       passive[idx] -= 1
       if isGood:
