@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-SATURATION_ALGORITHM = "discount" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsSTD.txt"
 NUM_TRAIN_PROBLEMS = 3000

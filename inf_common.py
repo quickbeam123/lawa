@@ -181,16 +181,22 @@ def export_model(model_state_dict,name):
     param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
+    # knowns : Dict[Tensor,Tensor]
+
     def __init__(self,feature_processor : torch.nn.Module,
                       default_key : torch.nn.Module):
       super().__init__()
 
       self.feature_processor = feature_processor
       self.default_key = default_key
+      # self.knowns = {}
 
     @torch.jit.export
     def forward(self,features : Tensor):
       # print("NN: Got",id,"with features",features)
+
+      # if features in self.knowns:
+      #   return self.knowns[features]
 
       # assert len(features) == HP.NUM_FEATURES
 
@@ -198,6 +204,7 @@ def export_model(model_state_dict,name):
       # tFeatures : Tensor = features.float()
       processed = self.feature_processor(features)
       val = self.default_key(processed)
+      # self.knowns[features] = val
       return val
 
   module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key)
