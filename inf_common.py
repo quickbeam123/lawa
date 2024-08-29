@@ -134,19 +134,25 @@ def compress_trace(clauses,journal,proof_flas):
       clause_features.append(features)
   newjournal = []
   passive = set() # just for consistency checking in the loop below
-  num_selections = 0
+  good_in_passive = 0
+  num_good_selections = 0
   for tag,id in journal:
     if tag == EVENT_ADD:
       assert id not in passive
       passive.add(id)
+      if id in proof_flas:
+        good_in_passive += 1
     else:
       assert(tag == EVENT_REM or tag == EVENT_SEL)
       assert id in passive
       passive.remove(id)
+      if id in proof_flas:
+        good_in_passive -= 1
     if tag == EVENT_SEL:
-      num_selections += 1
+      if good_in_passive > 0: # there is a COM021+4 which gets solved using 30+ selection none of which happens while there is a single proof clause in passive (it's a lrs thing)
+        num_good_selections += 1
     newjournal.append((tag,id2idx[id],id in proof_flas))
-  return clause_features,newjournal,num_selections
+  return clause_features,newjournal,num_good_selections
 
 class SimpleClauseEvaluator(torch.nn.Module):
   def __init__(self):
@@ -215,7 +221,7 @@ class LearningModel(torch.nn.Module):
   def __init__(self,
       verbose,
       clause_evaluator : torch.nn.Module,
-      clause_features,journal,num_selections):
+      clause_features,journal,num_good_selections):
     super().__init__()
 
     # print(clause_embedder,clause_key)
@@ -223,16 +229,16 @@ class LearningModel(torch.nn.Module):
 
     self.verbose = verbose
 
-    self.clause_evaluator = clause_evaluator # the SimpleClauseEvaluator for clause evaluation
-    self.clause_features = clause_features   # list of clause features (in a list); idx in the journal is into this list
-    self.journal = journal                   # (event,idx,is_proof_cl), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-    self.num_selections = num_selections     # how many EVENT_SEL are there in journal?
+    self.clause_evaluator = clause_evaluator       # the SimpleClauseEvaluator for clause evaluation
+    self.clause_features = clause_features         # list of clause features (in a list); idx in the journal is into this list
+    self.journal = journal                         # (event,idx,is_proof_cl), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
+    self.num_good_selections = num_good_selections # how many useful EVENT_SEL are there in journal?
 
     if verbose:
       print("Got verbose")
       print(len(clause_features))
       print(len(journal))
-      print(num_selections)
+      print(num_good_selections)
 
   def forward(self):
     # let's a get a big matrix of feature_vec's, one for each clause idx
@@ -252,7 +258,7 @@ class LearningModel(torch.nn.Module):
     passive = [0]*len(self.clause_features)
     passive_good = [0]*len(self.clause_features)
 
-    learn_for_every = self.num_selections / HP.MAX_TRAINS_PER_TRACE
+    learn_for_every = self.num_good_selections / HP.MAX_TRAINS_PER_TRACE
     learn_for_every_sum = 0.0
     learn_ord = 0
     for tag,idx,isGood in self.journal:
@@ -270,9 +276,9 @@ class LearningModel(torch.nn.Module):
       assert tag == EVENT_SEL
 
       # don't learn from every selection for traces with many-many of them (but go and learn at least once)
-      # if sum(passive_good) and (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / self.num_selections): -- didn't like a non-deterministic solution
       if sum(passive_good): # can learn
-        if learn_for_every_sum <= learn_ord:
+        if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / self.num_good_selections): # is randomized
+          # if learn_for_every_sum <= learn_ord: # a deterministic version of the randomized above
           learn_for_every_sum += learn_for_every
 
           passive_good_t = torch.tensor(passive_good,dtype=logits.dtype)

@@ -123,8 +123,9 @@ def worker(q_in, q_out):
       trace_file_path = None
       if result is not None and result[0]: # non-degenerate
         compressed_trace = IC.compress_trace(*result[1])
-        trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
-        torch.save(compressed_trace,trace_file_path)
+        if compressed_trace[-1] > 0: # num_good_selections can be zero in degenerate cases
+          trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
+          torch.save(compressed_trace,trace_file_path)
       q_out.put((job_kind,input,trace_file_path))
 
     elif job_kind == JK_EVAL:
@@ -135,6 +136,8 @@ def worker(q_in, q_out):
 
       local_fact = 1/len(trace_file_paths)
       proof_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
+
+      # print("EVAL on",prob,fact,trace_file_paths)
 
       loss = torch.zeros(1)
       for proof_tuple in proof_tuples:
@@ -157,7 +160,9 @@ def worker(q_in, q_out):
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(train_model_file_path))
 
-      verbose = False # (prob in {'Problems/MSC/MSC015-1.015.p','Problems/SYO/SYO525+1.015.p'})
+      verbose = False # (prob in {'Problems/COM/COM021+4.p'})
+
+      # print("TRAIN on",prob,fact,trace_file_paths)
 
       loss = torch.zeros(1)
       for proof_tuple in proof_tuples:
