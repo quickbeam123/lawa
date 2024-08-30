@@ -94,6 +94,7 @@ if __name__ == "__main__":
 
     if plotted:
       plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
+      plt.ylim(1200, None)
       plt.savefig("{}_{}_plot.png".format("+".join(os.path.basename(dir) for dir in sys.argv[1:]),m),dpi=250)
     plt.close(fig)
 

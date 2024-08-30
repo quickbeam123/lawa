@@ -22,8 +22,14 @@ import torch
 import warnings
 warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
 
+NOTABLE_INFERENCE_RULES = [(19,"duplicate literal removal"),(22,"subsumption resolution"),(23,"forward demodulation"),(24,"backward demodulation"),(49,"resolution"),
+                           (51,"factoring"),(53,"superposition"),(56,"equality factoring")]
+
 def print_model_part():
   print("Key {}".format(repr(model.default_key.weight.data)))
+  curAgeCorrections = model.age_corrections.tolist()
+  for idx,name in NOTABLE_INFERENCE_RULES:
+    print("  ",curAgeCorrections[idx],name)
 
 TRAIN_PROBLEMS_FILE = "train.txt"
 TEST_PROBLEMS_FILE = "test.txt"
@@ -114,15 +120,15 @@ def worker(q_in, q_out):
     (job_kind,input) = q_in.get()
 
     if job_kind == JK_PERFORM:
-      (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
+      (res_filename,gatherwish,mission,prob,lrs_trace_file,curAgeCorrections,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
-      (mission,prob,lrs_trace_file,counter,opts) = input
+      (mission,prob,lrs_trace_file,curAgeCorrections,counter,opts) = input
       result = IC.vampire_gather(prob,opts)
       trace_file_path = None
       if result is not None and result[0]: # non-degenerate
-        compressed_trace = IC.compress_trace(*result[1])
+        compressed_trace = IC.compress_trace(*result[1],curAgeCorrections)
         if compressed_trace[-1] > 0: # num_good_selections can be zero in degenerate cases
           trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
           torch.save(compressed_trace,trace_file_path)
@@ -354,6 +360,7 @@ if __name__ == "__main__":
 
       script_model_file_path = os.path.join(cur_dir,"script-model.pt")
       IC.export_model(model.state_dict(),script_model_file_path)
+      curAgeCorrections = model.age_corrections.tolist()
 
       def get_perform_tasks():
         ilim = HP.INSTRUCTION_LIMIT
@@ -380,7 +387,7 @@ if __name__ == "__main__":
               else:
                 lrs_trace_file = ""
 
-              yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
+              yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,lrs_trace_file,curAgeCorrections,opts1,opts2_base + f" --random_seed {seed}"))
 
       per_prob_trace_cnt = defaultdict(int)
       currently_solving = set()
@@ -389,7 +396,7 @@ if __name__ == "__main__":
         global per_prob_trace_cnt
         workers_freed = 0
         if job_kind == JK_PERFORM:
-          (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
+          (res_filename,gatherwish,mission,prob,lrs_trace_file,curAgeCorrections,opts1,opts2) = input
           result_dicts[res_filename][prob].append(result)
 
           (status,instructions,activations) = result
@@ -399,7 +406,7 @@ if __name__ == "__main__":
 
             ilim = 10*HP.INSTRUCTION_LIMIT
             lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
-            task = (JK_GATHER,(mission,prob,lrs_trace_file,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on {lrs_trace_str}"+opts2))
+            task = (JK_GATHER,(mission,prob,lrs_trace_file,curAgeCorrections,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on {lrs_trace_str}"+opts2))
             # print("PUT:",task)
             q_in.put(task)
           else:
@@ -407,7 +414,7 @@ if __name__ == "__main__":
             if lrs_trace_file and os.path.isfile(lrs_trace_file):
               os.remove(lrs_trace_file)
         elif job_kind == JK_GATHER:
-          (mission,prob,lrs_trace_file,counter,opts) = input
+          (mission,prob,lrs_trace_file,curAgeCorrections,counter,opts) = input
           currently_solving.add(prob)
           trace_file_path = result
           # the trace pkl has been saved to a file, let's just remember that we have it:

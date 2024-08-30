@@ -62,6 +62,7 @@ def vampire_gather(prob,opts):
     output = subprocess.getoutput(to_run)
 
     clauses = {}         # id -> (feature_vec)
+    predecessors = {}    # id -> (rule,parents,age)
     journal = []         # [event,id], where event is one of EVENT_ADD EVENT_SEL EVENT_REM,
     proof_flas = set()
 
@@ -94,6 +95,13 @@ def vampire_gather(prob,opts):
         spl = line.split()
         id = int(spl[1])
         journal.append([EVENT_REM,id])
+      elif line.startswith("p: "):
+        spl = line.split()
+        id = int(spl[1])
+        age = float(spl[-1])
+        rule = int(spl[2])
+        parents = [int(p) for p in spl[3:-1]]
+        predecessors[id] = (rule,parents,age)
       elif "Aborted by signal" in line:
         # print("Error line:",line)
         proof_flas = set() # so that we continue the outer loop below
@@ -110,20 +118,100 @@ def vampire_gather(prob,opts):
 
     # a success
     # in the first coordinate, however, we still say whether there is non-trivial stuff to learn from
-    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,proof_flas))
+    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,predecessors,proof_flas))
 
   print("Repeatedly failing:",to_run)
   print(output)
   return None # meaning: "A major failure, consider keeping the used model for later debugging"
 
+DEFAULT_AGE_SHIFTS = [0.0]*HP.NUM_INFERENCES
+for i in range(HP.GENERIC_GENERATING_INFERENCE,HP.INTERNAL_GENERATING_INFERNCE_LAST):
+    DEFAULT_AGE_SHIFTS[i] = 1.0
+
+AGE_LEAF = 0
+AGE_MAX = 1
+AGE_SUM = 2
+
 # taking into account that some clauses may have the same feature vector,
 # let's not waste space and time on those and create a compressed trace where
 # each unique feature vector appears only once
-def compress_trace(clauses,journal,proof_flas):
+def compress_trace(clauses,journal,predecessors,proof_flas,curAgeCorrections):
+  # compute the age abstraction as a perfectly shared expression DAG using
+  # leaf-const node (could be something else than 0.0 for s2a)
+  # max over nodes (could be more than binary max for, e.g., urr)
+  # sum of a node and a sparse sorted list of inference corrections
+
+  # since "id" is reserved for clause, we will use the term "node" for an id of an expression
+
+  id2node = {} # orig clause id to its node
+
+  expr2node = {} # expressions to nodes
+  node2expr = {} # the reverse of the above
+
+  # implements the perfect sharing idea, introducing new nodes if not-previously-seen experssion arrives
+  def insert(expr):
+    if expr in expr2node:
+      node = expr2node[expr]
+    else:
+      node = len(expr2node)
+      expr2node[expr] = node
+      node2expr[node] = expr
+    return node
+
+  # a convenience function to extend a sum if that's the kind of node we want to add something to
+  def addTo(premise_node,rule):
+    premise_expr = node2expr[premise_node]
+    if premise_expr[0] == AGE_SUM:
+      predecessor_node = premise_expr[1]
+      summands = list(premise_expr[2])
+      summands.append(rule)
+      summands.sort()
+      return insert((AGE_SUM,predecessor_node,tuple(summands)))
+    else:
+      return insert((AGE_SUM,premise_node,(rule,)))
+
+  def almostEqual(a,b):
+    EPSI = 0.0001
+    if a == 0.0 or b == 0.0:
+      return abs(a-b) < EPSI
+    return abs(a-b) < EPSI*max(abs(a),abs(b))
+
+  for id,(rule,parents,age) in predecessors.items():
+    if len(parents) == 0: # we ignore the rule in this case (it's probably 15 (cnf transformation), or 0 (input) for cnf problems)
+      id2node[id] = insert((AGE_LEAF,age))
+      computed_age = age
+
+    elif rule > HP.GENERIC_GENERATING_INFERENCE and rule < HP.INTERNAL_GENERATING_INFERNCE_LAST: # a generating inference
+      parent_nodes = [id2node[p] for p in parents]
+      if len(set(parent_nodes))==1:
+        # special case for max over a singleton - don't do it!
+        id2node[id] = addTo(parent_nodes[0],rule)
+      else:
+        # first create the max expressions (we assume parents have already been hashed)
+        max_expr = (AGE_MAX,tuple(sorted(parent_nodes)))
+        max_node = insert(max_expr)
+
+        sum_expr = (AGE_SUM,max_node,(rule,)) # the max_node + singleton tuple to hash the rule
+        id2node[id] = insert(sum_expr)
+
+      computed_age = max(predecessors[p][-1] for p in parents)+curAgeCorrections[rule]
+      assert almostEqual(computed_age,age), f"Age computation mismatch for a generating inference ({computed_age} vs {age})"
+
+    else: # reductions or anything that builds age using the main (= first) premise
+      id2node[id] = addTo(id2node[parents[0]],rule)
+
+      computed_age = predecessors[parents[0]][-1]+curAgeCorrections[rule]
+      assert almostEqual(computed_age,age), f"Age computation mismatch for a non-generating inference ({computed_age} vs {age})"
+
+    # print(id,"reported",age,"now is",computed_age)
+
   id2idx = {}
   features2idx = {}
   clause_features = []
   for cl,features in clauses.items():
+    # here we replace age from vampire with a node describing how it is computed from leaf values
+    features[0] = id2node[cl] # AGE must be the 0-th feature
+
     tfeatures = tuple(features)
     if tfeatures in features2idx:
       id2idx[cl] = features2idx[tfeatures]
@@ -152,9 +240,9 @@ def compress_trace(clauses,journal,proof_flas):
       if good_in_passive > 0: # there is a COM021+4 which gets solved using 30+ selection none of which happens while there is a single proof clause in passive (it's a lrs thing)
         num_good_selections += 1
     newjournal.append((tag,id2idx[id],id in proof_flas))
-  return clause_features,newjournal,num_good_selections
+  return clause_features,node2expr,newjournal,num_good_selections
 
-class SimpleClauseEvaluator(torch.nn.Module):
+class SimpleClauseEvaluatorWithAgeCorrections(torch.nn.Module):
   def __init__(self):
     super().__init__()
 
@@ -167,6 +255,8 @@ class SimpleClauseEvaluator(torch.nn.Module):
     self.feature_processor = torch.nn.Sequential(*layer_list)
     self.default_key = torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False)
 
+    self.age_corrections = torch.nn.Parameter(torch.tensor(DEFAULT_AGE_SHIFTS))
+
   def getKey(self):
     return self.default_key.weight
 
@@ -174,7 +264,7 @@ class SimpleClauseEvaluator(torch.nn.Module):
     return self.default_key(self.feature_processor(input))
 
 def get_initial_model():
-  return SimpleClauseEvaluator()
+  return SimpleClauseEvaluatorWithAgeCorrections()
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
@@ -190,12 +280,18 @@ def export_model(model_state_dict,name):
     # knowns : Dict[Tensor,Tensor]
 
     def __init__(self,feature_processor : torch.nn.Module,
-                      default_key : torch.nn.Module):
+                      default_key : torch.nn.Module,
+                      age_corrections : torch.nn.Module):
       super().__init__()
 
       self.feature_processor = feature_processor
       self.default_key = default_key
+      self.age_corrections = age_corrections
       # self.knowns = {}
+
+    @torch.jit.export
+    def getAgeCorrections(self) -> Tensor:
+      return self.age_corrections
 
     @torch.jit.export
     def forward(self,features : Tensor):
@@ -213,7 +309,7 @@ def export_model(model_state_dict,name):
       # self.knowns[features] = val
       return val
 
-  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key)
+  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key,model.age_corrections)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -221,7 +317,7 @@ class LearningModel(torch.nn.Module):
   def __init__(self,
       verbose,
       clause_evaluator : torch.nn.Module,
-      clause_features,journal,num_good_selections):
+      clause_features,node2expr,journal,num_good_selections):
     super().__init__()
 
     # print(clause_embedder,clause_key)
@@ -231,6 +327,7 @@ class LearningModel(torch.nn.Module):
 
     self.clause_evaluator = clause_evaluator       # the SimpleClauseEvaluator for clause evaluation
     self.clause_features = clause_features         # list of clause features (in a list); idx in the journal is into this list
+    self.node2expr = node2expr                     # when computing age, this is how we get back from abstract age-expression nodes to floats
     self.journal = journal                         # (event,idx,is_proof_cl), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.num_good_selections = num_good_selections # how many useful EVENT_SEL are there in journal?
 
@@ -241,8 +338,25 @@ class LearningModel(torch.nn.Module):
       print(num_good_selections)
 
   def forward(self):
+    # compute age for every node in node2expr first:
+    age_values = {} # node -> scalar tensor computing that age
+    for node,expr in self.node2expr.items(): # we rely on these being processed in insertion order
+      if expr[0] == AGE_LEAF:
+        age_values[node] = torch.tensor(expr[1])
+      elif expr[0] == AGE_MAX:
+        args = expr[1]
+        age_values[node] = torch.max(torch.stack([age_values[a] for a in args]))
+      else:
+        assert expr[0] == AGE_SUM
+        total = age_values[expr[1]]
+        for rule in expr[2]:
+          # can't use += below, which is in-place!
+          total = total + self.clause_evaluator.age_corrections[rule]
+        age_values[node] = total
+
     # let's a get a big matrix of feature_vec's, one for each clause idx
-    feature_vecs = torch.stack([torch.tensor(features) for features in self.clause_features])
+    feature_vecs = torch.stack([
+        torch.stack([age_values[features[0]]]+[torch.tensor(f) for f in features[1:]]) for features in self.clause_features])
     # print("feature_vecs.shape",feature_vecs.shape)
 
     logits = self.clause_evaluator.forward(feature_vecs)

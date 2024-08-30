@@ -42,8 +42,10 @@ TEST_IMPROVE_WINDOW = 5
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_ITER = 30
 
-
-
+# these must be in sync with the version of vampire used
+NUM_INFERENCES = 205
+GENERIC_GENERATING_INFERENCE = 48
+INTERNAL_GENERATING_INFERNCE_LAST = 90
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
@@ -59,7 +61,7 @@ NUM_FEATURES : Final[int] = 12
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-CLAUSE_INTERAL_SIZE : Final[int] = 16
+CLAUSE_INTERAL_SIZE : Final[int] = 256
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 
