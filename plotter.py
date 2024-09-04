@@ -68,8 +68,12 @@ if __name__ == "__main__":
 
   import matplotlib.pyplot as plt
 
+  expers["goal-directed"] = {"train":([1,15],[1279,1279]),"test":([],[])}
+  expers["default"] = {"train":([1,15],[1250,1250]),"test":([],[])}
+  expers["av-off"] = {"train":([1,15],[1134,1134]),"test":([],[])}
+
   for m in MISSIONS:
-    fig, ax1 = plt.subplots()
+    fig, ax1 = plt.subplots(figsize=(2.5, 2.5))
 
     plotted = False
     handles = []
@@ -77,8 +81,9 @@ if __name__ == "__main__":
     for exper_dir,plottables in expers.items():
       Xs,Ys = plottables[m]
       if Xs:
-        h, = ax1.plot(Xs, Ys, "--", linewidth = 1, label = exper_dir)
-        handles.append(h)
+        h, = ax1.plot(Xs[:15], Ys[:15], "--", linewidth = 1, label = exper_dir)
+        if not exper_dir.startswith("/"):
+          handles.append(h)
         plotted = True
 
         max_val = 0.0
@@ -93,8 +98,9 @@ if __name__ == "__main__":
     # ax1.set_ylim(ymin=0)
 
     if plotted:
-      plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
-      plt.savefig("{}_{}_plot.png".format("+".join(os.path.basename(dir) for dir in sys.argv[1:]),m),dpi=250)
+      legend = plt.legend(title="Baselines:",handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
+      legend.get_title().set_ha('left')
+      plt.savefig("{}_{}_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:]),m),format="pdf", bbox_inches="tight")
     plt.close(fig)
 
 

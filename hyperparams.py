@@ -59,7 +59,7 @@ NUM_FEATURES : Final[int] = 12
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-CLAUSE_INTERAL_SIZE : Final[int] = 16
+CLAUSE_INTERAL_SIZE : Final[int] = 256
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 
