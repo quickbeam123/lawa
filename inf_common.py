@@ -165,7 +165,7 @@ class SimpleClauseEvaluator(torch.nn.Module):
       layer_list.append(torch.nn.ReLU())
 
     self.feature_processor = torch.nn.Sequential(*layer_list)
-    self.default_key = torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False)
+    self.default_key = torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.NUM_STAGES,bias=False)
 
   def getKey(self):
     return self.default_key.weight
@@ -198,20 +198,22 @@ def export_model(model_state_dict,name):
       # self.knowns = {}
 
     @torch.jit.export
-    def forward(self,features : Tensor):
-      # print("NN: Got",id,"with features",features)
+    def num_stages(self) -> int:
+      return HP.NUM_STAGES
 
+    @torch.jit.export
+    def forward(self,features : Tensor):
+      # Mirek: maybe pytorch only hashes (by default) on memory addresses?
+      # me: also, once bulk evaluation comes into play, hashing on the whole bulks is weird
       # if features in self.knowns:
       #   return self.knowns[features]
 
       # assert len(features) == HP.NUM_FEATURES
 
-      # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
-      # tFeatures : Tensor = features.float()
       processed = self.feature_processor(features)
-      val = self.default_key(processed)
+      vals = self.default_key(processed)
       # self.knowns[features] = val
-      return val
+      return vals
 
   module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key)
   script = torch.jit.script(module)
@@ -247,7 +249,6 @@ class LearningModel(torch.nn.Module):
 
     logits = self.clause_evaluator.forward(feature_vecs)
     logits = logits.squeeze(1) # squeeze-away second dimension, where the feartures were
-
     # print("logits",logits.shape)
 
     good_action_reward_loss = torch.tensor(0.0)
@@ -257,6 +258,10 @@ class LearningModel(torch.nn.Module):
 
     passive = [0]*len(self.clause_features)
     passive_good = [0]*len(self.clause_features)
+
+    curStage = 0
+    selectionsSoFar = 0
+    nextRestageAt = 0
 
     learn_for_every = self.num_good_selections / HP.MAX_TRAINS_PER_TRACE
     learn_for_every_sum = 0.0
@@ -275,6 +280,9 @@ class LearningModel(torch.nn.Module):
 
       assert tag == EVENT_SEL
 
+      if selectionsSoFar == 0:
+        nextRestageAt = sum(passive)
+
       # don't learn from every selection for traces with many-many of them (but go and learn at least once)
       if sum(passive_good): # can learn
         if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / self.num_good_selections): # is randomized
@@ -284,7 +292,7 @@ class LearningModel(torch.nn.Module):
           passive_good_t = torch.tensor(passive_good,dtype=logits.dtype)
           passive_t = torch.tensor(passive,dtype=logits.dtype)
 
-          masked_logits = logits[passive_t > 0.0]
+          masked_logits = logits[passive_t > 0.0,curStage]
           passive_good_t = passive_good_t[passive_t > 0.0]
           passive_t = passive_t[passive_t > 0.0]
 
@@ -309,6 +317,10 @@ class LearningModel(torch.nn.Module):
           num_good_steps += 1
 
         learn_ord += 1
+
+      selectionsSoFar += 1
+      if selectionsSoFar == nextRestageAt and curStage+1 < HP.NUM_STAGES:
+        curStage += 1
 
       passive[idx] -= 1
       if isGood:

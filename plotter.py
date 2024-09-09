@@ -90,7 +90,7 @@ if __name__ == "__main__":
 
         print(exper_dir,m,"max with",max_val,"at",max_idx)
 
-    # ax1.set_ylim(ymin=0)
+    ax1.set_ylim(ymin=1200)
 
     if plotted:
       plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable

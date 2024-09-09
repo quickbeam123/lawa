@@ -59,7 +59,15 @@ NUM_FEATURES : Final[int] = 12
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-CLAUSE_INTERAL_SIZE : Final[int] = 16
+CLAUSE_INTERAL_SIZE : Final[int] = 256
+
+# staged queus are trick to deliver at least a minimum amount of state into the clause selection
+# from the network perspective, NUM_STAGES is the dimensionality of the final layer
+# for the learning, there will be defined points along the run
+# when the clause selection switches from training the stage_i logit to stage_{i+1}
+# for now, we switch from 0 to 1 (if available) when we are selecting for the n-th time,
+# where n is the number of insertions before the first selection (= size of the cnf input)
+NUM_STAGES : Final[int] = 2
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 
@@ -75,7 +83,7 @@ MAX_TRAINS_PER_TRACE = 1000
 # next time I play with the entropy regularization, let me try the normalized one
 # ENTROPY_NORMALIZED = True
 
-LEARNING_RATE : Final[float] = 0.0005
+LEARNING_RATE : Final[float] = 0.0001
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
