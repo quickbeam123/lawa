@@ -8,12 +8,12 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsSTD.txt"
-NUM_TRAIN_PROBLEMS = 3000
+NUM_TRAIN_PROBLEMS = 5000
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 5000 # just keep 5K for a final TPTP eval
 
 # Data gathering
-INSTRUCTION_LIMIT = 15000
+INSTRUCTION_LIMIT = 5000
 
 # in elooper:
 # keep this false (no support yet)
@@ -59,7 +59,7 @@ NUM_FEATURES : Final[int] = 12
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-CLAUSE_INTERAL_SIZE : Final[int] = 16
+CLAUSE_INTERAL_SIZE : Final[int] = 256
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 
@@ -75,7 +75,7 @@ MAX_TRAINS_PER_TRACE = 1000
 # next time I play with the entropy regularization, let me try the normalized one
 # ENTROPY_NORMALIZED = True
 
-LEARNING_RATE : Final[float] = 0.0005
+LEARNING_RATE : Final[float] = 0.0001
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
