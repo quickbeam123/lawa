@@ -14,7 +14,7 @@ from collections import defaultdict
 
 MISSIONS = ["train","test"]
 
-MAXINT = 2^32
+MAXINT = 2**32
 
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
@@ -69,7 +69,7 @@ if __name__ == "__main__":
   import matplotlib.pyplot as plt
 
   for m in MISSIONS:
-    fig, ax1 = plt.subplots()
+    fig, ax1 = plt.subplots(figsize=(6,4))
 
     plotted = False
     handles = []
@@ -90,11 +90,11 @@ if __name__ == "__main__":
 
         print(exper_dir,m,"max with",max_val,"at",max_idx)
 
-    # ax1.set_ylim(ymin=0)
+    ax1.set_ylim(ymin=2000)
 
     if plotted:
-      plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
-      plt.savefig("{}_{}_plot.png".format("+".join(os.path.basename(dir) for dir in sys.argv[1:]),m),dpi=250)
+      # plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
+      plt.savefig("{}_{}_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:]),m),format="pdf", bbox_inches="tight")
     plt.close(fig)
 
 
