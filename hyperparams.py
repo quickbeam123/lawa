@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa_8486"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa_8511"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
@@ -55,13 +55,15 @@ MAX_TEST_IMPROVE_ITER = 30
 # numVarOcc,VarOcc/W             7,8
 # Sine0,SineMax,SineLevel,   9,10,11
 # numSplits                       12
-NUM_FEATURES : Final[int] = 12
+NUM_CLAUSE_FEATURES : Final[int] = 12
 # todo: think of normalization / regularization ...
+
+NUM_PROBLEM_FEATURES : Final[int] = 15
 
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-CLAUSE_INTERAL_SIZE : Final[int] = 256
+INTERAL_SIZE : Final[int] = 256
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 

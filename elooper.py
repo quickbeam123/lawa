@@ -23,7 +23,7 @@ import warnings
 warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
 
 def print_model_part():
-  print("Key {}".format(repr(model.default_key.weight.data)))
+  print("Key {}".format(repr(model.valuator[-1].weight.data)))
 
 TRAIN_PROBLEMS_FILE = "train.txt"
 TEST_PROBLEMS_FILE = "test.txt"
@@ -370,7 +370,7 @@ if __name__ == "__main__":
             # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
             opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
             # will stay the same
-            opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_FEATURES}"
+            opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
 
             for prob in prob_lists:
               opts1 = opts1_base

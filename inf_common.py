@@ -73,11 +73,14 @@ def vampire_gather(prob,opts):
       if "% Instruction limit reached!" in line:
         assert not proof_flas
         break # better than "id appeared again for:" failing just below
+      if line.startswith("P: "):
+        spl = line.split()
+        problem_features = list(map(float,spl[1:]))
       if line.startswith("i: "):
         spl = line.split()
         id = int(spl[1])
         features = list(map(float,spl[2:]))
-        assert len(features) == HP.NUM_FEATURES
+        assert len(features) == HP.NUM_CLAUSE_FEATURES
         # print(id,features)
         assert id not in clauses, "id appeared again for: "+to_run
         clauses[id] = features
@@ -110,7 +113,7 @@ def vampire_gather(prob,opts):
 
     # a success
     # in the first coordinate, however, we still say whether there is non-trivial stuff to learn from
-    return (len(clauses) != 0 and num_sels != 0,(clauses,journal,proof_flas))
+    return (len(clauses) != 0 and num_sels != 0,(problem_features,clauses,journal,proof_flas))
 
   print("Repeatedly failing:",to_run)
   print(output)
@@ -119,7 +122,7 @@ def vampire_gather(prob,opts):
 # taking into account that some clauses may have the same feature vector,
 # let's not waste space and time on those and create a compressed trace where
 # each unique feature vector appears only once
-def compress_trace(clauses,journal,proof_flas):
+def compress_trace(problem_features,clauses,journal,proof_flas):
   id2idx = {}
   features2idx = {}
   clause_features = []
@@ -152,26 +155,27 @@ def compress_trace(clauses,journal,proof_flas):
       if good_in_passive > 0: # there is a COM021+4 which gets solved using 30+ selection none of which happens while there is a single proof clause in passive (it's a lrs thing)
         num_good_selections += 1
     newjournal.append((tag,id2idx[id],id in proof_flas))
-  return clause_features,newjournal,num_good_selections
+  return problem_features,clause_features,newjournal,num_good_selections
 
 class SimpleClauseEvaluator(torch.nn.Module):
   def __init__(self):
     super().__init__()
 
     assert HP.CLAUSE_EMBEDDER_LAYERS > 0
-    layer_list = [torch.nn.Linear(HP.NUM_FEATURES,HP.CLAUSE_INTERAL_SIZE),torch.nn.ReLU()]
+
+    self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
+    self.clause_embedder = torch.nn.Linear(HP.NUM_CLAUSE_FEATURES,HP.INTERAL_SIZE)
+
+    layer_list = [torch.nn.ReLU()]
     for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-      layer_list.append(torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,HP.CLAUSE_INTERAL_SIZE))
+      layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
       layer_list.append(torch.nn.ReLU())
+    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
 
-    self.feature_processor = torch.nn.Sequential(*layer_list)
-    self.default_key = torch.nn.Linear(HP.CLAUSE_INTERAL_SIZE,1,bias=False)
+    self.valuator = torch.nn.Sequential(*layer_list)
 
-  def getKey(self):
-    return self.default_key.weight
-
-  def forward(self,input) -> Tensor:
-    return self.default_key(self.feature_processor(input))
+  def forward(self,problem_features,clause_feature_vecs) -> Tensor:
+    return self.valuator(self.clause_embedder(clause_feature_vecs)+self.problem_embedder(problem_features))  # will broadcast work here?
 
 def get_initial_model():
   return SimpleClauseEvaluator()
@@ -187,41 +191,33 @@ def export_model(model_state_dict,name):
     param.requires_grad = False
 
   class NeuralPassiveClauseContainer(torch.nn.Module):
-    # knowns : Dict[Tensor,Tensor]
-
-    def __init__(self,feature_processor : torch.nn.Module,
-                      default_key : torch.nn.Module):
+    def __init__(self,problem_embedder : torch.nn.Module, clause_embedder : torch.nn.Module, valuator : torch.nn.Module):
       super().__init__()
 
-      self.feature_processor = feature_processor
-      self.default_key = default_key
-      # self.knowns = {}
+      self.problem_embedder = problem_embedder
+      self.clause_embedder = clause_embedder
+      self.valuator = valuator
+
+    @torch.jit.export
+    def setProblemFeatures(self,features : Tensor):
+      with torch.no_grad():
+        self.clause_embedder.bias.add_(self.problem_embedder(features))
 
     @torch.jit.export
     def forward(self,features : Tensor):
-      # print("NN: Got",id,"with features",features)
+      # assert len(features) == HP.NUM_CLAUSE_FEATURES
 
-      # if features in self.knowns:
-      #   return self.knowns[features]
+      return self.valuator(self.clause_embedder(features))
 
-      # assert len(features) == HP.NUM_FEATURES
-
-      # TODO: this will not be needed if A) vampire gives us 32bit floats or B) we move to 64 in torch (see torch.set_default_dtype(torch.float64) in dlooper)
-      # tFeatures : Tensor = features.float()
-      processed = self.feature_processor(features)
-      val = self.default_key(processed)
-      # self.knowns[features] = val
-      return val
-
-  module = NeuralPassiveClauseContainer(model.feature_processor,model.default_key)
+  module = NeuralPassiveClauseContainer(model.problem_embedder,model.clause_embedder,model.valuator)
   script = torch.jit.script(module)
   script.save(name)
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
       verbose,
-      clause_evaluator : torch.nn.Module,
-      clause_features,journal,num_good_selections):
+      evaluator : torch.nn.Module,
+      problem_features,clause_features,journal,num_good_selections):
     super().__init__()
 
     # print(clause_embedder,clause_key)
@@ -229,7 +225,8 @@ class LearningModel(torch.nn.Module):
 
     self.verbose = verbose
 
-    self.clause_evaluator = clause_evaluator       # the SimpleClauseEvaluator for clause evaluation
+    self.evaluator = evaluator                     # the SimpleClauseEvaluator for clause evaluation
+    self.problem_features = problem_features
     self.clause_features = clause_features         # list of clause features (in a list); idx in the journal is into this list
     self.journal = journal                         # (event,idx,is_proof_cl), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
     self.num_good_selections = num_good_selections # how many useful EVENT_SEL are there in journal?
@@ -242,10 +239,10 @@ class LearningModel(torch.nn.Module):
 
   def forward(self):
     # let's a get a big matrix of feature_vec's, one for each clause idx
-    feature_vecs = torch.stack([torch.tensor(features) for features in self.clause_features])
+    clause_feature_vecs = torch.stack([torch.tensor(features) for features in self.clause_features])
     # print("feature_vecs.shape",feature_vecs.shape)
 
-    logits = self.clause_evaluator.forward(feature_vecs)
+    logits = self.evaluator.forward(torch.tensor(self.problem_features),clause_feature_vecs)
     logits = logits.squeeze(1) # squeeze-away second dimension, where the feartures were
 
     # print("logits",logits.shape)
