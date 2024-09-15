@@ -7,6 +7,9 @@ cd - > /dev/null
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
+VAMPIRE=$1
+shift
+
 # by convention, the arguments to this script should start "-t number" (which will work both with timelimit and vampire)
-timelimit $1 $2 -T 1 ./vampire_rel_mtpa_8486 -t 0 -i 0 -m 8192 --input_syntax tptp -stat full -si on -rtra on "$@"
+timelimit $1 $2 -T 1 $VAMPIRE -t 0 -i 0 -m 8192 --input_syntax tptp -stat full -si on -rtra on "$@"
 exit 0

@@ -31,7 +31,7 @@ EVENT_REM = 1
 EVENT_SEL = 2
 
 def vampire_perfrom(prob,opts):
-  to_run = " ".join(["./run_lawa_vampire.sh",opts,prob])
+  to_run = " ".join(["./run_lawa_vampire.sh",HP.VAMPIRE_EXECUTABLE,opts,prob])
   # print(to_run)
   output = subprocess.getoutput(to_run)
 
@@ -56,7 +56,7 @@ def vampire_perfrom(prob,opts):
   return (status,instructions,activations)
 
 def vampire_gather(prob,opts):
-  to_run = " ".join(["./run_lawa_vampire.sh",opts,prob])
+  to_run = " ".join(["./run_lawa_vampire.sh",HP.VAMPIRE_EXECUTABLE,opts,prob])
   # print(to_run)
   for _ in range(5): # sometimes, there are weird failures, but a restart could help!
     output = subprocess.getoutput(to_run)
