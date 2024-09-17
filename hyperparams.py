@@ -14,6 +14,8 @@ NUM_TRAIN_PROBLEMS = 5000
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 5000 # just keep 5K for a final TPTP eval
 
+IMITATE = False # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
+
 # Data gathering
 INSTRUCTION_LIMIT = 5000
 
@@ -42,9 +44,9 @@ TRAINING_PARALLELISM = 20
 TEST_IMPROVE_WINDOW = 5
 
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
+MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the loop, provided we imitate
+
 MAX_TEST_IMPROVE_ITER = 30
-
-
 
 
 # Features
@@ -82,7 +84,7 @@ MAX_TRAINS_PER_TRACE = 1000
 LEARNING_RATE : Final[float] = 0.0001
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
-LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
+LEARNING_RATE_DECAY = 0.9 # (0.5)^(1/5) = 0.87055, means halving every five epochs
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

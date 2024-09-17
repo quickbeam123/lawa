@@ -370,7 +370,9 @@ if __name__ == "__main__":
             # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
             opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
             # will stay the same
-            opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -npcc on -ncem {script_model_file_path} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+            opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+            if not HP.IMITATE or loop > 1:
+              opts2_base += f" -npcc on -ncem {script_model_file_path}"
 
             for prob in prob_lists:
               opts1 = opts1_base
@@ -524,7 +526,8 @@ if __name__ == "__main__":
             for eval_model_file_path in eval_models:
               os.remove(eval_model_file_path)
             break
-          if stage2iter > HP.MAX_TEST_IMPROVE_ITER:
+          ITER_LIMIT = HP.MAX_TEST_IMPROVE_FIRST_ITER if (HP.IMITATE and loop == 1) else HP.MAX_TEST_IMPROVE_ITER
+          if stage2iter > ITER_LIMIT:
             print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
             best_idx = 0
             best_idx_val = eval_losses[0]
