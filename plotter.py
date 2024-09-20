@@ -54,7 +54,11 @@ if __name__ == "__main__":
         (meta,results) = torch.load(os.path.join(cur_dir,file))
         # print("      ",meta)
 
-        fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
+        if len(next(iter(results.values()))[0]) == 3:
+          fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
+        else:
+          # started using NUM_PERFORMS with different params; only the 0-labeled run, however, counts
+          fractional = sum(1.0 for prob,runs in results.items() for (i,info) in runs if (i == 0 and info[0] == "uns"))
 
         # print("     -> ",successes)
         for m in MISSIONS:
@@ -93,7 +97,7 @@ if __name__ == "__main__":
     ax1.set_ylim(ymin=1900)
 
     if plotted:
-      # plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
+      plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
       plt.savefig("{}_{}_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:]),m),format="pdf", bbox_inches="tight")
     plt.close(fig)
 

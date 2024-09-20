@@ -114,7 +114,7 @@ def worker(q_in, q_out):
     (job_kind,input) = q_in.get()
 
     if job_kind == JK_PERFORM:
-      (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
+      (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
@@ -374,6 +374,8 @@ if __name__ == "__main__":
             if not HP.IMITATE or loop > 1:
               opts2_base += f" -npcc on -ncem {script_model_file_path}"
 
+            opts2_base += HP.PERFORMS_SPECIAL[i]
+
             for prob in prob_lists:
               opts1 = opts1_base
               if HP.SATURATION_ALGORITHM == "lrs":
@@ -382,7 +384,7 @@ if __name__ == "__main__":
               else:
                 lrs_trace_file = ""
 
-              yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
+              yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
 
       per_prob_trace_cnt = defaultdict(int)
       currently_solving = set()
@@ -391,8 +393,8 @@ if __name__ == "__main__":
         global per_prob_trace_cnt
         workers_freed = 0
         if job_kind == JK_PERFORM:
-          (res_filename,gatherwish,mission,prob,lrs_trace_file,opts1,opts2) = input
-          result_dicts[res_filename][prob].append(result)
+          (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
+          result_dicts[res_filename][prob].append((i,result))
 
           (status,instructions,activations) = result
           if status == "uns" and gatherwish:
@@ -430,11 +432,19 @@ if __name__ == "__main__":
         results = result_dicts[res_filename]
         torch.save((f"ilim: {ilim}",results), os.path.join(cur_dir,res_filename))
 
+        by_performs = defaultdict(int)
+        by_performs_set = defaultdict(set)
+
         prob_solved = 0
         prob_fractional = 0.0
         attempts = None
         for prob,runs in results.items():
-          succs = sum(1 for (status,instructions,activations) in runs if status == "uns")
+          succs = 0
+          for (i,(status,instructions,activations)) in runs:
+            if status == "uns":
+              succs += 1
+              by_performs[i] += 1
+              by_performs_set[i].add(prob)
           if attempts is None:
             attempts = len(runs)
           else:
@@ -446,6 +456,22 @@ if __name__ == "__main__":
 
         print(res_filename)
         print("    {:10.4f}% = {:10.1f} / {} ({} attempts) {} total".format(prob_fractional/len(results),prob_fractional,len(results),attempts,prob_solved))
+
+        covered = set()
+        adds = []
+
+        best_i = -1
+        best_p = 0
+        for i in range(HP.NUM_PERFORMS):
+          adds.append(len(by_performs_set[i]-covered))
+          covered = covered | by_performs_set[i]
+
+          if by_performs[i] > best_p:
+            best_p = by_performs[i]
+            best_i = i
+
+        for i in range(HP.NUM_PERFORMS):
+          print("   {}  {} {:6.4f} {:>5} {}".format(i,"*" if i == best_i else " ",by_performs[i]/len(results),adds[i],HP.PERFORMS_SPECIAL[i]))
 
       print()
       print("  Stage 1 took",time.time()-stage_start_time)

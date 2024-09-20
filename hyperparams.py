@@ -31,6 +31,9 @@ CUMULATIVE : Final[int] = 0
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
 NUM_PERFORMS = 1
 
+# each subsequent "PERFORM" shall be fed with these given extra options
+PERFORMS_SPECIAL = ["", " -npcct 0.0001", " -npcct 0.001"," -npcct 0.01", " -npcct 0.1"," -npcct 1.0"]
+
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
