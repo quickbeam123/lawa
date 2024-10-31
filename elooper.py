@@ -198,18 +198,29 @@ if __name__ == "__main__":
   #
   # One thing that's now going to be different is that each exper (if starting from scratch) will commit to a fresh train/test split.
   # The split will be carved out from a shuffled problem totality specified in HP.PROBLEM_LIST and recorded in the exper.
-  # Test problems (holdout) will be only used for performance checking of the fina product (no early stopping based on this; in fact, maybe should not even eval on this in each loop)
+  # Test problems (holdout) will be only used for performance checking of the final product (no early stopping based on this; in fact, maybe should not even eval on this in each loop)
   # For early stopping tricks there will be a validation (devel) subset of the train set traces. Changing this subset every loop is fine.
   # Carving it out of train set suggest this is an "inner split", for which the algorithm is responsible, whereas the train/test on is somehow external (used for hygienic reasons)
   #
   # The other new thing is going to be use of torch tracing to create static graphs for training on prover experiences, these will be saved into files and communicated with workers via filenames.
-  #
+  # (actually, this ended not actually functioning as anticiapted and never got implemented)
   #
   # To be called as in:
   #
   # ./elooper.py 15 120 /home/sudamar2/lawa/exper1
   #
-  # (support for restarting a terminated experiment not in place at the moment)
+  # A previous experiment can be continued in the following ways:
+  # 1) 4th argument specifies the previous experiment folder
+  #  if this is specified, the currently starting experiment will steal the train test problem selection from previous experiment
+  # 2) 5th argument specifies a loop <L> in the previous experiment
+  # 3a) if the 6th argument contains a "m", a model/optimizer will be stolen from loop<L> there
+  # 3b) if the 6th argument contains a "t", a trace index will be stolen from loop<L+1> there
+  # if the 6th argument is missing, it defaults to "m" - so we load the model, but evaluate freshly on our own
+  #
+  # example: ./elooper.py 15 120 deleteme /home/sudamar2/mtpa/exper131 6 t
+  # in this example exper131 produced its best model at the end of loop 6
+  # this model got then evalauted and loop 7 has the largest set of traces stored under loop 7
+  # with the example call, we'll use those traces, but learn a new model from scratch (this is a "fight the loss of plasticity" experiment)
 
   loop_count = int(sys.argv[1])
   parallelism = int(sys.argv[2])
@@ -254,12 +265,21 @@ if __name__ == "__main__":
   if len(sys.argv) > 5: # we already know the folder, but which loop to copy from there?
     loop = int(sys.argv[5])
     load_dir = os.path.join(folder_with_prev_exper,f"loop{loop}")
-    aloop,amodel_state_dict,anoptimizer_state_dict = load_loop_model_and_optimizer(load_dir)
-    assert aloop == loop
-    model.load_state_dict(amodel_state_dict)
-    optimizer.load_state_dict(anoptimizer_state_dict)
+
+    load_model = True
+    load_traces = False
 
     if len(sys.argv) > 6:
+      load_model = "m" in sys.argv[6]
+      load_traces = "t" in sys.argv[6]
+
+    if load_model:
+      aloop,amodel_state_dict,anoptimizer_state_dict = load_loop_model_and_optimizer(load_dir)
+      assert aloop == loop
+      model.load_state_dict(amodel_state_dict)
+      optimizer.load_state_dict(anoptimizer_state_dict)
+
+    if load_traces:
       trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
       print("Starting from loop",loop,"and a half")
       report_on_trace_index(trace_index)
@@ -332,11 +352,13 @@ if __name__ == "__main__":
   # ===========================================================================
   # ===========================================================================
 
+  iter = 0
   while True:
     if loop_count == 0:
       break
     loop += 1
     loop_count -= 1
+    iter += 1
 
     loop_start_time = time.time()
 
@@ -552,7 +574,7 @@ if __name__ == "__main__":
             for eval_model_file_path in eval_models:
               os.remove(eval_model_file_path)
             break
-          ITER_LIMIT = HP.MAX_TEST_IMPROVE_FIRST_ITER if (HP.IMITATE and loop == 1) else HP.MAX_TEST_IMPROVE_ITER
+          ITER_LIMIT = HP.MAX_TEST_IMPROVE_FIRST_ITER if (iter == 1) else HP.MAX_TEST_IMPROVE_ITER
           if stage2iter > ITER_LIMIT:
             print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
             best_idx = 0

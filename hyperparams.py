@@ -47,8 +47,7 @@ TRAINING_PARALLELISM = 20
 TEST_IMPROVE_WINDOW = 5
 
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
-MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the loop, provided we imitate
-
+MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the first loop (if you don't like it, set it to the same thing as MAX_TEST_IMPROVE_ITER below)
 MAX_TEST_IMPROVE_ITER = 30
 
 
@@ -88,7 +87,7 @@ MAX_TRAINS_PER_TRACE = 1000
 LEARNING_RATE : Final[float] = 0.0001
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
-LEARNING_RATE_DECAY = 0.9 # (0.5)^(1/5) = 0.87055, means halving every five epochs
+LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
