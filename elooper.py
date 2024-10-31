@@ -378,7 +378,7 @@ if __name__ == "__main__":
 
             for prob in prob_lists:
               opts1 = opts1_base
-              if HP.SATURATION_ALGORITHM == "lrs":
+              if HP.SATURATION_ALGORITHM.startswith("lrs"):
                 lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}_{}_{}.lrs".format(prob.replace("/","_"),i,seed,os.getpid()))
                 opts1 += f" -lstf {lrs_trace_file}"
               else:
@@ -471,7 +471,7 @@ if __name__ == "__main__":
             best_i = i
 
         for i in range(HP.NUM_PERFORMS):
-          print("   {}  {} {:6.4f} {:>5} {}".format(i,"*" if i == best_i else " ",by_performs[i]/len(results),adds[i],HP.PERFORMS_SPECIAL[i]))
+          print("   {}  {} {:6.4f} {:>5}:{}".format(i,"*" if i == best_i else " ",by_performs[i]/len(results),adds[i],HP.PERFORMS_SPECIAL[i]))
 
       print()
       print("  Stage 1 took",time.time()-stage_start_time)

@@ -72,6 +72,7 @@ INTERAL_SIZE : Final[int] = 256
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 
+# only learn from maximum this many clause selection moments along a single trace
 MAX_TRAINS_PER_TRACE = 1000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
