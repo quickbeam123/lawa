@@ -81,6 +81,19 @@ def load_trace_index(adir):
   trace_index_file_path = os.path.join(adir,TRACE_INDEX)
   return torch.load(trace_index_file_path)
 
+def steal_trace_index(adir):
+  index = get_empty_trace_index()
+  traces_dir = os.path.join(adir,"traces")
+  # trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
+  for trace_file_name in os.listdir(traces_dir):
+    # e.g., Problems_ARI_ARI271_1.p - special-casing this for TPTP
+    assert trace_file_name[8] == "_"
+    assert trace_file_name[12] == "_"
+    prob = trace_file_name[:8] + "/" + trace_file_name[9:12] + "/" + trace_file_name[13:-5]
+    # print(prob)
+    index[prob].append(os.path.join(traces_dir,trace_file_name))
+  return index
+
 def report_on_trace_index(trace_index):
   trace_cnt = 0
   for prob,trace_list in trace_index.items():
@@ -280,9 +293,14 @@ if __name__ == "__main__":
       optimizer.load_state_dict(anoptimizer_state_dict)
 
     if load_traces:
-      trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
-      print("Starting from loop",loop,"and a half")
-      report_on_trace_index(trace_index)
+      if loop < 0:
+        trace_index = steal_trace_index(os.path.join(folder_with_prev_exper))
+        print("Starting from artificially reconstructed trace index of all exper's recorded traces.")
+        report_on_trace_index(trace_index)
+      else:
+        trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
+        print("Starting from loop",loop,"and a half")
+        report_on_trace_index(trace_index)
 
   else:
     cur_dir = claim_loop_dir(loop)
