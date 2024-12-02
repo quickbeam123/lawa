@@ -5,16 +5,16 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa_8511"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8563"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsSTD.txt"
-NUM_TRAIN_PROBLEMS = 5000
+NUM_TRAIN_PROBLEMS = 500
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 5000 # just keep 5K for a final TPTP eval
 
-IMITATE = False # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
+IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000
@@ -68,6 +68,16 @@ NUM_PROBLEM_FEATURES : Final[int] = 15
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
 INTERAL_SIZE : Final[int] = 256
+
+NUM_INFERENCE_RULES = 205
+
+GEN_AGE_EMBEDDING_SIZE = 16
+
+
+
+
+
+
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 

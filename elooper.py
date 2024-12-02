@@ -19,6 +19,8 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import torch
 
+import torch_geometric.nn
+
 import warnings
 warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
 
@@ -80,19 +82,6 @@ def save_trace_index(cur_dir,trace_index):
 def load_trace_index(adir):
   trace_index_file_path = os.path.join(adir,TRACE_INDEX)
   return torch.load(trace_index_file_path)
-
-def steal_trace_index(adir):
-  index = get_empty_trace_index()
-  traces_dir = os.path.join(adir,"traces")
-  # trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
-  for trace_file_name in os.listdir(traces_dir):
-    # e.g., Problems_ARI_ARI271_1.p - special-casing this for TPTP
-    assert trace_file_name[8] == "_"
-    assert trace_file_name[12] == "_"
-    prob = trace_file_name[:8] + "/" + trace_file_name[9:12] + "/" + trace_file_name[13:-5]
-    # print(prob)
-    index[prob].append(os.path.join(traces_dir,trace_file_name))
-  return index
 
 def report_on_trace_index(trace_index):
   trace_cnt = 0
@@ -202,7 +191,6 @@ def worker(q_in, q_out):
       q_out.put((job_kind,input,fact*loss.item()))
 
 
-
 if __name__ == "__main__":
   # Automating the vamp_perform - model_train - model_export loop.
   # Elooper continues the tradition, builds on the experience from dlooper and attempts to simplify and streamline things
@@ -234,6 +222,48 @@ if __name__ == "__main__":
   # in this example exper131 produced its best model at the end of loop 6
   # this model got then evalauted and loop 7 has the largest set of traces stored under loop 7
   # with the example call, we'll use those traces, but learn a new model from scratch (this is a "fight the loss of plasticity" experiment)
+
+  if False:
+    m = torch.jit.load("genAgeOut.pt")
+    print(m.inits)
+    print(m.infers)
+
+    exit(0)
+
+  if True:
+    script = IC.get_full_genAgeNN()
+    script.save("genAgeNN.pt")
+    exit(0)
+
+  if False:
+    script = torch.jit.script(IC.GnnStore())
+    script.save("forVampire.pt")
+    exit(0)
+
+  m = torch.jit.load("fromVampireBig.pt")
+
+  t = time.time()
+  IC.get_gnn_compute(m,"gnnCompute.pt")
+  print("Took",time.time()-t)
+
+  exit(0)
+
+  script = torch.jit.script(IC.GnnStore())
+  script.save("forVampire.pt")
+  exit(0)
+
+  gnn = IC.vampire_gather("Problems/PUZ/PUZ001+1.p","-t 10 -spt on -sig on")
+
+  print(gnn)
+
+  t = time.time()
+
+  out = gnn.forward()
+
+  print(out)
+  print("Took",time.time()-t)
+
+
 
   loop_count = int(sys.argv[1])
   parallelism = int(sys.argv[2])
@@ -293,14 +323,9 @@ if __name__ == "__main__":
       optimizer.load_state_dict(anoptimizer_state_dict)
 
     if load_traces:
-      if loop < 0:
-        trace_index = steal_trace_index(os.path.join(folder_with_prev_exper))
-        print("Starting from artificially reconstructed trace index of all exper's recorded traces.")
-        report_on_trace_index(trace_index)
-      else:
-        trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
-        print("Starting from loop",loop,"and a half")
-        report_on_trace_index(trace_index)
+      trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
+      print("Starting from loop",loop,"and a half")
+      report_on_trace_index(trace_index)
 
   else:
     cur_dir = claim_loop_dir(loop)
@@ -443,7 +468,7 @@ if __name__ == "__main__":
 
             ilim = 10*HP.INSTRUCTION_LIMIT
             lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
-            task = (JK_GATHER,(mission,prob,lrs_trace_file,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on {lrs_trace_str}"+opts2))
+            task = (JK_GATHER,(mission,prob,lrs_trace_file,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on -sig on {lrs_trace_str}"+opts2))
             # print("PUT:",task)
             q_in.put(task)
           else:
