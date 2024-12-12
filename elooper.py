@@ -230,17 +230,22 @@ if __name__ == "__main__":
 
     exit(0)
 
-  if True:
-    script = IC.get_full_genAgeNN()
-    script.save("genAgeNN.pt")
-    exit(0)
-
   if False:
     script = torch.jit.script(IC.GnnStore())
     script.save("forVampire.pt")
     exit(0)
 
-  m = torch.jit.load("fromVampireBig.pt")
+  if len(sys.argv) == 1:
+    model = IC.get_monster()
+    script = torch.jit.script(model)
+    script.save("monsterNN.pt")
+    exit(0)
+
+  data = torch.load(sys.argv[1])
+  for datum in data:
+    print(datum)
+  exit(0)
+
 
   t = time.time()
   IC.get_gnn_compute(m,"gnnCompute.pt")

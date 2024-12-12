@@ -67,7 +67,7 @@ class MonsterNN(torch.nn.Module):
   problem_features: Tensor
   clause_simple_features: Dict[int,Tensor]
   journal: List[Tuple[int,int]]
-  proof_units: List[int,int]
+  # proof_units: List[int] # no need to store here, just dump them to file
 
   # gnn "modules"
   gnn_node_init: List[Tuple[str,torch.nn.modules.linear.Linear]]
@@ -76,9 +76,12 @@ class MonsterNN(torch.nn.Module):
   # gnn_symbol_final: torch.nn.Module
 
   # gnn records
-  gnn_nodes: Dict[str,Tensor]
+  init_gnn_nodes: Dict[str,Tensor]
   gnn_edges: List[Tuple[str,str,Tensor]]
   gnn_init_clause_nums: list[int]
+
+  # gnn helper data
+  gnn_nodes: Dict[str,Tensor]
 
   # gage modules
   # gage_rule_embed: torch.nn.Module
@@ -111,9 +114,6 @@ class MonsterNN(torch.nn.Module):
   gweight_clause_todo: List[Tuple[int,list[int]]]
   gweight_clause_embeds: Dict[int,Tensor]
 
-
-
-
   def __init__(self,
               problem_embedder, clause_embedder, clause_valuator,
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,
@@ -125,16 +125,22 @@ class MonsterNN(torch.nn.Module):
     self.recording = False
     self.computing = False
 
+    # This is crazy, but while we don't need this for any computation, things don't jit.script witout it!
+    # (maybe its necessary so that the annotations above can be digested?
+    # I think it's the gnn_node_init and gnn_layers, who's types include modules)
+    self.dummy = torch_geometric.nn.SAGEConv((1,1),1)
+    self.dummy2 = torch.nn.Linear(1,1)
+
     # modules
     self.problem_embedder = problem_embedder
     self.clause_embedder = clause_embedder
     self.clause_valuator = clause_valuator
 
     # records
-    # self.problem_features = None
+    self.problem_features = torch.zeros(0) # dummy, overwritten by set_problem_features
     self.clause_simple_features = {} # filled up gradually, only when recording
     self.journal = [] # filled up gradually, only when recording
-    # self.proof_units = None
+    self.proof_units = []
 
     # modules-like
     self.gnn_node_init = gnn_node_init
@@ -143,8 +149,10 @@ class MonsterNN(torch.nn.Module):
     self.gnn_symbol_final = gnn_symbol_final
 
     # records
+    self.init_gnn_nodes = {}
     self.gnn_nodes = {}
     self.gnn_edges = []
+    self.gnn_init_clause_nums = [] # will be set from Vampire later anyway
 
     # modules
     self.gage_rule_embed = gage_rule_embed
@@ -168,7 +176,7 @@ class MonsterNN(torch.nn.Module):
     self.gweight_clauses = []
 
     # helpers
-    # self.gweight_symbol_embeds
+    self.gweight_symbol_embeds = torch.zeros(0) # dummy, overwritten by gnn_perform
     self.gweight_term_embed_store = {}
     self.gweight_term_layers = {}
     self.gweight_cur_base_layer = 1
@@ -189,7 +197,7 @@ class MonsterNN(torch.nn.Module):
   @torch.jit.export
   def set_problem_features(self, features: Tensor):
     if self.recording:
-      self.problem_features = features
+      self.problem_features = features.clone()
 
     if self.computing:
       with torch.no_grad():
@@ -197,12 +205,20 @@ class MonsterNN(torch.nn.Module):
 
   @torch.jit.export
   def gnn_node_kind(self,what: str,features: Tensor):
+    if self.recording:
+      self.init_gnn_nodes[what] = features.clone()
+
+    # the caller guarantees the tensor will still be alive when gnn_perform is called
     self.gnn_nodes[what] = features
 
   @torch.jit.export
-  def gnn_edge_kind(self,src: str, tgt: str, edge_index_there: Tensor, edge_index_back: Tensor):
-    self.gnn_edges.append((src,tgt,edge_index_there))
-    self.gnn_edges.append((tgt,src,edge_index_back))
+  def gnn_edge_kind(self,src: str, tgt: str, src_idxs: list[int], tgt_idxs: list[int]):
+    src_idxs_t = torch.tensor(src_idxs)
+    tgt_idxs_t = torch.tensor(tgt_idxs)
+
+    self.gnn_edges.append((src,tgt,torch.stack([src_idxs_t,tgt_idxs_t])))
+    # also record the opposite edge
+    self.gnn_edges.append((tgt,src,torch.stack([tgt_idxs_t,src_idxs_t])))
 
   @torch.jit.export
   def gnn_perform(self, clause_nums: list[int]):
@@ -238,42 +254,30 @@ class MonsterNN(torch.nn.Module):
         self.gage_cl_layers[cl_num] = 0
 
       # can drop all the gnn stuff not needed anymore
-      self.gnn_node_init = None
-      self.gnn_layers = None
-      self.gnn_clause_final = None
+      '''
+      empty_gnn_node_init: List[Tuple[str, torch.nn.modules.linear.Linear]] = []
+      self.gnn_node_init = empty_gnn_node_init
+      empty_gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
+      self.gnn_layers = empty_gnn_layers
+      self.gnn_clause_final = self.dummy2
       self.gnn_symbol_final = None
       if not self.recording:
         self.gnn_nodes = None
         self.gnn_edges = None
+      '''
 
   @torch.jit.export
-  def journal(self, tag, cl_num):
+  def journal_record(self, tag: int, cl_num: int):
     self.journal.append((tag, cl_num))
 
   @torch.jit.export
-  def set_proof_units_and_clean_modules(self, proof_units: list[int]):
-    self.proof_units = proof_units
+  def set_proof_units_and_save_recorded(self, proof_units: list[int], filename: str):
+    # does not really matter, just save them below
+    # self.proof_units = proof_units
 
-    # clean all modules before saving
-    self.problem_embedder = None
-    self.clause_embedder = None
-    self.clause_valuator = None
-
-    self.gnn_node_init = None
-    self.gnn_layers = None
-    self.gnn_clause_final = None
-    self.gnn_symbol_final = None
-
-    self.gage_rule_embed = None
-    self.gage_combine = None
-
-    self.gage_embed_store = None
-    self.gage_cl_layers = None
-    self.gage_cur_base_layer = None
-    self.gage_todo_layers = None
-
-    # TODO: clean modules more!
-
+    torch.save((self.problem_features,self.clause_simple_features,self.journal,proof_units,
+                self.init_gnn_nodes,self.gnn_edges,self.gnn_init_clause_nums,
+                self.gage_infers,self.gweight_terms,self.gweight_clauses),filename)
 
   def gage_enqueue_one(self,cl_num: int, inf_rule: int, parents: list[int]):
     layer_idx = max(1+max(self.gage_cl_layers[p] for p in parents),self.gage_cur_base_layer)
@@ -296,7 +300,7 @@ class MonsterNN(torch.nn.Module):
 
   def gage_embed_pending(self):
     for todos in self.gage_todo_layers:
-      print("gage layers:",len(todos))
+      # print("gage layers:",len(todos))
       # creating an input to the bulk
       ruleIdxs: list[int] = [] # into gage_rule_embed
       mainPrems = []
@@ -325,7 +329,14 @@ class MonsterNN(torch.nn.Module):
 
   def gweight_enqueue_one_term(self,id: int, functor: int, sign: float, args: list[int]):
     if args:
-      layer_idx = 1+max(self.gweight_term_layers[a] for a in args)
+      # layer_idx = 1+max(self.gweight_term_layers[a] for a in args if a >= 0)
+      layer_idx = 0
+      for a in args:
+        if a >= 0:
+          v = self.gweight_term_layers[a]
+          if v > layer_idx:
+            layer_idx = v
+      layer_idx += 1
     else:
       layer_idx = 0
     layer_idx = max(layer_idx,self.gweight_cur_base_layer)
@@ -338,6 +349,7 @@ class MonsterNN(torch.nn.Module):
       self.gweight_todo_layers.append(empty_todo_layer)
     self.gweight_todo_layers[eff_layer_idx].append((id,functor,sign,args))
 
+  @torch.jit.export
   def gweight_enqueue_term(self,id: int, functor: int, sign: float, args: list[int]):
     if self.recording:
       self.gweight_terms.append((id,functor,sign,args))
@@ -345,6 +357,7 @@ class MonsterNN(torch.nn.Module):
     if self.computing:
       self.gweight_enqueue_one_term(id,functor,sign,args)
 
+  @torch.jit.export
   def gweight_enqueue_clause(self,cl_num: int, lits: list[int]):
     if self.recording:
       self.gweight_clauses.append((cl_num,lits))
@@ -352,16 +365,16 @@ class MonsterNN(torch.nn.Module):
     if self.computing:
       self.gweight_clause_todo.append((cl_num,lits))
 
-  def get_subterm_embed(self,id) -> Tensor:
+  def get_subterm_embed(self,id: int) -> Tensor:
     if id < 0:
-      return self.gweight_var_embed[id % HP.GWEIGHT_NUM_VAR_EMBEDS]
+      return self.gweight_var_embed(torch.tensor([id % HP.GWEIGHT_NUM_VAR_EMBEDS]))[0]
     else:
       return self.gweight_term_embed_store[id]
 
   def gweight_embed_pending(self):
-    # first like with gage does with clause, but here with terms
+    # first like what gage does with clause, but here with terms
     for todos in self.gweight_todo_layers:
-      print("gweight layers:",len(todos))
+      # print("gweight layers:",len(todos))
 
       # TODO: could maybe directly write to a giant tensor via slicing!
       functors = []
@@ -370,7 +383,7 @@ class MonsterNN(torch.nn.Module):
       other_args = []
       for id,functor,sign,args in todos:
         functors.append(self.gweight_symbol_embeds[functor])
-        signs.append(torch.tensor(sign))
+        signs.append(torch.tensor([sign]))
         if len(args) == 0:
           first_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
           other_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
@@ -387,7 +400,7 @@ class MonsterNN(torch.nn.Module):
         self.gweight_term_embed_store[id] = res[j]
 
     self.gweight_cur_base_layer += len(self.gweight_todo_layers)
-    empty_todo_layers: list[list[Tuple[int,int,list[int]]]] = []
+    empty_todo_layers: list[list[Tuple[int,int,float,list[int]]]] = []
     self.gweight_todo_layers = empty_todo_layers
 
     # second, do the clauses part
@@ -395,8 +408,8 @@ class MonsterNN(torch.nn.Module):
       lit_embeds = torch.stack([self.gweight_term_embed_store[lit] for lit in lits])
       # TODO: try: avg over lits, max over lits, attention over lits, extra non-linearity level, ...
       self.gweight_clause_embeds[cl_num] = torch.sum(lit_embeds,dim=0)
-
-    self.gweight_clause_todo = []
+    empty_clause_todo: List[Tuple[int, List[int]]] = []
+    self.gweight_clause_todo = empty_clause_todo
 
   @torch.jit.export
   def embed_pending(self):
@@ -407,7 +420,7 @@ class MonsterNN(torch.nn.Module):
   def eval_clauses(self, clause_nums: list[int], clause_features: Tensor):
     if self.recording:
       for i,cl_num in enumerate(clause_nums):
-        self.clause_simple_features[cl_num] = clause_features[i]
+        self.clause_simple_features[cl_num] = clause_features[i].clone()
 
     # if self.computing:
     gage_features = torch.stack([self.gage_embed_store[cl_num] for cl_num in clause_nums])
@@ -418,26 +431,6 @@ class MonsterNN(torch.nn.Module):
     return self.clause_valuator(self.clause_embedder(all_features))
 
 
-# An "empty version" of the GNN interface, which can be used to store the graph shape and pass it for training!"
-class GnnStore(torch.nn.Module):
-  nodes: Dict[str,Tensor]
-  edges: List[Tuple[str,str,Tensor]]
-
-  def __init__(self):
-    super().__init__()
-
-    self.nodes = {}
-    self.edges = []
-
-  @torch.jit.export
-  def node_kind(self,what: str,features: Tensor):
-    self.nodes[what] = features
-
-  @torch.jit.export
-  def edge_kind(self,src: str, tgt: str, edge_index_there: Tensor, edge_index_back: Tensor):
-    self.edges.append((src,tgt,edge_index_there))
-    self.edges.append((tgt,src,edge_index_back))
-
 # see: https://discuss.pytorch.org/t/using-torschscript-to-save-a-model-with-multiple-heads/158709
 """
 @torch.jit.interface
@@ -446,261 +439,85 @@ class LinearInterface(torch.nn.Module):
       pass
 """
 
-# A version of Gnn which can compute forward pass
-class GnnCompute(torch.nn.Module):
-  nodes: Dict[str,Tensor]
-  edges: List[Tuple[str,str,Tensor]]
+def get_clause_valuator():
+  layer_list = [torch.nn.ReLU()]
+  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
+    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
+    layer_list.append(torch.nn.ReLU())
+  layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
 
-  node_init: List[Tuple[str,torch.nn.modules.linear.Linear]]
-  layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]]
-
-  # clause_final: torch.nn.Module
-  # symbol_final: torch.nn.Module
-
-  def __init__(self, node_init, layers, clause_final, symbol_final, modules = None):
-    super().__init__()
-
-    self.nodes = {}
-    self.edges = []
-
-    # This is crazy, but while we don't need this for any computation, things don't jit.script witout it!
-    # (maybe its necessary so that the annotations above can be digested?)
-    self.dummy = torch_geometric.nn.SAGEConv((1,1),1)
-
-    self.node_init = node_init
-    self.layers = layers
-    self.clause_final = clause_final
-    self.symbol_final = symbol_final
-
-    # pass in modules for training, so that they become official Params
-    if modules:
-      self.modules = torch.nn.ModuleList(modules)
-
-  @torch.jit.export
-  def node_kind(self,what: str,features: Tensor):
-    self.nodes[what] = features
-
-  @torch.jit.export
-  def edge_kind(self,src: str, tgt: str, edge_index_there: Tensor, edge_index_back: Tensor):
-    self.edges.append((src,tgt,edge_index_there))
-    self.edges.append((tgt,src,edge_index_back))
-
-  @torch.jit.export
-  def gnn_perform(self, clause_nums: list[int]):
-    if self.recording:
-      # just save clause_nums
-      pass
-
-    if self.computing:
-      # the clause numbers in clause_nums are promised to go in the same order as the clauses in previously added via gnnNodeKind("clause",...)
-      for key,embedder in self.node_init:
-        self.nodes[key] = embedder.forward(self.nodes[key]).relu()
-
-      for layer in self.layers:
-        out_dict: Dict[str, Tensor] = {}
-        for src,tgt,i,conv in layer:
-          out = conv.forward((self.nodes[src],self.nodes[tgt]),self.edges[i][2])
-          if tgt in out_dict:
-            out_dict[tgt] = out_dict[tgt] + out
-          else:
-            out_dict[tgt] = out
-
-        for key, out in out_dict.items():
-          self.nodes[key] = out.relu()
-          out_dict = {}
-
-      # TODO: in the future could also pool things and extract a problem embedding to use
-
-      # TODO: can drop all the stuff not needed anymore
-
-      # TODO: pass on the age-style clause embeddings to gen-age part (using clause_nums)
-
-      store_me1 = self.clause_final.forward(self.nodes["clause"])
-      store_me2 = self.symbol_final.forward(self.nodes["symbol"])
-
-
-GNN_NUM_LAYERS = 10
-GNN_INTERNAL_SIZE = 16
-
-RvNN_AGE_INTERNAL_SIZE = 16
-RvNN_WEIGHT_INTERNAL_SIZE = 16
+  return torch.nn.Sequential(*layer_list)
 
 def get_conv():
   return torch_geometric.nn.SAGEConv(
-      (GNN_INTERNAL_SIZE,GNN_INTERNAL_SIZE),
-      GNN_INTERNAL_SIZE,
+      (HP.GNN_INTERNAL_SIZE,HP.GNN_INTERNAL_SIZE),
+      HP.GNN_INTERNAL_SIZE,
       aggr="mean",      # TODO: consider trying out SUM/MAX
       normalize=False,  # a bit like a layernorm on the output?
       root_weight=True, # like a self-loop; i.e. allow then target node to talk as well
       project=False,    # extra non-lineary before aggregating
       bias=True)        # and why not add a bias before the relu that's about to come?
 
-# this fuction is bogus, we will need a real model, where all the submodules are parameters
-# and from which we will create the inference module by "stealing the weights"
-def get_gnn_compute(model: GnnStore, out_file_name):
-  # we only use the store to read off the "signature"
 
-  node_init = [("sort",  torch.nn.Linear(3,GNN_INTERNAL_SIZE)),
-               ("symbol",  torch.nn.Linear(10,GNN_INTERNAL_SIZE)),
-               ("clause", torch.nn.Linear(10,GNN_INTERNAL_SIZE)),
-               ("term", torch.nn.Linear(10,GNN_INTERNAL_SIZE)),
-               ("var", torch.nn.Linear(1,GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
+def get_monster():
+  problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
+  clause_embedder = torch.nn.Linear(HP.NUM_CLAUSE_FEATURES+HP.GAGE_EMBEDDING_SIZE+HP.GWEIGHT_EMBEDDING_SIZE,HP.INTERAL_SIZE)
+  clause_valuator = get_clause_valuator()
 
-  clause_final = torch.nn.Linear(GNN_INTERNAL_SIZE,RvNN_AGE_INTERNAL_SIZE)
-  symbol_final = torch.nn.Linear(GNN_INTERNAL_SIZE,RvNN_WEIGHT_INTERNAL_SIZE)
+  gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
+               ("symbol",  torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+               ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+               ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+               ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
 
-  modules = [embed for node_str,embed in node_init] + [clause_final,symbol_final]
+  gnn_clause_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
+  gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
-  layers = []
-  for i in range(GNN_NUM_LAYERS):
+  modules = [embed for node_str,embed in gnn_node_init] + [gnn_clause_final,gnn_symbol_final]
+
+  gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
+  for lidx in range(HP.GNN_NUM_LAYERS):
     layer = []
-    for i,(src,tgt,_) in enumerate(model.edges):
+    for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
+                                  ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
+                                  ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
+                                  ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
       # in the last layer, no need for any other output than ["symbol","clause"]
-      if i != GNN_NUM_LAYERS-1 or tgt in ["symbol","clause"]:
+      if lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause"]:
         conv = get_conv()
         modules.append(conv)
         layer.append((src,tgt,i,conv))
-    layers.append(layer)
+    gnn_layers.append(layer)
 
-  # pass in modules as the last argument if you want to also train with GnnCompute
-  model_to_script = GnnCompute(node_init,layers,clause_final,symbol_final)
-
-  # script_model.nodes = model.nodes
-  # script_model.edges = model.edges
-  # res =  script_model.forward()
-  # print(res[0].shape)
-  # print(res[1].shape)
-
-  print(model_to_script.state_dict())
-
-  return
-
-  model_to_script.eval()
-  script = torch.jit.script(model_to_script)
-  print(script)
-  print(script.code)
-  script.save(out_file_name)
-
-
-class GenAgeNN(torch.nn.Module):
-  inits: list[int]
-  infers: list[Tuple[int,int,list[int]]]
-
-  embed_store: Dict[int,Tensor]
-  cl_layers: Dict[int,int]
-  todo_layers: list[list[Tuple[int,int,list[int]]]]
-
-  def __init__(self, rule_embed, combine):
-    super().__init__()
-
-    self.recording = False
-    # needed for recording:
-    self.inits = []
-    self.infers = []
-
-    self.computing = False
-    # needed for computing:
-    self.embed_store = {}
-    self.cl_layers = {}
-    self.cur_base_layer = 1
-    self.todo_layers = []
-
-    self.rule_embed = rule_embed
-    self.combine = combine
-
-  # seed the storage with initial embeddings (for the input clauses)
-  @torch.jit.export
-  def init_embed(self,clNum: int, embedding: Tensor):
-    if self.recording:
-      self.inits.append(clNum)
-
-    if self.computing:
-      self.embed_store[clNum] = embedding
-      self.cl_layers[clNum] = 0
-
-  def enqueue_one(self,clNum: int, infRule: int, parents: list[int]):
-    layer_idx = max(1+max(self.cl_layers[p] for p in parents),self.cur_base_layer)
-    # index (counting from 0 with the initials) where clNum could (and will) be derived
-    self.cl_layers[clNum] = layer_idx
-
-    eff_layer_idx = layer_idx-self.cur_base_layer
-    if len(self.todo_layers) == eff_layer_idx:
-      empty_todo_layer: list[Tuple[int,int,list[int]]] = []
-      self.todo_layers.append(empty_todo_layer)
-    self.todo_layers[eff_layer_idx].append((clNum,infRule,parents))
-
-  def embed_enqueued(self):
-    for todos in self.todo_layers:
-      print(len(todos))
-      # creating an input to the bulk
-      ruleIdxs: list[int] = [] # into rule_embed
-      mainPrems = []
-      otherPrems = []
-      for clNum,infRule,parents in todos:
-        ruleIdxs.append(infRule)
-        mainPrems.append(self.embed_store[parents[0]])
-        if len(parents) == 1:
-          otherPrems.append(torch.zeros(HP.GAGE_EMBEDDING_SIZE))
-        elif len(parents) == 2:
-          otherPrems.append(self.embed_store[parents[1]])
-        else:
-          # this would work even in the binary case, but let's not invoke the moster if we don't need to
-          otherPrem = torch.sum(torch.stack(self.embed_store[parents[p]] for p in parents[1:]),dim=0)/(len(parents)-1)
-          otherPrems.append(otherPrem)
-      ruleEbeds = self.rule_embed(torch.tensor(ruleIdxs))
-      mainPremEbeds = torch.stack(mainPrems)
-      otherPremEbeds = torch.stack(otherPrems)
-      res = self.combine(torch.cat((ruleEbeds, mainPremEbeds, otherPremEbeds), dim=1))
-      for j,(clNum,_,_) in enumerate(todos):
-        self.embed_store[clNum] = res[j]
-
-    self.cur_base_layer += len(self.todo_layers)
-    empty_todo_layers: list[list[Tuple[int,int,list[int]]]] = []
-    self.todo_layers = empty_todo_layers
-
-
-  # a request to compute an embedding for clNum, derived by infRule from parents
-  # all parents have either been mentioned via init_embed or previes calls to this method
-  @torch.jit.export
-  def enqueue(self, clNum: int, infRule: int, parents: list[int]):
-    if self.recording:
-      self.infers.append((clNum,infRule,parents))
-
-    if self.computing:
-      self.enqueue_one(clNum,infRule,parents)
-
-  @torch.jit.export
-  def embed_pending(self):
-    if self.computing:
-      self.embed_enqueued()
-
-  @torch.jit.export
-  def lookup(self,clNum: int) -> Tensor:
-    return self.embed_store[clNum]
-
-  # if we just save all this: what is it, that should be remembered for learning?
-  # - not the init_embeds themselves (they need to be chained explicitly, so that gradients can propagate!), but their clNums, yes
-  # - all enqueue requests, but again, not necessarily the work they represent
-
-def get_hollow_genAgeNN():
-  model = GenAgeNN(torch.nn.Embedding(1,1),torch.nn.Identity())
-  model.recording = True
-  script = torch.jit.script(model)
-  return script
-
-def get_full_genAgeNN():
-  rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
-  combine = torch.nn.Sequential(
-     # TODO: experiment with dropout?
+  gage_rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
+  gage_combine = torch.nn.Sequential(
      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
      torch.nn.ReLU(),
+     # TODO: experiment with dropout?
      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
   )
-  model = GenAgeNN(rule_embed,combine)
-  model.computing = True
-  script = torch.jit.script(model)
-  return script
+
+  gweight_var_embed = torch.nn.Embedding(num_embeddings=HP.GWEIGHT_NUM_VAR_EMBEDS, embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
+  gweight_term_combine = torch.nn.Sequential(
+     torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
+     torch.nn.ReLU(),
+     # TODO: experiment with dropout?
+     torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
+     torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
+  )
+
+  model = MonsterNN(problem_embedder,clause_embedder,clause_valuator,
+                    gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,
+                    gage_rule_embed,gage_combine,
+                    gweight_var_embed,gweight_term_combine)
+
+  return model
+
+
+
+
+
 
 
 def vampire_gather(prob,opts):

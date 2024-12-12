@@ -69,12 +69,16 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify thing
 # the following internal size is used:
 INTERAL_SIZE : Final[int] = 256
 
-NUM_INFERENCE_RULES = 205
+GNN_NUM_LAYERS : Final[int] = 10
+GNN_INTERNAL_SIZE : Final[int] = 16
 
-GAGE_EMBEDDING_SIZE = 16
+NUM_INFERENCE_RULES : Final[int] = 205
+GAGE_EMBEDDING_SIZE : Final[int] = 16
 
-GWEIGHT_EMBEDDING_SIZE = 16
-GWEIGHT_NUM_VAR_EMBEDS = 2
+GWEIGHT_EMBEDDING_SIZE : Final[int] = 16
+GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 2
+
+
 
 
 
