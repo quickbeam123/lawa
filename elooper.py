@@ -25,7 +25,7 @@ import warnings
 warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
 
 def print_model_part():
-  print("Key {}".format(repr(model.valuator[-1].weight.data)))
+  print("Key {}".format(repr(model.clause_valuator[-1].weight.data)))
 
 TRAIN_PROBLEMS_FILE = "train.txt"
 TEST_PROBLEMS_FILE = "test.txt"
@@ -120,15 +120,14 @@ def worker(q_in, q_out):
       result = IC.vampire_perfrom(prob,opts1+opts2)
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
-      (mission,prob,lrs_trace_file,counter,opts) = input
-      result = IC.vampire_gather(prob,opts)
-      trace_file_path = None
-      if result is not None and result[0]: # non-degenerate
-        compressed_trace = IC.compress_trace(*result[1])
-        if compressed_trace[-1] > 0: # num_good_selections can be zero in degenerate cases
-          trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
-          torch.save(compressed_trace,trace_file_path)
-      q_out.put((job_kind,input,trace_file_path))
+      (mission,prob,lrs_trace_file,trace_file_path,opts) = input
+      (status,instructions,activations) = IC.vampire_perfrom(prob,opts)
+
+      assert status == "uns"
+      assert os.path.isfile(trace_file_path)
+      trace_kept = IC.trace_good_for_learning(trace_file_path)
+
+      q_out.put((job_kind,input,trace_kept))
 
     elif job_kind == JK_EVAL:
       (prob,fact,trace_file_paths,model_file_path) = input
@@ -223,53 +222,6 @@ if __name__ == "__main__":
   # this model got then evalauted and loop 7 has the largest set of traces stored under loop 7
   # with the example call, we'll use those traces, but learn a new model from scratch (this is a "fight the loss of plasticity" experiment)
 
-  if False:
-    m = torch.jit.load("genAgeOut.pt")
-    print(m.inits)
-    print(m.infers)
-
-    exit(0)
-
-  if False:
-    script = torch.jit.script(IC.GnnStore())
-    script.save("forVampire.pt")
-    exit(0)
-
-  if len(sys.argv) == 1:
-    model = IC.get_monster()
-    script = torch.jit.script(model)
-    script.save("monsterNN.pt")
-    exit(0)
-
-  data = torch.load(sys.argv[1])
-  for datum in data:
-    print(datum)
-  exit(0)
-
-
-  t = time.time()
-  IC.get_gnn_compute(m,"gnnCompute.pt")
-  print("Took",time.time()-t)
-
-  exit(0)
-
-  script = torch.jit.script(IC.GnnStore())
-  script.save("forVampire.pt")
-  exit(0)
-
-  gnn = IC.vampire_gather("Problems/PUZ/PUZ001+1.p","-t 10 -spt on -sig on")
-
-  print(gnn)
-
-  t = time.time()
-
-  out = gnn.forward()
-
-  print(out)
-  print("Took",time.time()-t)
-
-
-
   loop_count = int(sys.argv[1])
   parallelism = int(sys.argv[2])
   assert parallelism > 0
@@ -302,6 +254,7 @@ if __name__ == "__main__":
 
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
+
   optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   # temporary model used for the gradient trick
@@ -471,9 +424,12 @@ if __name__ == "__main__":
             counter = per_prob_trace_cnt[prob]
             per_prob_trace_cnt[prob] += 1
 
+            trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
+
             ilim = 10*HP.INSTRUCTION_LIMIT
             lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
-            task = (JK_GATHER,(mission,prob,lrs_trace_file,counter,f"-t {ilim2tlim(ilim)} -i {ilim} -spt on -sig on {lrs_trace_str}"+opts2))
+            task = (JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
+                               f"-t {ilim2tlim(ilim)} -i {ilim} -nar {trace_file_path} {lrs_trace_str}"+opts2))
             # print("PUT:",task)
             q_in.put(task)
           else:
@@ -481,12 +437,15 @@ if __name__ == "__main__":
             if lrs_trace_file and os.path.isfile(lrs_trace_file):
               os.remove(lrs_trace_file)
         elif job_kind == JK_GATHER:
-          (mission,prob,lrs_trace_file,counter,opts) = input
+          (mission,prob,lrs_trace_file,trace_file_path,opts) = input
           currently_solving.add(prob)
-          trace_file_path = result
-          # the trace pkl has been saved to a file, let's just remember that we have it:
-          if trace_file_path is not None:
+          trace_kept = result
+          if trace_kept:
             trace_index[prob].append(trace_file_path) # TODO: this is perhaps not very wise with CUMULATIVE, as it would keep growing (while many of the traces would be getting overwritten)
+          else:
+            pass # traces are being overwritten anyway
+            # os.remove(trace_file_path)
+
           workers_freed = 1
           if lrs_trace_file and os.path.isfile(lrs_trace_file):
             os.remove(lrs_trace_file)

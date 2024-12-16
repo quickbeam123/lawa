@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8563"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8617"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
@@ -14,7 +14,8 @@ NUM_TRAIN_PROBLEMS = 500
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 5000 # just keep 5K for a final TPTP eval
 
-IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
+# currently not supported with mtpa-gnn!
+IMITATE = False # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000

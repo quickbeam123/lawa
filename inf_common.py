@@ -34,7 +34,7 @@ EVENT_SEL = 2
 
 def vampire_perfrom(prob,opts):
   to_run = " ".join(["./run_lawa_vampire.sh",HP.VAMPIRE_EXECUTABLE,opts,prob])
-  # print(to_run)
+  print(to_run)
   output = subprocess.getoutput(to_run)
 
   status = None
@@ -42,7 +42,7 @@ def vampire_perfrom(prob,opts):
   activations = 0
 
   for line in output.split("\n"):
-    # print("  ",line)
+    print("  ",line)
     if line.startswith("%"):
       if line.startswith("% Activations started:"):
         activations = int(line.split()[-1])
@@ -222,11 +222,11 @@ class MonsterNN(torch.nn.Module):
 
   @torch.jit.export
   def gnn_perform(self, clause_nums: list[int]):
+    # the clause numbers in clause_nums are promised to go in the same order as the clauses in previously added via gnnNodeKind("clause",...)
     if self.recording:
       self.gnn_init_clause_nums = clause_nums
 
     if self.computing:
-      # the clause numbers in clause_nums are promised to go in the same order as the clauses in previously added via gnnNodeKind("clause",...)
       for key,embedder in self.gnn_node_init:
         self.gnn_nodes[key] = embedder.forward(self.gnn_nodes[key]).relu()
 
@@ -234,6 +234,8 @@ class MonsterNN(torch.nn.Module):
         out_dict: Dict[str, Tensor] = {}
         for src,tgt,i,conv in layer:
           out = conv.forward((self.gnn_nodes[src],self.gnn_nodes[tgt]),self.gnn_edges[i][2])
+          # print(src,tgt,i)
+          # print(out)
           if tgt in out_dict:
             out_dict[tgt] = out_dict[tgt] + out
           else:
@@ -458,232 +460,127 @@ def get_conv():
       project=False,    # extra non-lineary before aggregating
       bias=True)        # and why not add a bias before the relu that's about to come?
 
+class MonsterModules(torch.nn.Module):
+  # this class only stores all the necessary modules, but does no actual work
 
-def get_monster():
-  problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
-  clause_embedder = torch.nn.Linear(HP.NUM_CLAUSE_FEATURES+HP.GAGE_EMBEDDING_SIZE+HP.GWEIGHT_EMBEDDING_SIZE,HP.INTERAL_SIZE)
-  clause_valuator = get_clause_valuator()
+  def __init__(self):
+    super().__init__()
 
-  gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
-               ("symbol",  torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-               ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-               ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-               ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
+    self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
+    self.clause_embedder = torch.nn.Linear(HP.NUM_CLAUSE_FEATURES+HP.GAGE_EMBEDDING_SIZE+HP.GWEIGHT_EMBEDDING_SIZE,HP.INTERAL_SIZE)
+    self.clause_valuator = get_clause_valuator()
 
-  gnn_clause_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
-  gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
+                ("symbol",  torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
 
-  modules = [embed for node_str,embed in gnn_node_init] + [gnn_clause_final,gnn_symbol_final]
+    self.gnn_clause_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
+    self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
-  gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
-  for lidx in range(HP.GNN_NUM_LAYERS):
-    layer = []
-    for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
-                                  ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
-                                  ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
-                                  ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
-      # in the last layer, no need for any other output than ["symbol","clause"]
-      if lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause"]:
-        conv = get_conv()
-        modules.append(conv)
-        layer.append((src,tgt,i,conv))
-    gnn_layers.append(layer)
+    nested_modules = [embed for _,embed in self.gnn_node_init]
 
-  gage_rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
-  gage_combine = torch.nn.Sequential(
-     torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
-     torch.nn.ReLU(),
-     # TODO: experiment with dropout?
-     torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
-     torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
-  )
+    self.gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
+    for lidx in range(HP.GNN_NUM_LAYERS):
+      layer = []
+      for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
+                                    ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
+                                    ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
+                                    ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
+        # in the last layer, no need for any other output than ["symbol","clause"]
+        if lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause"]:
+          conv = get_conv()
+          nested_modules.append(conv)
+          layer.append((src,tgt,i,conv))
+      self.gnn_layers.append(layer)
 
-  gweight_var_embed = torch.nn.Embedding(num_embeddings=HP.GWEIGHT_NUM_VAR_EMBEDS, embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
-  gweight_term_combine = torch.nn.Sequential(
-     torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
-     torch.nn.ReLU(),
-     # TODO: experiment with dropout?
-     torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
-     torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
-  )
+    self.gnn_nested_modules = torch.nn.ModuleList(nested_modules)
 
-  model = MonsterNN(problem_embedder,clause_embedder,clause_valuator,
-                    gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,
-                    gage_rule_embed,gage_combine,
-                    gweight_var_embed,gweight_term_combine)
+    self.gage_rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
+    self.gage_combine = torch.nn.Sequential(
+      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      # TODO: experiment with dropout?
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
+      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
+    )
 
-  return model
+    self.gweight_var_embed = torch.nn.Embedding(num_embeddings=HP.GWEIGHT_NUM_VAR_EMBEDS, embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gweight_term_combine = torch.nn.Sequential(
+      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      # TODO: experiment with dropout?
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
+      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
+    )
+
+def get_initial_model():
+  return MonsterModules()
+
+def export_model(model_state_dict,name):
+  # we start from a fresh model and just load its state from a saved dict
+  m = get_initial_model()
+  m.load_state_dict(model_state_dict)
+
+  # eval mode and no gradient
+  m.eval()
+  for param in m.parameters():
+    param.requires_grad = False
+
+  module = MonsterNN(m.problem_embedder,m.clause_embedder,m.clause_valuator,
+                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,
+                    m.gage_rule_embed,m.gage_combine,
+                    m.gweight_var_embed,m.gweight_term_combine)
+  script = torch.jit.script(module)
+  script.save(name)
 
 
+def trace_good_for_learning(trace_file_path):
+  # open what's been saved and check it
+  # if good, save with additional info as needed by learning
 
+  (problem_features,clause_simple_features,journal,proof_units,
+   init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
+   gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path)
 
-
-
-
-def vampire_gather(prob,opts):
-  to_run = " ".join(["./run_lawa_vampire.sh",HP.VAMPIRE_EXECUTABLE,opts,prob])
-  # print(to_run)
-  for _ in range(5): # sometimes, there are weird failures, but a restart could help!
-    output = subprocess.getoutput(to_run)
-
-    clauses = {}         # id -> (feature_vec)
-    journal = []         # [event,id], where event is one of EVENT_ADD EVENT_SEL EVENT_REM,
-    proof_flas = set()
-
-    # just temporaries, here during the parsing
-    num_sels = 0
-
-    for line in output.split("\n"):
-      # print(line)
-      if "% Instruction limit reached!" in line:
-        assert not proof_flas
-        break # better than "id appeared again for:" failing just below
-      if line.startswith("P: "):
-        spl = line.split()
-        problem_features = list(map(float,spl[1:]))
-      if line.startswith("i: "):
-        spl = line.split()
-        id = int(spl[1])
-        features = list(map(float,spl[2:]))
-        assert len(features) == HP.NUM_CLAUSE_FEATURES
-        # print(id,features)
-        assert id not in clauses, "id appeared again for: "+to_run
-        clauses[id] = features
-      elif line.startswith("a: "):
-        spl = line.split()
-        id = int(spl[1])
-        journal.append([EVENT_ADD,id])
-      elif line.startswith("s: "):
-        spl = line.split()
-        id = int(spl[1])
-        journal.append([EVENT_SEL,id])
-        num_sels += 1
-      elif line.startswith("r: "):
-        spl = line.split()
-        id = int(spl[1])
-        journal.append([EVENT_REM,id])
-
-      elif "Aborted by signal" in line:
-        # print("Error line:",line)
-        proof_flas = set() # so that we continue the outer loop below
-        break
-      elif line and line[0] in "123456789":
-        spl = line.split(".")
-        id = int(spl[0])
-        proof_flas.add(id)
-
-    if len(proof_flas) == 0:
-      # print("Proof not found for",to_run)
-      # print("Will retry!")
-      continue
-
-    # a success
-    # in the first coordinate, however, we still say whether there is non-trivial stuff to learn from
-    return (len(clauses) != 0 and num_sels != 0,(problem_features,clauses,journal,proof_flas))
-
-  print("Repeatedly failing:",to_run)
-  print(output)
-  return None # meaning: "A major failure, consider keeping the used model for later debugging"
-
-# taking into account that some clauses may have the same feature vector,
-# let's not waste space and time on those and create a compressed trace where
-# each unique feature vector appears only once
-def compress_trace(problem_features,clauses,journal,proof_flas):
-  id2idx = {}
-  features2idx = {}
-  clause_features = []
-  for cl,features in clauses.items():
-    tfeatures = tuple(features)
-    if tfeatures in features2idx:
-      id2idx[cl] = features2idx[tfeatures]
-    else:
-      newIdx = len(features2idx)
-      features2idx[tfeatures] = newIdx
-      id2idx[cl] = newIdx
-      clause_features.append(features)
+  # scan the journal an check if there are any selections with a good clause in passive at that time
+  # also, bake proof_units into the journal, so that we don't need the lookups anymore
   newjournal = []
   passive = set() # just for consistency checking in the loop below
   good_in_passive = 0
   num_good_selections = 0
-  for tag,id in journal:
+  for tag,cl_num in journal:
     if tag == EVENT_ADD:
-      assert id not in passive
-      passive.add(id)
-      if id in proof_flas:
+      assert cl_num not in passive
+      passive.add(cl_num)
+      if cl_num in proof_units:
         good_in_passive += 1
     else:
       assert(tag == EVENT_REM or tag == EVENT_SEL)
-      assert id in passive
-      passive.remove(id)
-      if id in proof_flas:
+      assert cl_num in passive
+      passive.remove(cl_num)
+      if cl_num in proof_units:
         good_in_passive -= 1
     if tag == EVENT_SEL:
       if good_in_passive > 0: # there is a COM021+4 which gets solved using 30+ selection none of which happens while there is a single proof clause in passive (it's a lrs thing)
         num_good_selections += 1
-    newjournal.append((tag,id2idx[id],id in proof_flas))
-  return problem_features,clause_features,newjournal,num_good_selections
+    newjournal.append((tag,cl_num,cl_num in proof_units))
 
-class SimpleClauseEvaluator(torch.nn.Module):
-  def __init__(self):
-    super().__init__()
+  if num_good_selections:
+    torch.save((problem_features,clause_simple_features,newjournal,num_good_selections,
+                init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
+                gage_infers,gweight_terms,gweight_clauses),trace_file_path)
+    return True
+  else:
+    return False
 
-    assert HP.CLAUSE_EMBEDDER_LAYERS > 0
-
-    self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
-    self.clause_embedder = torch.nn.Linear(HP.NUM_CLAUSE_FEATURES,HP.INTERAL_SIZE)
-
-    layer_list = [torch.nn.ReLU()]
-    for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-      layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
-      layer_list.append(torch.nn.ReLU())
-    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
-
-    self.valuator = torch.nn.Sequential(*layer_list)
-
-  def forward(self,problem_features,clause_feature_vecs) -> Tensor:
-    return self.valuator(self.clause_embedder(clause_feature_vecs)+self.problem_embedder(problem_features))  # will broadcast work here?
-
-def get_initial_model():
-  return SimpleClauseEvaluator()
-
-def export_model(model_state_dict,name):
-  # we start from a fresh model and just load its state from a saved dict
-  model = get_initial_model()
-  model.load_state_dict(model_state_dict)
-
-  # eval mode and no gradient
-  model.eval()
-  for param in model.parameters():
-    param.requires_grad = False
-
-  class NeuralPassiveClauseContainer(torch.nn.Module):
-    def __init__(self,problem_embedder : torch.nn.Module, clause_embedder : torch.nn.Module, valuator : torch.nn.Module):
-      super().__init__()
-
-      self.problem_embedder = problem_embedder
-      self.clause_embedder = clause_embedder
-      self.valuator = valuator
-
-    @torch.jit.export
-    def setProblemFeatures(self,features : Tensor):
-      with torch.no_grad():
-        self.clause_embedder.bias.add_(self.problem_embedder(features))
-
-    @torch.jit.export
-    def forward(self,features : Tensor):
-      # assert len(features) == HP.NUM_CLAUSE_FEATURES
-
-      return self.valuator(self.clause_embedder(features))
-
-  module = NeuralPassiveClauseContainer(model.problem_embedder,model.clause_embedder,model.valuator)
-  script = torch.jit.script(module)
-  script.save(name)
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
       verbose,
-      evaluator : torch.nn.Module,
-      problem_features,clause_features,journal,num_good_selections):
+      modules : MonsterModules,
+      ):
     super().__init__()
 
     # print(clause_embedder,clause_key)
