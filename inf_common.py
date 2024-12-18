@@ -116,7 +116,7 @@ class MonsterNN(torch.nn.Module):
 
   def __init__(self,
               problem_embedder, clause_embedder, clause_valuator,
-              gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,
+              gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,
               gage_rule_embed, gage_combine,
               gweight_var_embed, gweight_term_combine
               ):
@@ -147,6 +147,7 @@ class MonsterNN(torch.nn.Module):
     self.gnn_layers = gnn_layers
     self.gnn_clause_final = gnn_clause_final
     self.gnn_symbol_final = gnn_symbol_final
+    self.gnn_sort_final = gnn_sort_final
 
     # records
     self.init_gnn_nodes = {}
@@ -248,14 +249,15 @@ class MonsterNN(torch.nn.Module):
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
 
       initial_clause_gage = self.gnn_clause_final.forward(self.gnn_nodes["clause"])
-      self.gweight_symbol_embeds = self.gnn_symbol_final.forward(self.gnn_nodes["symbol"])
+      self.gweight_symbol_embeds = torch.cat(
+        (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
 
       # pass on the gage-style clause embeddings to the gage part (using clause_nums)
       for i,cl_num in enumerate(clause_nums):
         self.gage_embed_store[cl_num] = initial_clause_gage[i]
         self.gage_cl_layers[cl_num] = 0
 
-      # can drop all the gnn stuff not needed anymore
+      # TODO: could drop all the gnn stuff not needed anymore (hard to do in script?)
       '''
       empty_gnn_node_init: List[Tuple[str, torch.nn.modules.linear.Linear]] = []
       self.gnn_node_init = empty_gnn_node_init
@@ -478,6 +480,7 @@ class MonsterModules(torch.nn.Module):
 
     self.gnn_clause_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
     self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
     nested_modules = [embed for _,embed in self.gnn_node_init]
 
@@ -489,7 +492,7 @@ class MonsterModules(torch.nn.Module):
                                     ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
                                     ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
         # in the last layer, no need for any other output than ["symbol","clause"]
-        if lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause"]:
+        if lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]:
           conv = get_conv()
           nested_modules.append(conv)
           layer.append((src,tgt,i,conv))
@@ -529,7 +532,7 @@ def export_model(model_state_dict,name):
     param.requires_grad = False
 
   module = MonsterNN(m.problem_embedder,m.clause_embedder,m.clause_valuator,
-                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,
+                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,
                     m.gage_rule_embed,m.gage_combine,
                     m.gweight_var_embed,m.gweight_term_combine)
   script = torch.jit.script(module)
