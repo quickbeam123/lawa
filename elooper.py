@@ -25,7 +25,12 @@ import warnings
 warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
 
 def print_model_part():
-  print("Key {}".format(repr(model.clause_valuator[-1].weight.data)))
+  pass
+  """
+  t = model.clause_valuator[-1].weight
+  print("Key {}".format(repr(t.data)))
+  print(f"  of shape {t.shape}")
+  """
 
 TRAIN_PROBLEMS_FILE = "train.txt"
 TEST_PROBLEMS_FILE = "test.txt"
@@ -123,7 +128,7 @@ def worker(q_in, q_out):
       (mission,prob,lrs_trace_file,trace_file_path,opts) = input
       (status,instructions,activations) = IC.vampire_perfrom(prob,opts)
 
-      assert status == "uns"
+      assert status == "uns", f"Ran {(prob,opts)} got {(status,instructions,activations)}"
       assert os.path.isfile(trace_file_path)
       trace_kept = IC.trace_good_for_learning(trace_file_path)
 
@@ -136,13 +141,13 @@ def worker(q_in, q_out):
       local_model.load_state_dict(torch.load(model_file_path))
 
       local_fact = 1/len(trace_file_paths)
-      proof_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
+      trace_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
 
       # print("EVAL on",prob,fact,trace_file_paths)
 
       loss = torch.zeros(1)
-      for proof_tuple in proof_tuples:
-        learn_model = IC.LearningModel(False,local_model,*proof_tuple)
+      for trace_tuple in trace_tuples:
+        learn_model = IC.LearningModel(False,local_model,trace_tuple)
         learn_model.eval()
         # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
         # print(tweaks_to_try)
@@ -156,7 +161,7 @@ def worker(q_in, q_out):
       (prob,fact,trace_file_paths,train_model_file_path) = input
 
       local_fact = 1/len(trace_file_paths)
-      proof_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
+      trace_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
 
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(train_model_file_path))
@@ -166,8 +171,8 @@ def worker(q_in, q_out):
       # print("TRAIN on",prob,fact,trace_file_paths)
 
       loss = torch.zeros(1)
-      for proof_tuple in proof_tuples:
-        learn_model = IC.LearningModel(verbose,local_model,*proof_tuple)
+      for trace_tuple in trace_tuples:
+        learn_model = IC.LearningModel(verbose,local_model,trace_tuple)
         learn_model.train()
 
         loss += local_fact*learn_model.forward()
@@ -428,8 +433,10 @@ if __name__ == "__main__":
 
             ilim = 10*HP.INSTRUCTION_LIMIT
             lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
+            # -nar needs a model, and with imitation it's not added to the JK_PERFORM options
+            model_for_imitation = f"-ncem {script_model_file_path}" if HP.IMITATE and loop == 1 else ""
             task = (JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
-                               f"-t {ilim2tlim(ilim)} -i {ilim} -nar {trace_file_path} {lrs_trace_str}"+opts2))
+                               f"-t {ilim2tlim(ilim)} -i {ilim} {model_for_imitation} -nar {trace_file_path} {lrs_trace_str}"+opts2))
             # print("PUT:",task)
             q_in.put(task)
           else:

@@ -34,7 +34,7 @@ EVENT_SEL = 2
 
 def vampire_perfrom(prob,opts):
   to_run = " ".join(["./run_lawa_vampire.sh",HP.VAMPIRE_EXECUTABLE,opts,prob])
-  print(to_run)
+  # print(to_run)
   output = subprocess.getoutput(to_run)
 
   status = None
@@ -42,7 +42,7 @@ def vampire_perfrom(prob,opts):
   activations = 0
 
   for line in output.split("\n"):
-    print("  ",line)
+    # print("  ",line)
     if line.startswith("%"):
       if line.startswith("% Activations started:"):
         activations = int(line.split()[-1])
@@ -318,7 +318,7 @@ class MonsterNN(torch.nn.Module):
           otherPrems.append(self.gage_embed_store[parents[1]])
         else:
           # this would work even in the binary case, but let's not invoke the monster if we don't need to
-          otherPrem = torch.sum(torch.stack(self.gage_embed_store[parents[p]] for p in parents[1:]),dim=0)/(len(parents)-1)
+          otherPrem = torch.sum(torch.stack([self.gage_embed_store[parents[p]] for p in parents[1:]]),dim=0)/(len(parents)-1)
           otherPrems.append(otherPrem)
       ruleEbeds = self.gage_rule_embed(torch.tensor(ruleIdxs))
       mainPremEbeds = torch.stack(mainPrems)
@@ -396,7 +396,7 @@ class MonsterNN(torch.nn.Module):
           if len(args) == 1:
             other_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
           else:
-            other_arg = torch.sum(torch.stack(self.get_subterm_embed(a) for a in args[1:]),dim=0)/(len(args)-1)
+            other_arg = torch.sum(torch.stack([self.get_subterm_embed(a) for a in args[1:]]),dim=0)/(len(args)-1)
             other_args.append(other_arg)
 
       res = self.gweight_term_combine(torch.cat((torch.stack(functors), torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
@@ -426,13 +426,13 @@ class MonsterNN(torch.nn.Module):
       for i,cl_num in enumerate(clause_nums):
         self.clause_simple_features[cl_num] = clause_features[i].clone()
 
-    # if self.computing:
-    gage_features = torch.stack([self.gage_embed_store[cl_num] for cl_num in clause_nums])
-    gweight_features = torch.stack([self.gweight_clause_embeds[cl_num] for cl_num in clause_nums])
-    all_features = torch.cat((clause_features, gage_features, gweight_features), dim=1)
+    if self.computing:
+      gage_features = torch.stack([self.gage_embed_store[cl_num] for cl_num in clause_nums])
+      gweight_features = torch.stack([self.gweight_clause_embeds[cl_num] for cl_num in clause_nums])
+      all_features = torch.cat((clause_features, gage_features, gweight_features), dim=1)
 
-    # assumes problems features are already hardwired into clause_embedder's bias
-    return self.clause_valuator(self.clause_embedder(all_features))
+      # assumes problems features are already hardwired into clause_embedder's bias
+      return self.clause_valuator(self.clause_embedder(all_features))
 
 
 # see: https://discuss.pytorch.org/t/using-torschscript-to-save-a-model-with-multiple-heads/158709
@@ -482,7 +482,7 @@ class MonsterModules(torch.nn.Module):
     self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
-    nested_modules = [embed for _,embed in self.gnn_node_init]
+    nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
 
     self.gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
     for lidx in range(HP.GNN_NUM_LAYERS):
@@ -491,14 +491,15 @@ class MonsterModules(torch.nn.Module):
                                     ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
                                     ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
                                     ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
-        # in the last layer, no need for any other output than ["symbol","clause"]
-        if lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]:
+        # in the last layer, no need for any other output than ["symbol","clause","sort"]
+        # and vars don't need to talk to terms in the second to last layer (as vars never link to literals and only literal-terms talk to clauses)
+        if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]) and (lidx != HP.GNN_NUM_LAYERS-2 or (src,tgt) != ('var', 'term')):
           conv = get_conv()
-          nested_modules.append(conv)
+          nested_modules[f"gnn_layer[{lidx}]:{src}->{tgt}:{i}"] = conv
           layer.append((src,tgt,i,conv))
       self.gnn_layers.append(layer)
 
-    self.gnn_nested_modules = torch.nn.ModuleList(nested_modules)
+    self.gnn_nested_modules = torch.nn.ModuleDict(nested_modules)
 
     self.gage_rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
     self.gage_combine = torch.nn.Sequential(
@@ -582,34 +583,54 @@ def trace_good_for_learning(trace_file_path):
 class LearningModel(torch.nn.Module):
   def __init__(self,
       verbose,
-      modules : MonsterModules,
-      ):
+      m: MonsterModules,
+      trace_tuple):
     super().__init__()
 
-    # print(clause_embedder,clause_key)
-    # print(f"clause {len(clauses)} journal {len(journal)} proof_flas {len(proof_flas)}")
-
+    self.trace_tuple = trace_tuple
+    self.nn = MonsterNN(m.problem_embedder,m.clause_embedder,m.clause_valuator,
+                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,
+                    m.gage_rule_embed,m.gage_combine,
+                    m.gweight_var_embed,m.gweight_term_combine)
     self.verbose = verbose
-
-    self.evaluator = evaluator                     # the SimpleClauseEvaluator for clause evaluation
-    self.problem_features = problem_features
-    self.clause_features = clause_features         # list of clause features (in a list); idx in the journal is into this list
-    self.journal = journal                         # (event,idx,is_proof_cl), where event is one of EVENT_ADD EVENT_SEL EVENT_REM
-    self.num_good_selections = num_good_selections # how many useful EVENT_SEL are there in journal?
-
     if verbose:
       print("Got verbose")
-      print(len(clause_features))
-      print(len(journal))
-      print(num_good_selections)
 
   def forward(self):
-    # let's a get a big matrix of feature_vec's, one for each clause idx
-    clause_feature_vecs = torch.stack([torch.tensor(features) for features in self.clause_features])
-    # print("feature_vecs.shape",feature_vecs.shape)
+    (problem_features,clause_simple_features,journal,num_good_selections,
+                init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
+                gage_infers,gweight_terms,gweight_clauses) = self.trace_tuple
 
-    logits = self.evaluator.forward(torch.tensor(self.problem_features),clause_feature_vecs)
-    logits = logits.squeeze(1) # squeeze-away second dimension, where the feartures were
+    self.nn.computing = True
+    self.nn.gnn_nodes = init_gnn_nodes
+    self.nn.gnn_edges = gnn_edges
+    self.nn.gnn_perform(gnn_init_clause_nums)
+
+    for (cl_num,inf_rule,parents) in gage_infers:
+      self.nn.gage_enqueue_one(cl_num,inf_rule,parents)
+
+    for (id,functor,sign,args) in gweight_terms:
+      self.nn.gweight_enqueue_one_term(id,functor,sign,args)
+
+    self.nn.gweight_clause_todo = gweight_clauses
+    self.nn.embed_pending()
+
+    num2idx = {}
+
+    # emulating MonsterNN.eval_clauses (but note the slight difference with problem_features / problem_embedder)
+    simple_feature_vecs = []
+    gage_feature_vecs = []
+    gweight_feature_vecs = []
+    for idx,(cl_num,feaures) in enumerate(clause_simple_features.items()):
+      num2idx[cl_num] = idx
+      simple_feature_vecs.append(feaures)
+      gage_feature_vecs.append(self.nn.gage_embed_store[cl_num])
+      gweight_feature_vecs.append(self.nn.gweight_clause_embeds[cl_num])
+
+    all_features = torch.cat((torch.stack(simple_feature_vecs), torch.stack(gage_feature_vecs), torch.stack(gweight_feature_vecs)), dim=1)
+    # broadcasting the problem embedding over the matrix clause embeddings:
+    logits = self.nn.clause_valuator(self.nn.problem_embedder(problem_features)+self.nn.clause_embedder(all_features))
+    logits = logits.squeeze(1) # squeeze-away the second dimension, where the feartures were
 
     # print("logits",logits.shape)
 
@@ -618,13 +639,18 @@ class LearningModel(torch.nn.Module):
 
     # TODO: couldn't this be one-off compiled to get much more efficient?
 
-    passive = [0]*len(self.clause_features)
-    passive_good = [0]*len(self.clause_features)
+    passive = [0]*len(all_features)
+    passive_good = [0]*len(all_features)
 
-    learn_for_every = self.num_good_selections / HP.MAX_TRAINS_PER_TRACE
+    learn_for_every = num_good_selections / HP.MAX_TRAINS_PER_TRACE
     learn_for_every_sum = 0.0
     learn_ord = 0
-    for tag,idx,isGood in self.journal:
+    for tag,cl_num,isGood in journal:
+      if cl_num not in num2idx:
+        # ignoring clauses we never even had to evaluate in the run
+        continue
+
+      idx = num2idx[cl_num]
       if tag == EVENT_ADD:
         passive[idx] += 1
         if isGood:
@@ -640,7 +666,7 @@ class LearningModel(torch.nn.Module):
 
       # don't learn from every selection for traces with many-many of them (but go and learn at least once)
       if sum(passive_good): # can learn
-        if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / self.num_good_selections): # is randomized
+        if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
           # if learn_for_every_sum <= learn_ord: # a deterministic version of the randomized above
           learn_for_every_sum += learn_for_every
 

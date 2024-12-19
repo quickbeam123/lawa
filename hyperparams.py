@@ -5,17 +5,17 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8618"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8620"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsSTD.txt"
-NUM_TRAIN_PROBLEMS = 500
+NUM_TRAIN_PROBLEMS = 15000
 EVAL_ON_TEST = False
-NUM_TEST_PROBLEMS = 5000 # just keep 5K for a final TPTP eval
+NUM_TEST_PROBLEMS = 4486 # the rest of current TPTP
 
 # currently not supported with mtpa-gnn!
-IMITATE = False # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
+IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000
@@ -70,7 +70,7 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify thing
 # the following internal size is used:
 INTERAL_SIZE : Final[int] = 256
 
-GNN_NUM_LAYERS : Final[int] = 10
+GNN_NUM_LAYERS : Final[int] = 5
 GNN_INTERNAL_SIZE : Final[int] = 16
 
 NUM_INFERENCE_RULES : Final[int] = 205
