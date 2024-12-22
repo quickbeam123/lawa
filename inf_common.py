@@ -57,6 +57,90 @@ def vampire_perfrom(prob,opts):
   # print(status,instructions,activations)
   return (status,instructions,activations)
 
+def get_clause_valuator():
+  layer_list = [torch.nn.ReLU()]
+  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
+    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
+    layer_list.append(torch.nn.ReLU())
+  layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
+
+  return torch.nn.Sequential(*layer_list)
+
+def get_conv():
+  return torch_geometric.nn.SAGEConv(
+      (HP.GNN_INTERNAL_SIZE,HP.GNN_INTERNAL_SIZE),
+      HP.GNN_INTERNAL_SIZE,
+      aggr="mean",      # TODO: consider trying out SUM/MAX
+      normalize=False,  # a bit like a layernorm on the output?
+      root_weight=True, # like a self-loop; i.e. allow then target node to talk as well
+      project=False,    # extra non-lineary before aggregating
+      bias=True)        # and why not add a bias before the relu that's about to come?
+
+class MonsterModules(torch.nn.Module):
+  # this class only stores all the necessary modules, but does no actual work
+
+  def __init__(self):
+    super().__init__()
+
+    self.gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
+                ("symbol",  torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
+
+    self.gnn_clause_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
+    self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
+
+    nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
+
+    self.gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
+    for lidx in range(HP.GNN_NUM_LAYERS):
+      layer = []
+      for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
+                                    ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
+                                    ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
+                                    ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
+        # in the last layer, no need for any other output than ["symbol","clause","sort"]
+        # and vars don't need to talk to terms in the second to last layer (as vars never link to literals and only literal-terms talk to clauses)
+        if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]) and (lidx != HP.GNN_NUM_LAYERS-2 or (src,tgt) != ('var', 'term')):
+          conv = get_conv()
+          nested_modules[f"gnn_layer[{lidx}]:{src}->{tgt}:{i}"] = conv
+          layer.append((src,tgt,i,conv))
+      self.gnn_layers.append(layer)
+
+    self.gnn_nested_modules = torch.nn.ModuleDict(nested_modules)
+
+    self.gage_rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
+    self.gage_combine = torch.nn.Sequential(
+      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      # TODO: experiment with dropout?
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
+      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
+    )
+
+    self.gweight_var_embed = torch.nn.Embedding(num_embeddings=HP.GWEIGHT_NUM_VAR_EMBEDS, embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gweight_term_combine = torch.nn.Sequential(
+      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      # TODO: experiment with dropout?
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
+      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
+    )
+
+    self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
+
+    clause_embbeder_input_size = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIMPLE_FEATURES else 0)
+                                + (HP.GAGE_EMBEDDING_SIZE if HP.USE_GAGE else 0)
+                                + (HP.GWEIGHT_EMBEDDING_SIZE if HP.USE_GWEIGHT else 0))
+
+    self.clause_embedder = torch.nn.Linear(clause_embbeder_input_size,HP.INTERAL_SIZE)
+    self.clause_valuator = get_clause_valuator()
+
+def get_initial_model():
+  return MonsterModules()
+
 class MonsterNN(torch.nn.Module):
   # good old simple feature stuff - modules
   # problem_embedder: torch.nn.Module
@@ -186,6 +270,29 @@ class MonsterNN(torch.nn.Module):
     self.gweight_clause_todo = []
     self.gweight_clause_embeds = {}
 
+  @torch.jit.export
+  def use_problem_features(self) -> bool:
+    return HP.USE_PROBLEM_FEATURES
+
+  @torch.jit.export
+  def use_simple_features(self) -> bool:
+    return HP.USE_SIMPLE_FEATURES
+
+  @torch.jit.export
+  def use_gage(self) -> bool:
+    return HP.USE_GAGE
+
+  @torch.jit.export
+  def use_gweight(self) -> bool:
+    return HP.USE_GWEIGHT
+
+  @torch.jit.export
+  def gage_stat(self) -> int:
+    return self.gage_cur_base_layer
+
+  @torch.jit.export
+  def gweight_stat(self) -> int:
+    return self.gweight_cur_base_layer
 
   @torch.jit.export
   def set_recording(self):
@@ -417,8 +524,10 @@ class MonsterNN(torch.nn.Module):
 
   @torch.jit.export
   def embed_pending(self):
-    self.gage_embed_pending()
-    self.gweight_embed_pending()
+    if HP.USE_GAGE:
+      self.gage_embed_pending()
+    if HP.USE_GWEIGHT:
+      self.gweight_embed_pending()
 
   @torch.jit.export
   def eval_clauses(self, clause_nums: list[int], clause_features: Tensor):
@@ -427,12 +536,16 @@ class MonsterNN(torch.nn.Module):
         self.clause_simple_features[cl_num] = clause_features[i].clone()
 
     if self.computing:
-      gage_features = torch.stack([self.gage_embed_store[cl_num] for cl_num in clause_nums])
-      gweight_features = torch.stack([self.gweight_clause_embeds[cl_num] for cl_num in clause_nums])
-      all_features = torch.cat((clause_features, gage_features, gweight_features), dim=1)
+      feature_parts = []
+      if HP.USE_SIMPLE_FEATURES:
+        feature_parts.append(clause_features)
+      if HP.USE_GAGE:
+        feature_parts.append(torch.stack([self.gage_embed_store[cl_num] for cl_num in clause_nums]))
+      if HP.USE_GWEIGHT:
+        feature_parts.append(torch.stack([self.gweight_clause_embeds[cl_num] for cl_num in clause_nums]))
 
       # assumes problems features are already hardwired into clause_embedder's bias
-      return self.clause_valuator(self.clause_embedder(all_features))
+      return self.clause_valuator(self.clause_embedder(torch.cat(feature_parts, dim=1)))
 
 
 # see: https://discuss.pytorch.org/t/using-torschscript-to-save-a-model-with-multiple-heads/158709
@@ -442,85 +555,6 @@ class LinearInterface(torch.nn.Module):
     def forward(self, input: Tensor) -> Tensor:
       pass
 """
-
-def get_clause_valuator():
-  layer_list = [torch.nn.ReLU()]
-  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
-    layer_list.append(torch.nn.ReLU())
-  layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
-
-  return torch.nn.Sequential(*layer_list)
-
-def get_conv():
-  return torch_geometric.nn.SAGEConv(
-      (HP.GNN_INTERNAL_SIZE,HP.GNN_INTERNAL_SIZE),
-      HP.GNN_INTERNAL_SIZE,
-      aggr="mean",      # TODO: consider trying out SUM/MAX
-      normalize=False,  # a bit like a layernorm on the output?
-      root_weight=True, # like a self-loop; i.e. allow then target node to talk as well
-      project=False,    # extra non-lineary before aggregating
-      bias=True)        # and why not add a bias before the relu that's about to come?
-
-class MonsterModules(torch.nn.Module):
-  # this class only stores all the necessary modules, but does no actual work
-
-  def __init__(self):
-    super().__init__()
-
-    self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
-    self.clause_embedder = torch.nn.Linear(HP.NUM_CLAUSE_FEATURES+HP.GAGE_EMBEDDING_SIZE+HP.GWEIGHT_EMBEDDING_SIZE,HP.INTERAL_SIZE)
-    self.clause_valuator = get_clause_valuator()
-
-    self.gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
-                ("symbol",  torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
-
-    self.gnn_clause_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
-    self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
-    self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
-
-    nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
-
-    self.gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
-    for lidx in range(HP.GNN_NUM_LAYERS):
-      layer = []
-      for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
-                                    ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
-                                    ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
-                                    ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
-        # in the last layer, no need for any other output than ["symbol","clause","sort"]
-        # and vars don't need to talk to terms in the second to last layer (as vars never link to literals and only literal-terms talk to clauses)
-        if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]) and (lidx != HP.GNN_NUM_LAYERS-2 or (src,tgt) != ('var', 'term')):
-          conv = get_conv()
-          nested_modules[f"gnn_layer[{lidx}]:{src}->{tgt}:{i}"] = conv
-          layer.append((src,tgt,i,conv))
-      self.gnn_layers.append(layer)
-
-    self.gnn_nested_modules = torch.nn.ModuleDict(nested_modules)
-
-    self.gage_rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
-    self.gage_combine = torch.nn.Sequential(
-      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
-      # TODO: experiment with dropout?
-      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
-      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
-    )
-
-    self.gweight_var_embed = torch.nn.Embedding(num_embeddings=HP.GWEIGHT_NUM_VAR_EMBEDS, embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
-    self.gweight_term_combine = torch.nn.Sequential(
-      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
-      # TODO: experiment with dropout?
-      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
-      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
-    )
-
-def get_initial_model():
-  return MonsterModules()
 
 def export_model(model_state_dict,name):
   # we start from a fresh model and just load its state from a saved dict
@@ -623,13 +657,25 @@ class LearningModel(torch.nn.Module):
     gweight_feature_vecs = []
     for idx,(cl_num,feaures) in enumerate(clause_simple_features.items()):
       num2idx[cl_num] = idx
-      simple_feature_vecs.append(feaures)
-      gage_feature_vecs.append(self.nn.gage_embed_store[cl_num])
-      gweight_feature_vecs.append(self.nn.gweight_clause_embeds[cl_num])
+      if HP.USE_SIMPLE_FEATURES:
+        simple_feature_vecs.append(feaures)
+      if HP.USE_GAGE:
+        gage_feature_vecs.append(self.nn.gage_embed_store[cl_num])
+      if HP.USE_GWEIGHT:
+        gweight_feature_vecs.append(self.nn.gweight_clause_embeds[cl_num])
 
-    all_features = torch.cat((torch.stack(simple_feature_vecs), torch.stack(gage_feature_vecs), torch.stack(gweight_feature_vecs)), dim=1)
+    feature_parts = []
+    if HP.USE_SIMPLE_FEATURES:
+      feature_parts.append(torch.stack(simple_feature_vecs))
+    if HP.USE_GAGE:
+      feature_parts.append(torch.stack(gage_feature_vecs))
+    if HP.USE_GWEIGHT:
+      feature_parts.append(torch.stack(gweight_feature_vecs))
+
+    all_features = torch.cat(feature_parts, dim=1)
     # broadcasting the problem embedding over the matrix clause embeddings:
-    logits = self.nn.clause_valuator(self.nn.problem_embedder(problem_features)+self.nn.clause_embedder(all_features))
+    logits = self.nn.clause_valuator(self.nn.problem_embedder(problem_features)+
+                                     self.nn.clause_embedder(all_features))
     logits = logits.squeeze(1) # squeeze-away the second dimension, where the feartures were
 
     # print("logits",logits.shape)

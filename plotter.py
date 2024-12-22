@@ -85,16 +85,20 @@ if __name__ == "__main__":
         handles.append(h)
         plotted = True
 
-        max_val = 0.0
-        max_idx = 0
+        max_val,max_idx = (0.0,0)
+        imax_val,imax_idx = (0.0,0)
         for idx,val in zip(Xs,Ys):
           if val > max_val:
             max_val = val
             max_idx = idx
+          if idx > 1 and val > imax_val:
+            imax_val = val
+            imax_idx = idx
 
         print(exper_dir,m,"max with",max_val,"at",max_idx)
+        print("Also imax with",imax_val,"at",imax_idx)
 
-    ax1.set_ylim(ymin=1900)
+    ax1.set_ylim(ymin=3900)
 
     if plotted:
       plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable

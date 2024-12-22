@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8620"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8621"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
@@ -70,17 +70,19 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify thing
 # the following internal size is used:
 INTERAL_SIZE : Final[int] = 256
 
-GNN_NUM_LAYERS : Final[int] = 5
-GNN_INTERNAL_SIZE : Final[int] = 16
+GNN_NUM_LAYERS : Final[int] = 10
+GNN_INTERNAL_SIZE : Final[int] = 32
 
 NUM_INFERENCE_RULES : Final[int] = 205
-GAGE_EMBEDDING_SIZE : Final[int] = 16
+GAGE_EMBEDDING_SIZE : Final[int] = 32
 
-GWEIGHT_EMBEDDING_SIZE : Final[int] = 16
-GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 2
+GWEIGHT_EMBEDDING_SIZE : Final[int] = 32
+GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 2  # TODO: ablation to this soon
 
-
-
+USE_PROBLEM_FEATURES : Final[bool] = True
+USE_SIMPLE_FEATURES : Final[bool] = True
+USE_GAGE : Final[bool] = True
+USE_GWEIGHT : Final[bool] = True
 
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
