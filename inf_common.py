@@ -73,7 +73,7 @@ def get_conv():
       aggr="mean",      # TODO: consider trying out SUM/MAX
       normalize=False,  # a bit like a layernorm on the output?
       root_weight=True, # like a self-loop; i.e. allow then target node to talk as well
-      project=False,    # extra non-lineary before aggregating
+      project=HP.GNN_SAGE_PROJECT,    # extra non-lineary before aggregating
       bias=True)        # and why not add a bias before the relu that's about to come?
 
 class MonsterModules(torch.nn.Module):

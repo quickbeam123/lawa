@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8621"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8622"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
@@ -69,6 +69,8 @@ NUM_PROBLEM_FEATURES : Final[int] = 15
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
 INTERAL_SIZE : Final[int] = 256
+
+GNN_SAGE_PROJECT = False
 
 GNN_NUM_LAYERS : Final[int] = 10
 GNN_INTERNAL_SIZE : Final[int] = 32
