@@ -636,18 +636,22 @@ class LearningModel(torch.nn.Module):
                 gage_infers,gweight_terms,gweight_clauses) = self.trace_tuple
 
     self.nn.computing = True
-    self.nn.gnn_nodes = init_gnn_nodes
-    self.nn.gnn_edges = gnn_edges
-    self.nn.gnn_perform(gnn_init_clause_nums)
+    if HP.USE_GAGE or HP.USE_GWEIGHT:
+      self.nn.gnn_nodes = init_gnn_nodes
+      self.nn.gnn_edges = gnn_edges
+      self.nn.gnn_perform(gnn_init_clause_nums)
 
-    for (cl_num,inf_rule,parents) in gage_infers:
-      self.nn.gage_enqueue_one(cl_num,inf_rule,parents)
+    if HP.USE_GAGE:
+      for (cl_num,inf_rule,parents) in gage_infers:
+        self.nn.gage_enqueue_one(cl_num,inf_rule,parents)
 
-    for (id,functor,sign,args) in gweight_terms:
-      self.nn.gweight_enqueue_one_term(id,functor,sign,args)
+    if HP.USE_GWEIGHT:
+      for (id,functor,sign,args) in gweight_terms:
+        self.nn.gweight_enqueue_one_term(id,functor,sign,args)
+      self.nn.gweight_clause_todo = gweight_clauses
 
-    self.nn.gweight_clause_todo = gweight_clauses
-    self.nn.embed_pending()
+    if HP.USE_GAGE or HP.USE_GWEIGHT:
+      self.nn.embed_pending()
 
     num2idx = {}
 

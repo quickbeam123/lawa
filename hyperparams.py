@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8622"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8623"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
@@ -83,8 +83,8 @@ GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 2  # TODO: ablation to this soon
 
 USE_PROBLEM_FEATURES : Final[bool] = True
 USE_SIMPLE_FEATURES : Final[bool] = True
-USE_GAGE : Final[bool] = True
-USE_GWEIGHT : Final[bool] = True
+USE_GAGE : Final[bool] = False
+USE_GWEIGHT : Final[bool] = False
 
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
