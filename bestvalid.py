@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
 
-import inf_common as IC
-import hyperparams as HP
-
-import torch
-
-import warnings
-warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
-
 import os, sys, shutil, pickle, random, atexit, time
 
 from collections import defaultdict

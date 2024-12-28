@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8623"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8625"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
@@ -22,7 +22,7 @@ INSTRUCTION_LIMIT = 5000
 
 # in elooper:
 # keep this false (no support yet)
-# This is just a reminder it migh make sense to learn from traces we currently (in this loop, with this model) cannot solve
+# This is just a reminder it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
 # - definitely an interesting direction for a future research
 CUMULATIVE : Final[int] = 0
@@ -70,7 +70,7 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify thing
 # the following internal size is used:
 INTERAL_SIZE : Final[int] = 256
 
-GNN_SAGE_PROJECT = False
+GNN_SAGE_PROJECT = False # rather experiment with different Convs
 
 GNN_NUM_LAYERS : Final[int] = 10
 GNN_INTERNAL_SIZE : Final[int] = 32
@@ -79,12 +79,12 @@ NUM_INFERENCE_RULES : Final[int] = 205
 GAGE_EMBEDDING_SIZE : Final[int] = 32
 
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32
-GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 2  # TODO: ablation to this soon
+GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
 
 USE_PROBLEM_FEATURES : Final[bool] = True
 USE_SIMPLE_FEATURES : Final[bool] = True
-USE_GAGE : Final[bool] = False
-USE_GWEIGHT : Final[bool] = False
+USE_GAGE : Final[bool] = True
+USE_GWEIGHT : Final[bool] = True
 
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW

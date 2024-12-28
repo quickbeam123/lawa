@@ -122,11 +122,11 @@ class MonsterModules(torch.nn.Module):
 
     self.gweight_var_embed = torch.nn.Embedding(num_embeddings=HP.GWEIGHT_NUM_VAR_EMBEDS, embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
     self.gweight_term_combine = torch.nn.Sequential(
-      torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
+      torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       # TODO: experiment with dropout?
-      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
-      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
+      torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     )
 
     self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
@@ -208,6 +208,7 @@ class MonsterNN(torch.nn.Module):
 
     self.recording = False
     self.computing = False
+    self.old_computing = False
 
     # This is crazy, but while we don't need this for any computation, things don't jit.script witout it!
     # (maybe its necessary so that the annotations above can be digested?
@@ -287,6 +288,14 @@ class MonsterNN(torch.nn.Module):
     return HP.USE_GWEIGHT
 
   @torch.jit.export
+  def gage_embedding_size(self) -> int:
+    return HP.GAGE_EMBEDDING_SIZE
+
+  @torch.jit.export
+  def gweight_embedding_size(self) -> int:
+    return HP.GWEIGHT_EMBEDDING_SIZE
+
+  @torch.jit.export
   def gage_stat(self) -> int:
     return self.gage_cur_base_layer
 
@@ -329,7 +338,7 @@ class MonsterNN(torch.nn.Module):
     self.gnn_edges.append((tgt,src,torch.stack([tgt_idxs_t,src_idxs_t])))
 
   @torch.jit.export
-  def gnn_perform(self, clause_nums: list[int]):
+  def gnn_perform(self, clause_nums: list[int]) -> Tuple[Tensor,Tensor]:
     # the clause numbers in clause_nums are promised to go in the same order as the clauses in previously added via gnnNodeKind("clause",...)
     if self.recording:
       self.gnn_init_clause_nums = clause_nums
@@ -359,6 +368,9 @@ class MonsterNN(torch.nn.Module):
       self.gweight_symbol_embeds = torch.cat(
         (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
 
+      if not self.old_computing:
+        return initial_clause_gage,self.gweight_symbol_embeds
+
       # pass on the gage-style clause embeddings to the gage part (using clause_nums)
       for i,cl_num in enumerate(clause_nums):
         self.gage_embed_store[cl_num] = initial_clause_gage[i]
@@ -376,6 +388,7 @@ class MonsterNN(torch.nn.Module):
         self.gnn_nodes = None
         self.gnn_edges = None
       '''
+    return torch.zeros(0),torch.zeros(0)
 
   @torch.jit.export
   def journal_record(self, tag: int, cl_num: int):
@@ -406,8 +419,10 @@ class MonsterNN(torch.nn.Module):
     if self.recording:
       self.gage_infers.append((cl_num,inf_rule,parents))
 
+    '''
     if self.computing:
       self.gage_enqueue_one(cl_num,inf_rule,parents)
+    '''
 
   def gage_embed_pending(self):
     for todos in self.gage_todo_layers:
@@ -465,16 +480,20 @@ class MonsterNN(torch.nn.Module):
     if self.recording:
       self.gweight_terms.append((id,functor,sign,args))
 
+    '''
     if self.computing:
       self.gweight_enqueue_one_term(id,functor,sign,args)
+    '''
 
   @torch.jit.export
   def gweight_enqueue_clause(self,cl_num: int, lits: list[int]):
     if self.recording:
       self.gweight_clauses.append((cl_num,lits))
 
+    '''
     if self.computing:
       self.gweight_clause_todo.append((cl_num,lits))
+    '''
 
   def get_subterm_embed(self,id: int) -> Tensor:
     if id < 0:
@@ -530,7 +549,7 @@ class MonsterNN(torch.nn.Module):
       self.gweight_embed_pending()
 
   @torch.jit.export
-  def eval_clauses(self, clause_nums: list[int], clause_features: Tensor):
+  def eval_clauses(self, clause_nums: list[int], clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
     if self.recording:
       for i,cl_num in enumerate(clause_nums):
         self.clause_simple_features[cl_num] = clause_features[i].clone()
@@ -540,12 +559,14 @@ class MonsterNN(torch.nn.Module):
       if HP.USE_SIMPLE_FEATURES:
         feature_parts.append(clause_features)
       if HP.USE_GAGE:
-        feature_parts.append(torch.stack([self.gage_embed_store[cl_num] for cl_num in clause_nums]))
+        feature_parts.append(gage_embeds)
       if HP.USE_GWEIGHT:
-        feature_parts.append(torch.stack([self.gweight_clause_embeds[cl_num] for cl_num in clause_nums]))
+        feature_parts.append(gweight_embeds)
 
       # assumes problems features are already hardwired into clause_embedder's bias
       return self.clause_valuator(self.clause_embedder(torch.cat(feature_parts, dim=1)))
+
+    return torch.zeros(0)
 
 
 # see: https://discuss.pytorch.org/t/using-torschscript-to-save-a-model-with-multiple-heads/158709
@@ -636,6 +657,7 @@ class LearningModel(torch.nn.Module):
                 gage_infers,gweight_terms,gweight_clauses) = self.trace_tuple
 
     self.nn.computing = True
+    self.nn.old_computing = True # some parts are otherwise skipped (as outsourced to cpp)
     if HP.USE_GAGE or HP.USE_GWEIGHT:
       self.nn.gnn_nodes = init_gnn_nodes
       self.nn.gnn_edges = gnn_edges
