@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8625"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8627"
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
@@ -71,6 +71,7 @@ CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify thing
 INTERAL_SIZE : Final[int] = 256
 
 GNN_SAGE_PROJECT = False # rather experiment with different Convs
+GNN_SAGE_AGGREG = "mean"
 
 GNN_NUM_LAYERS : Final[int] = 10
 GNN_INTERNAL_SIZE : Final[int] = 32
@@ -91,6 +92,10 @@ USE_GWEIGHT : Final[bool] = True
 
 # only learn from maximum this many clause selection moments along a single trace
 MAX_TRAINS_PER_TRACE = 1000
+
+# traces bigger than these will be considered "failed" (and not learned from)
+MAX_GAGE_HEIGHT = 500
+MAX_GWEIGHT_HEIGHT = 500
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)

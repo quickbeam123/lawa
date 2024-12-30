@@ -70,7 +70,7 @@ def get_conv():
   return torch_geometric.nn.SAGEConv(
       (HP.GNN_INTERNAL_SIZE,HP.GNN_INTERNAL_SIZE),
       HP.GNN_INTERNAL_SIZE,
-      aggr="mean",      # TODO: consider trying out SUM/MAX
+      aggr=HP.GNN_SAGE_AGGREG,
       normalize=False,  # a bit like a layernorm on the output?
       root_weight=True, # like a self-loop; i.e. allow then target node to talk as well
       project=HP.GNN_SAGE_PROJECT,    # extra non-lineary before aggregating
@@ -594,6 +594,42 @@ def export_model(model_state_dict,name):
   script = torch.jit.script(module)
   script.save(name)
 
+def gage_stats(init_clases,infers):
+  """
+    Following the logic of gage_enqueue_one, computes the height and width of the gage tree.
+  """
+  widths = defaultdict(int)
+  cl_layers = { cl_num:0 for cl_num in init_clases }
+  widths[0] = len(init_clases)
+  for (cl_num,_inf_rule,parents) in infers:
+    layer_idx = 1+max(cl_layers[p] for p in parents)
+    cl_layers[cl_num] = layer_idx
+    widths[layer_idx] += 1
+  # print("gage_stats",widths)
+  return len(widths),max(widths.values())
+
+def gweight_stats(terms):
+  """
+    Following the logic of gweight_enqueue_one_term, computes the height and width of the gweight tree.
+  """
+  widths = defaultdict(int)
+  term_layers = {}
+  for (id,_functor,_sign,args) in terms:
+    if args:
+      layer_idx = 0
+      for a in args:
+        if a >= 0:
+          v = term_layers[a]
+          if v > layer_idx:
+            layer_idx = v
+      layer_idx += 1
+    else:
+      layer_idx = 0
+    term_layers[id] = layer_idx
+    widths[layer_idx] += 1
+  # print("gweight_stats",widths)
+  return len(widths),max(widths.values(),default=0)
+
 
 def trace_good_for_learning(trace_file_path):
   # open what's been saved and check it
@@ -626,13 +662,18 @@ def trace_good_for_learning(trace_file_path):
         num_good_selections += 1
     newjournal.append((tag,cl_num,cl_num in proof_units))
 
-  if num_good_selections:
+  gage_h,gage_w = gage_stats(gnn_init_clause_nums,gage_infers)
+  gweight_h,gweight_w = gweight_stats(gweight_terms)
+
+  if (num_good_selections
+      and (not HP.USE_GAGE or gage_h <= HP.MAX_GAGE_HEIGHT)
+      and (not HP.USE_GWEIGHT or gweight_h <= HP.MAX_GWEIGHT_HEIGHT)):
     torch.save((problem_features,clause_simple_features,newjournal,num_good_selections,
                 init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses),trace_file_path)
-    return True
+    return True, (gage_h,gage_w), (gweight_h,gweight_w)
   else:
-    return False
+    return False, (gage_h,gage_w), (gweight_h,gweight_w)
 
 
 class LearningModel(torch.nn.Module):
@@ -699,9 +740,11 @@ class LearningModel(torch.nn.Module):
       feature_parts.append(torch.stack(gweight_feature_vecs))
 
     all_features = torch.cat(feature_parts, dim=1)
-    # broadcasting the problem embedding over the matrix clause embeddings:
-    logits = self.nn.clause_valuator(self.nn.problem_embedder(problem_features)+
-                                     self.nn.clause_embedder(all_features))
+    embedded_features = self.nn.clause_embedder(all_features)
+    if HP.USE_PROBLEM_FEATURES:
+      # broadcasting the problem embedding over the matrix clause embeddings?
+      embedded_features += self.nn.problem_embedder(problem_features)
+    logits = self.nn.clause_valuator(embedded_features)
     logits = logits.squeeze(1) # squeeze-away the second dimension, where the feartures were
 
     # print("logits",logits.shape)

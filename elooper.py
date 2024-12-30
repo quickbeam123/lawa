@@ -130,9 +130,9 @@ def worker(q_in, q_out):
 
       assert status == "uns", f"Ran {(prob,opts)} got {(status,instructions,activations)}"
       assert os.path.isfile(trace_file_path)
-      trace_kept = IC.trace_good_for_learning(trace_file_path)
+      trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path)
 
-      q_out.put((job_kind,input,trace_kept))
+      q_out.put((job_kind,input,(trace_kept,gage_stats, gweight_stats)))
 
     elif job_kind == JK_EVAL:
       (prob,fact,trace_file_paths,model_file_path) = input
@@ -379,6 +379,7 @@ if __name__ == "__main__":
       # There is going to be files to store the results, ...
       result_metas = [] # ... will store the file names and some additional info (in order of generation)
       result_dicts = defaultdict(lambda : IC.default_defaultdict_of_list()) # ... will collect the dicts to go into the respective files
+      stats = IC.default_defaultdict_of_list()
 
       script_model_file_path = os.path.join(cur_dir,"script-model.pt")
       IC.export_model(model.state_dict(),script_model_file_path)
@@ -446,7 +447,8 @@ if __name__ == "__main__":
         elif job_kind == JK_GATHER:
           (mission,prob,lrs_trace_file,trace_file_path,opts) = input
           currently_solving.add(prob)
-          trace_kept = result
+          trace_kept, gage_stats, gweight_stats = result
+          stats[prob].append((gage_stats, gweight_stats))
           if trace_kept:
             trace_index[prob].append(trace_file_path) # TODO: this is perhaps not very wise with CUMULATIVE, as it would keep growing (while many of the traces would be getting overwritten)
           else:
@@ -462,6 +464,8 @@ if __name__ == "__main__":
         return workers_freed
 
       do_in_parallel(get_perform_tasks(),parallelism,process_results_from_perform_and_gather)
+
+      torch.save(stats,os.path.join(cur_dir,"stats.pt"))
 
       # let's report what happened so far (and save the results into files, for later analysis):
       for (res_filename,mission,ilim) in result_metas:
