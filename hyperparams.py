@@ -19,13 +19,18 @@ IMITATE = True # should the first loop use the given clause selection heuristic?
 
 # Data gathering
 INSTRUCTION_LIMIT = 5000
-
 # in elooper:
-# keep this false (no support yet)
-# This is just a reminder it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
+# This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
-# - definitely an interesting direction for a future research
-CUMULATIVE : Final[int] = 0
+# - when set to True, elooper will keep traces of problems not solved in the last loop and still try to learn from them (sometimes)
+CUMULATIVE : Final[bool] = True
+CUM_STALE_AFTER = 5 # if we can't solve a problem for this many loops, let's give up on it
+CUM_MAX_STRENGTH = 2.0
+# - a problem is born (when first solved) with a score=0 and natural strength 1.0 = BASE^(score=0)
+# - it should be able to reach max strength if not solved from then on in CUM_STALE_AFTER loops,
+#   when each time it is not solved, we give him 2 more strength points
+# so, roughly BASE^(2*CUM_STALE_AFTER) = CUM_MAX_STRENGTH
+# if, on the other hand, a problem gets solve repetitively, its strengh score drops by one, each time this happens
 
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)

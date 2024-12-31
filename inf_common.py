@@ -722,10 +722,10 @@ class LearningModel(torch.nn.Module):
     simple_feature_vecs = []
     gage_feature_vecs = []
     gweight_feature_vecs = []
-    for idx,(cl_num,feaures) in enumerate(clause_simple_features.items()):
+    for idx,(cl_num,features) in enumerate(clause_simple_features.items()):
       num2idx[cl_num] = idx
       if HP.USE_SIMPLE_FEATURES:
-        simple_feature_vecs.append(feaures)
+        simple_feature_vecs.append(features)
       if HP.USE_GAGE:
         gage_feature_vecs.append(self.nn.gage_embed_store[cl_num])
       if HP.USE_GWEIGHT:
