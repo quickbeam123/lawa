@@ -46,7 +46,7 @@ if __name__ == "__main__":
       # print("  ",cur_dir)
       root, dirs, files = next(os.walk(cur_dir))
       for file in files:
-        if file in ["tweak_map.pt","train_data.pt","train_storage.pt","parts-model.pt","after-train-tweak_map.pt",
+        if file in ["stats.pt","tweak_map.pt","train_data.pt","train_storage.pt","parts-model.pt","after-train-tweak_map.pt",
                     "script-model.pt","script-model-after.pt","optimizer.pt","parts-model-state.tar","optimizer-state.tar","loop-model-and-optimizer.tar","trace-index.pt"]:
           continue
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         print(exper_dir,m,"max with",max_val,"at",max_idx)
         print("Also imax with",imax_val,"at",imax_idx)
 
-    ax1.set_ylim(ymin=3900)
+    ax1.set_ylim(ymin=5000)
 
     if plotted:
       plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable

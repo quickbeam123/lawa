@@ -14,10 +14,9 @@ if __name__ == "__main__":
     with open(logname, "r") as f:
       bestloss = 1e9
       for line in f:
-        '''
-        if line.startswith("loop2"):
-          break
-        '''
+        if True:
+          if line.startswith("loop2"):
+            break
 
         if line.startswith("Eval loss on valid"):
           loss = float(line.split()[-1])
