@@ -219,13 +219,17 @@ def worker(q_in, q_out):
 
       # print("EVAL on",prob,fact,trace_file_paths)
 
-      loss = torch.zeros(1)
-      for trace_tuple in trace_tuples:
-        learn_model = IC.LearningModel(False,local_model,trace_tuple)
-        learn_model.eval()
-        # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
-        # print(tweaks_to_try)
-        loss += local_fact*learn_model.forward()
+      try:
+        loss = torch.zeros(1)
+        for trace_tuple in trace_tuples:
+          learn_model = IC.LearningModel(False,local_model,trace_tuple)
+          learn_model.eval()
+          # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
+          # print(tweaks_to_try)
+          loss += local_fact*learn_model.forward()
+      except Exception as e:
+        print(f"Exception {e} occurred in EVAL")
+        sys.stdout.flush()
 
       # print("EVAL on",prob,fact,trace_file_paths,loss.item())
 
@@ -244,16 +248,20 @@ def worker(q_in, q_out):
 
       # print("TRAIN on",prob,fact,trace_file_paths)
 
-      loss = torch.zeros(1)
-      for trace_tuple in trace_tuples:
-        learn_model = IC.LearningModel(verbose,local_model,trace_tuple)
-        learn_model.train()
+      try:
+        loss = torch.zeros(1)
+        for trace_tuple in trace_tuples:
+          learn_model = IC.LearningModel(verbose,local_model,trace_tuple)
+          learn_model.train()
 
-        loss += local_fact*learn_model.forward()
+          loss += local_fact*learn_model.forward()
+
+        loss.backward()
+      except Exception as e:
+        print(f"Exception {e} occurred in TRAIN")
+        sys.stdout.flush()
 
       # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
-
-      loss.backward()
 
       for param in local_model.parameters():
         grad = param.grad
