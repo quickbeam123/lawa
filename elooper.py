@@ -349,6 +349,9 @@ if __name__ == "__main__":
 
   trace_index = TraceIndex()
 
+  script_model_to_steal = None
+  skip_first_stage = False
+
   loop = 0
   if len(sys.argv) > 5: # we already know the folder, but which loop to copy from there?
     loop = int(sys.argv[5])
@@ -356,10 +359,12 @@ if __name__ == "__main__":
 
     load_model = True
     load_traces = False
+    steal_script_model = False
 
     if len(sys.argv) > 6:
       load_model = "m" in sys.argv[6]
       load_traces = "t" in sys.argv[6]
+      steal_script_model = "s" in sys.argv[6]
 
     if load_model:
       aloop,amodel_state_dict,anoptimizer_state_dict = load_loop_model_and_optimizer(load_dir)
@@ -368,10 +373,13 @@ if __name__ == "__main__":
       optimizer.load_state_dict(anoptimizer_state_dict)
 
     if load_traces:
-      assert False, "Loading traces needs to be made compatible with CUMULATIVE first"
       trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
+      skip_first_stage = True
       print("Starting from loop",loop,"and a half")
       trace_index.report()
+
+    if steal_script_model:
+      script_model_to_steal = os.path.join(load_dir,"script-model.pt")
 
   else:
     cur_dir = claim_loop_dir(loop)
@@ -454,158 +462,167 @@ if __name__ == "__main__":
     # for this iteration, we write stuff here:
     cur_dir = claim_loop_dir(loop)
 
-    # ===========================================================================
-    # STAGE 1: PERFORM and GATHER
-    stage_start_time = time.time()
+    if not skip_first_stage:
+      # ===========================================================================
+      # STAGE 1: PERFORM and GATHER
+      stage_start_time = time.time()
 
-    # There is going to be files to store the results, ...
-    result_metas = [] # ... will store the file names and some additional info (in order of generation)
-    result_dicts = defaultdict(lambda : IC.default_defaultdict_of_list()) # ... will collect the dicts to go into the respective files
-    stats = IC.default_defaultdict_of_list()
+      # There is going to be files to store the results, ...
+      result_metas = [] # ... will store the file names and some additional info (in order of generation)
+      result_dicts = defaultdict(lambda : IC.default_defaultdict_of_list()) # ... will collect the dicts to go into the respective files
+      stats = IC.default_defaultdict_of_list()
 
-    script_model_file_path = os.path.join(cur_dir,"script-model.pt")
-    IC.export_model(model.state_dict(),script_model_file_path)
+      script_model_file_path = os.path.join(cur_dir,"script-model.pt")
+      if script_model_to_steal:
+        shutil.copy(script_model_to_steal,script_model_file_path)
+        print("Stolen script model from",script_model_to_steal)
+        script_model_to_steal = None
+      else:
+        IC.export_model(model.state_dict(),script_model_file_path)
 
-    def get_perform_tasks():
-      ilim = HP.INSTRUCTION_LIMIT
-      for mission,gatherwish,prob_lists in [("train",True,train_problems),("test",False,test_problems)]:
-        if not HP.EVAL_ON_TEST and mission == "test":
-          continue
-        res_filename = f"{mission}_res.pt"
+      def get_perform_tasks():
+        ilim = HP.INSTRUCTION_LIMIT
+        for mission,gatherwish,prob_lists in [("train",True,train_problems),("test",False,test_problems)]:
+          if not HP.EVAL_ON_TEST and mission == "test":
+            continue
+          res_filename = f"{mission}_res.pt"
 
-        result_metas.append((res_filename,mission,ilim))
+          result_metas.append((res_filename,mission,ilim))
 
-        for i in range(HP.NUM_PERFORMS):
-          seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
+          for i in range(HP.NUM_PERFORMS):
+            seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
-          # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
-          opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
-          # will stay the same
-          opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
-          if not HP.IMITATE or loop > 1:
-            opts2_base += f" -npcc on -ncem {script_model_file_path}"
+            # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
+            opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
+            # will stay the same
+            opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+            if not HP.IMITATE or loop > 1:
+              opts2_base += f" -npcc on -ncem {script_model_file_path}"
 
-          opts2_base += HP.PERFORMS_SPECIAL[i]
+            opts2_base += HP.PERFORMS_SPECIAL[i]
 
-          for prob in prob_lists:
-            opts1 = opts1_base
-            if HP.SATURATION_ALGORITHM.startswith("lrs"):
-              lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}_{}_{}.lrs".format(prob.replace("/","_"),i,seed,os.getpid()))
-              opts1 += f" -lstf {lrs_trace_file}"
-            else:
-              lrs_trace_file = ""
+            for prob in prob_lists:
+              opts1 = opts1_base
+              if HP.SATURATION_ALGORITHM.startswith("lrs"):
+                lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}_{}_{}.lrs".format(prob.replace("/","_"),i,seed,os.getpid()))
+                opts1 += f" -lstf {lrs_trace_file}"
+              else:
+                lrs_trace_file = ""
 
-            yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
+              yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
 
-    per_prob_trace_cnt = defaultdict(int)
-    currently_solving = set()
+      # new way makes per_prob_trace_cnt redundant, as we only collect one trace per problem (even with NUM_PERFORMS > 1)
+      per_prob_trace_cnt = defaultdict(int)
+      currently_solving = set()
 
-    def process_results_from_perform_and_gather(job_kind,input,result):
-      global per_prob_trace_cnt
-      workers_freed = 0
-      if job_kind == JK_PERFORM:
-        (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
-        result_dicts[res_filename][prob].append((i,result))
+      def process_results_from_perform_and_gather(job_kind,input,result):
+        global per_prob_trace_cnt
+        workers_freed = 0
+        if job_kind == JK_PERFORM:
+          (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
+          result_dicts[res_filename][prob].append((i,result))
 
-        (status,instructions,activations) = result
-        if status == "uns" and gatherwish:
-          counter = per_prob_trace_cnt[prob]
-          per_prob_trace_cnt[prob] += 1
+          (status,instructions,activations) = result
+          if status == "uns" and gatherwish and prob not in currently_solving:
+            currently_solving.add(prob)
+            counter = per_prob_trace_cnt[prob]
+            per_prob_trace_cnt[prob] += 1
 
-          trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
+            trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
 
-          ilim = 10*HP.INSTRUCTION_LIMIT
-          lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
-          # -nar needs a model, and with imitation it's not added to the JK_PERFORM options
-          model_for_imitation = f"-ncem {script_model_file_path}" if HP.IMITATE and loop == 1 else ""
-          task = (JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
-                              f"-t {ilim2tlim(ilim)} -i {ilim} {model_for_imitation} -nar {trace_file_path} {lrs_trace_str}"+opts2))
-          # print("PUT:",task)
-          q_in.put(task)
-        else:
+            ilim = 10*HP.INSTRUCTION_LIMIT
+            lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
+            # -nar needs a model, and with imitation it's not added to the JK_PERFORM options
+            model_for_imitation = f"-ncem {script_model_file_path}" if HP.IMITATE and loop == 1 else ""
+            task = (JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
+                                f"-t {ilim2tlim(ilim)} -i {ilim} {model_for_imitation} -nar {trace_file_path} {lrs_trace_str}"+opts2))
+            # print("PUT:",task)
+            q_in.put(task)
+          else:
+            workers_freed = 1
+            if lrs_trace_file and os.path.isfile(lrs_trace_file):
+              os.remove(lrs_trace_file)
+        elif job_kind == JK_GATHER:
+          (mission,prob,lrs_trace_file,trace_file_path,opts) = input
+          trace_kept, gage_stats, gweight_stats = result
+          stats[prob].append((gage_stats, gweight_stats))
+          if trace_kept:
+            trace_index.add_prob_trace(loop,prob,trace_file_path)
+          else:
+            trace_index.report_trivial_trace(loop,prob)
+            # os.remove(trace_file_path)
+
           workers_freed = 1
           if lrs_trace_file and os.path.isfile(lrs_trace_file):
             os.remove(lrs_trace_file)
-      elif job_kind == JK_GATHER:
-        (mission,prob,lrs_trace_file,trace_file_path,opts) = input
-        currently_solving.add(prob)
-        trace_kept, gage_stats, gweight_stats = result
-        stats[prob].append((gage_stats, gweight_stats))
-        if trace_kept:
-          trace_index.add_prob_trace(loop,prob,trace_file_path)
         else:
-          trace_index.report_trivial_trace(loop,prob)
-          # os.remove(trace_file_path)
+          assert False, f"Surprised by job_kind {job_kind}"
 
-        workers_freed = 1
-        if lrs_trace_file and os.path.isfile(lrs_trace_file):
-          os.remove(lrs_trace_file)
-      else:
-        assert False, f"Surprised by job_kind {job_kind}"
+        return workers_freed
 
-      return workers_freed
+      do_in_parallel(get_perform_tasks(),parallelism,process_results_from_perform_and_gather)
 
-    do_in_parallel(get_perform_tasks(),parallelism,process_results_from_perform_and_gather)
+      torch.save(stats,os.path.join(cur_dir,"stats.pt"))
 
-    torch.save(stats,os.path.join(cur_dir,"stats.pt"))
+      # let's report what happened so far (and save the results into files, for later analysis):
+      for (res_filename,mission,ilim) in result_metas:
+        results = result_dicts[res_filename]
+        torch.save((f"ilim: {ilim}",results), os.path.join(cur_dir,res_filename))
 
-    # let's report what happened so far (and save the results into files, for later analysis):
-    for (res_filename,mission,ilim) in result_metas:
-      results = result_dicts[res_filename]
-      torch.save((f"ilim: {ilim}",results), os.path.join(cur_dir,res_filename))
+        by_performs = defaultdict(int)
+        by_performs_set = defaultdict(set)
 
-      by_performs = defaultdict(int)
-      by_performs_set = defaultdict(set)
+        prob_solved = 0
+        prob_fractional = 0.0
+        attempts = None
+        for prob,runs in results.items():
+          succs = 0
+          for (i,(status,instructions,activations)) in runs:
+            if status == "uns":
+              succs += 1
+              by_performs[i] += 1
+              by_performs_set[i].add(prob)
+          if attempts is None:
+            attempts = len(runs)
+          else:
+            assert attempts == len(runs)
 
-      prob_solved = 0
-      prob_fractional = 0.0
-      attempts = None
-      for prob,runs in results.items():
-        succs = 0
-        for (i,(status,instructions,activations)) in runs:
-          if status == "uns":
-            succs += 1
-            by_performs[i] += 1
-            by_performs_set[i].add(prob)
-        if attempts is None:
-          attempts = len(runs)
-        else:
-          assert attempts == len(runs)
+          if succs > 0:
+            prob_solved += 1
+          prob_fractional += succs/attempts
 
-        if succs > 0:
-          prob_solved += 1
-        prob_fractional += succs/attempts
+        print(res_filename)
+        print("    {:10.4f}% = {:10.1f} / {} ({} attempts) {} total".format(prob_fractional/len(results),prob_fractional,len(results),attempts,prob_solved))
 
-      print(res_filename)
-      print("    {:10.4f}% = {:10.1f} / {} ({} attempts) {} total".format(prob_fractional/len(results),prob_fractional,len(results),attempts,prob_solved))
+        covered = set()
+        adds = []
 
-      covered = set()
-      adds = []
+        best_i = -1
+        best_p = 0
+        for i in range(HP.NUM_PERFORMS):
+          adds.append(len(by_performs_set[i]-covered))
+          covered = covered | by_performs_set[i]
 
-      best_i = -1
-      best_p = 0
-      for i in range(HP.NUM_PERFORMS):
-        adds.append(len(by_performs_set[i]-covered))
-        covered = covered | by_performs_set[i]
+          if by_performs[i] > best_p:
+            best_p = by_performs[i]
+            best_i = i
 
-        if by_performs[i] > best_p:
-          best_p = by_performs[i]
-          best_i = i
+        for i in range(HP.NUM_PERFORMS):
+          print("   {}  {} {:6.4f} {:>5}:{}".format(i,"*" if i == best_i else " ",by_performs[i]/len(results),adds[i],HP.PERFORMS_SPECIAL[i]))
 
-      for i in range(HP.NUM_PERFORMS):
-        print("   {}  {} {:6.4f} {:>5}:{}".format(i,"*" if i == best_i else " ",by_performs[i]/len(results),adds[i],HP.PERFORMS_SPECIAL[i]))
+      print()
+      print("  Stage 1 took",time.time()-stage_start_time)
+      print()
+      sys.stdout.flush()
 
-    print()
-    print("  Stage 1 took",time.time()-stage_start_time)
-    print()
-    sys.stdout.flush()
+      trace_index.update_scores(loop)
+      trace_index.report()
+      save_trace_index(cur_dir,trace_index)
 
-    trace_index.update_scores(loop)
-    trace_index.report()
-    save_trace_index(cur_dir,trace_index)
+      print()
+      sys.stdout.flush()
 
-    print()
-    sys.stdout.flush()
+      skip_first_stage = False
 
     # ===========================================================================
 
