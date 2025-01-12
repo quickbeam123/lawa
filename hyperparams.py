@@ -35,10 +35,10 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
-NUM_PERFORMS = 1
+NUM_PERFORMS = 4
 
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = ["", " -npcct 0.0001", " -npcct 0.001"," -npcct 0.01", " -npcct 0.1"," -npcct 1.0"]
+PERFORMS_SPECIAL = ["", " -npcct 0.01", " -npcct 0.1", " -npcct 1.0"]
 
 
 # in elooper, maybe we don't want to parallelize too much
@@ -87,7 +87,7 @@ GAGE_EMBEDDING_SIZE : Final[int] = 32
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32
 GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
 
-USE_PROBLEM_FEATURES : Final[bool] = True
+USE_PROBLEM_FEATURES : Final[bool] = False # True seemed slighly worse on TPTP (let;s not consider this part of the official architecture for now)
 USE_SIMPLE_FEATURES : Final[bool] = True
 USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
@@ -112,7 +112,7 @@ MAX_GWEIGHT_HEIGHT = 500
 # next time I play with the entropy regularization, let me try the normalized one
 # ENTROPY_NORMALIZED = True
 
-LEARNING_RATE : Final[float] = 0.0001
+LEARNING_RATE : Final[float] = 0.0001 # 0.0002 seemed a tad better and could become the default for the official experiments
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
