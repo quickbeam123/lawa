@@ -11,6 +11,8 @@ from itertools import chain
 import multiprocessing
 import numpy
 
+import gc
+
 # first environ, then load torch, also later we set_num_treads (in "main")
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -235,6 +237,11 @@ def worker(q_in, q_out):
 
       q_out.put((job_kind,input,fact*loss.item()))
 
+      del loss
+      del learn_model
+      del local_model
+      gc.collect()  # Force garbage collection
+
     elif job_kind == JK_TRAIN:
       (prob,fact,trace_file_paths,train_model_file_path) = input
 
@@ -275,6 +282,11 @@ def worker(q_in, q_out):
       torch.save(local_model.state_dict(), train_model_file_path)
 
       q_out.put((job_kind,input,fact*loss.item()))
+
+      del loss
+      del learn_model
+      del local_model
+      gc.collect()  # Force garbage collection
 
 
 if __name__ == "__main__":
