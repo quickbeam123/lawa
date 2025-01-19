@@ -101,6 +101,7 @@ MAX_TRAINS_PER_TRACE = 1000
 # traces bigger than these will be considered "failed" (and not learned from)
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
+MAX_BOX_SIZE = 95000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)

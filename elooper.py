@@ -208,7 +208,7 @@ def worker(q_in, q_out):
       assert os.path.isfile(trace_file_path)
       trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path)
 
-      q_out.put((job_kind,input,(trace_kept,gage_stats, gweight_stats)))
+      q_out.put((job_kind,input,(trace_kept, gage_stats, gweight_stats)))
 
     elif job_kind == JK_EVAL:
       (prob,fact,trace_file_paths,model_file_path) = input
