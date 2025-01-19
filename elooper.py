@@ -202,9 +202,9 @@ def worker(q_in, q_out):
       q_out.put((job_kind,input,result))
     elif job_kind == JK_GATHER:
       (mission,prob,lrs_trace_file,trace_file_path,opts) = input
-      (status,instructions,activations) = IC.vampire_perfrom(prob,opts)
+      vamp_res = IC.vampire_perfrom(prob,opts)
 
-      assert status == "uns", f"Ran {(prob,opts)} got {(status,instructions,activations)}"
+      assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res}"
       assert os.path.isfile(trace_file_path)
       trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path)
 
@@ -534,8 +534,7 @@ if __name__ == "__main__":
           (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
           result_dicts[res_filename][prob].append((i,result))
 
-          (status,instructions,activations) = result
-          if status == "uns" and gatherwish and prob not in currently_solving:
+          if result.status == "uns" and gatherwish and prob not in currently_solving:
             currently_solving.add(prob)
             counter = per_prob_trace_cnt[prob]
             per_prob_trace_cnt[prob] += 1
@@ -589,8 +588,8 @@ if __name__ == "__main__":
         attempts = None
         for prob,runs in results.items():
           succs = 0
-          for (i,(status,instructions,activations)) in runs:
-            if status == "uns":
+          for (i,vamp_res) in runs:
+            if vamp_res.status == "uns":
               succs += 1
               by_performs[i] += 1
               by_performs_set[i].add(prob)

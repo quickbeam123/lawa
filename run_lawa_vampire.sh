@@ -11,5 +11,5 @@ VAMPIRE=$1
 shift
 
 # by convention, the arguments to this script should start "-t number" (which will work both with timelimit and vampire)
-timelimit $1 $2 -T 1 $VAMPIRE -t 0 -i 0 -m 8192 --input_syntax tptp -stat full -si on -rtra on "$@"
+timelimit $1 $2 -T 1 $VAMPIRE -t 0 -i 0 -m 8192 --input_syntax tptp -stat full -p off -si on -rtra on "$@"
 exit 0

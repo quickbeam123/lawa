@@ -14,7 +14,7 @@ if __name__ == "__main__":
     with open(logname, "r") as f:
       bestloss = 1e9
       for line in f:
-        if True:
+        if False:
           if line.startswith("loop2"):
             break
 

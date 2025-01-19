@@ -25,12 +25,23 @@ import hyperparams as HP
 from collections import defaultdict
 from itertools import chain
 
+from dataclasses import dataclass
+
 def default_defaultdict_of_list():
   return defaultdict(list)
 
 EVENT_ADD = 0
 EVENT_REM = 1
 EVENT_SEL = 2
+
+@dataclass
+class VampResult:
+  status: str
+  instructions: int
+  activations: int
+  nn_warmup: int
+  nn_gnn: int
+  nn_bulks: int
 
 def vampire_perfrom(prob,opts):
   to_run = " ".join(["./run_lawa_vampire.sh",HP.VAMPIRE_EXECUTABLE,opts,prob])
@@ -40,6 +51,9 @@ def vampire_perfrom(prob,opts):
   status = None
   instructions = 0
   activations = 0
+  nn_warmup = 0
+  nn_gnn = 0
+  nn_bulks = 0
 
   for line in output.split("\n"):
     # print("  ",line)
@@ -48,6 +62,13 @@ def vampire_perfrom(prob,opts):
         activations = int(line.split()[-1])
       if line.startswith("% Instructions burned:"):
         instructions = int(line.split()[-2])
+      if line.startswith("% Neural model warmup:"):
+        nn_warmup = int(line.split()[-1])
+      if line.startswith("% Gnn eval:"):
+        nn_gnn = int(line.split()[-1])
+      if line.startswith("% Bulk evals:"):
+        nn_bulks = int(line.split()[-1])
+
       if line.startswith("% SZS status"):
         if "Satisfiable" in line or "CounterSatisfiable" in line:
           status = "sat"
@@ -55,7 +76,7 @@ def vampire_perfrom(prob,opts):
           status = "uns"
 
   # print(status,instructions,activations)
-  return (status,instructions,activations)
+  return VampResult(status,instructions,activations,nn_warmup,nn_gnn,nn_bulks)
 
 def get_clause_valuator():
   layer_list = [torch.nn.ReLU()]
