@@ -622,7 +622,7 @@ if __name__ == "__main__":
       print()
       sys.stdout.flush()
 
-      skip_first_stage = False
+    skip_first_stage = False # only possibly skipped for the first loop
 
     # ===========================================================================
 
