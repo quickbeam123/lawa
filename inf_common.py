@@ -652,7 +652,7 @@ def gweight_stats(terms):
   return len(widths),max(widths.values(),default=0)
 
 
-def trace_good_for_learning(trace_file_path):
+def trace_good_for_learning(trace_file_path,logfile=None):
   # open what's been saved and check it
   # if good, save with additional info as needed by learning
 
@@ -685,6 +685,16 @@ def trace_good_for_learning(trace_file_path):
 
   gage_h,gage_w = gage_stats(gnn_init_clause_nums,gage_infers)
   gweight_h,gweight_w = gweight_stats(gweight_terms)
+
+  if logfile is not None:
+    # if not num_good_selections:
+    #  logfile.write(f"Dropping {trace_file_path} - no steps to learn from\n")
+    if HP.USE_GAGE and gage_h > HP.MAX_GAGE_HEIGHT:
+      logfile.write(f"Dropping {trace_file_path} - exceeded MAX_GAGE_HEIGHT with its {gage_h}\n")
+    if HP.USE_GWEIGHT and gweight_h > HP.MAX_GWEIGHT_HEIGHT:
+      logfile.write(f"Dropping {trace_file_path} - exceeded MAX_GWEIGHT_HEIGHT with its {gweight_h}\n")
+    if len(clause_simple_features) > HP.MAX_BOX_SIZE:
+      logfile.write(f"Dropping {trace_file_path} - exceeded MAX_BOX_SIZE with its {len(clause_simple_features)}\n")
 
   if (num_good_selections
       and (not HP.USE_GAGE or gage_h <= HP.MAX_GAGE_HEIGHT)

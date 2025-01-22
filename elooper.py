@@ -206,12 +206,14 @@ def worker(q_in, q_out):
 
       assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res}"
       assert os.path.isfile(trace_file_path)
-      trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path)
+      trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path,train_log)
 
       q_out.put((job_kind,input,(trace_kept, gage_stats, gweight_stats)))
 
     elif job_kind == JK_EVAL:
       (prob,fact,trace_file_paths,model_file_path) = input
+
+      eval_begin = time.time()
 
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(model_file_path))
@@ -234,6 +236,10 @@ def worker(q_in, q_out):
           f.write(f"{e} occurred in EVAL\n")
         raise
 
+      took = time.time()-eval_begin
+      if took > HP.WORTH_REPORTING:
+        train_log.write(f"EVAL of {prob} took {took}\n")
+
       # print("EVAL on",prob,fact,trace_file_paths,loss.item())
 
       q_out.put((job_kind,input,fact*loss.item()))
@@ -245,6 +251,8 @@ def worker(q_in, q_out):
 
     elif job_kind == JK_TRAIN:
       (prob,fact,trace_file_paths,train_model_file_path) = input
+
+      train_begin = time.time()
 
       local_fact = 1/len(trace_file_paths)
       trace_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
@@ -282,6 +290,10 @@ def worker(q_in, q_out):
 
       # use the same file also for the journey back (which brings the gradients inside the actual params)
       torch.save(local_model.state_dict(), train_model_file_path)
+
+      took = time.time()-train_begin
+      if took > HP.WORTH_REPORTING:
+        train_log.write(f"TRAIN of {prob} took {took}\n")
 
       q_out.put((job_kind,input,fact*loss.item()))
 
@@ -407,6 +419,8 @@ if __name__ == "__main__":
   # ===========================================================================
   # the parallel business set up here:
 
+  train_log = open(os.path.join(exper_dir,'detailed.log'), 'w', buffering=1)
+
   # create our worker processes and register a cleanup
   perform_and_gather_in = multiprocessing.Queue()
   perform_and_gather_out = multiprocessing.Queue()
@@ -428,6 +442,7 @@ if __name__ == "__main__":
   def cleanup():
     for p in my_processes:
       p.kill()
+    train_log.close()
   atexit.register(cleanup)
 
   def do_in_parallel(q_in,q_out,tasks,max_parallelism,process_results_callback):
@@ -698,9 +713,10 @@ if __name__ == "__main__":
           weighted_eval_loss += result # (= the loss) multiplied by fact already in the child
           return 1
 
+        pre_eval = time.time()
         weighted_eval_loss = 0.0
         eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
-        print("Eval loss on valid",weighted_eval_loss)
+        print("Eval loss on valid",weighted_eval_loss,"in",int(time.time()-pre_eval),"s")
         sys.stdout.flush()
 
         eval_losses[stage2iter % TIW] = weighted_eval_loss
@@ -776,9 +792,10 @@ if __name__ == "__main__":
         os.remove(train_model_file_path)
         return 1
 
+      pre_train = time.time()
       eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
-      print("Weighted train loss",weighted_train_loss)
+      print("Weighted train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
       print()
       sys.stdout.flush()
 

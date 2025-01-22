@@ -45,6 +45,7 @@ PERFORMS_SPECIAL = ["", " -npcct 0.001", " -npcct 0.01", " -npcct 0.1", " -npcct
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
 TRAINING_PARALLELISM = 60
+WORTH_REPORTING = 60 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
 # also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
