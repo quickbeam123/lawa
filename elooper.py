@@ -408,11 +408,20 @@ if __name__ == "__main__":
   # the parallel business set up here:
 
   # create our worker processes and register a cleanup
-  q_in = multiprocessing.Queue()
-  q_out = multiprocessing.Queue()
+  perform_and_gather_in = multiprocessing.Queue()
+  perform_and_gather_out = multiprocessing.Queue()
+  eval_and_train_in = multiprocessing.Queue()
+  eval_and_train_out = multiprocessing.Queue()
   my_processes = []
   for i in range(parallelism):
-    p = multiprocessing.Process(target=worker, args=(q_in,q_out))
+    p = multiprocessing.Process(target=worker, args=(perform_and_gather_in,perform_and_gather_out))
+    p.start()
+    my_processes.append(p)
+
+  eval_and_train_parallelism = min(parallelism,HP.TRAINING_PARALLELISM)
+
+  for i in range(eval_and_train_parallelism):
+    p = multiprocessing.Process(target=worker, args=(eval_and_train_in,eval_and_train_out))
     p.start()
     my_processes.append(p)
 
@@ -421,7 +430,7 @@ if __name__ == "__main__":
       p.kill()
   atexit.register(cleanup)
 
-  def do_in_parallel(tasks,max_parallelism,process_results_callback):
+  def do_in_parallel(q_in,q_out,tasks,max_parallelism,process_results_callback):
     num_active_tasks = 0
 
     # we assume there is at least one task
@@ -444,6 +453,13 @@ if __name__ == "__main__":
       # print("GOT:",(job_kind,input,result))
 
       num_active_tasks -= process_results_callback(job_kind,input,result)
+
+  def perform_and_gather_in_parallel(tasks,process_results_callback):
+    do_in_parallel(perform_and_gather_in,perform_and_gather_out,tasks,parallelism,process_results_callback)
+
+  def eval_and_train_in_parallel(tasks,process_results_callback):
+    do_in_parallel(eval_and_train_in,eval_and_train_out,tasks,eval_and_train_parallelism,process_results_callback)
+
 
   # only after the forks, otherwise weird trouble
   '''
@@ -550,7 +566,7 @@ if __name__ == "__main__":
             task = (JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
                                 f"-t {ilim2tlim(ilim)} -i {ilim} {model_for_imitation} -nar {trace_file_path} {lrs_trace_str}"+opts2))
             # print("PUT:",task)
-            q_in.put(task)
+            perform_and_gather_in.put(task)
           else:
             workers_freed = 1
             if lrs_trace_file and os.path.isfile(lrs_trace_file):
@@ -573,7 +589,7 @@ if __name__ == "__main__":
 
         return workers_freed
 
-      do_in_parallel(get_perform_tasks(),parallelism,process_results_from_perform_and_gather)
+      perform_and_gather_in_parallel(get_perform_tasks(),process_results_from_perform_and_gather)
 
       torch.save(stats,os.path.join(cur_dir,"stats.pt"))
 
@@ -683,7 +699,7 @@ if __name__ == "__main__":
           return 1
 
         weighted_eval_loss = 0.0
-        do_in_parallel(get_eval_tasks(),parallelism,process_results_from_eval)
+        eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
         print("Eval loss on valid",weighted_eval_loss)
         sys.stdout.flush()
 
@@ -760,7 +776,7 @@ if __name__ == "__main__":
         os.remove(train_model_file_path)
         return 1
 
-      do_in_parallel(get_train_tasks(),min(parallelism,HP.TRAINING_PARALLELISM),process_results_from_train)
+      eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
       print("Weighted train loss",weighted_train_loss)
       print()
