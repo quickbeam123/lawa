@@ -11,14 +11,14 @@ SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs spec
 
 PROBLEM_LIST = "problemsSTD.txt"
 NUM_TRAIN_PROBLEMS = 15000
-EVAL_ON_TEST = False
+EVAL_ON_TEST = True
 NUM_TEST_PROBLEMS = 4486 # the rest of current TPTP
 
 # currently not supported with mtpa-gnn!
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
 
 # Data gathering
-INSTRUCTION_LIMIT = 5000
+INSTRUCTION_LIMIT = 10000
 # in elooper:
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
@@ -44,7 +44,7 @@ PERFORMS_SPECIAL = ["", " -npcct 0.001", " -npcct 0.01", " -npcct 0.1", " -npcct
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
-TRAINING_PARALLELISM = 20
+TRAINING_PARALLELISM = 60
 
 # also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
