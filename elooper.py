@@ -543,6 +543,8 @@ if __name__ == "__main__":
             opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
             if not HP.IMITATE or loop > 1:
               opts2_base += f" -npcc on -ncem {script_model_file_path}"
+            if HP.IMITATE and loop > 1:
+              opts2_base = HP.NON_IMIT_EXTRA + opts2_base
 
             opts2_base += HP.PERFORMS_SPECIAL[i]
 

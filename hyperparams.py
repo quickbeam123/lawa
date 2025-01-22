@@ -16,6 +16,7 @@ NUM_TEST_PROBLEMS = 4486 # the rest of current TPTP
 
 # currently not supported with mtpa-gnn!
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
+NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering
 INSTRUCTION_LIMIT = 10000
@@ -23,7 +24,7 @@ INSTRUCTION_LIMIT = 10000
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
 # - when set to True, elooper will keep traces of problems not solved in the last loop and still try to learn from them (sometimes)
-CUMULATIVE : Final[bool] = True
+CUMULATIVE : Final[bool] = False
 CUM_STALE_AFTER = 5 # if we can't solve a problem for this many loops, let's give up on it
 CUM_MAX_STRENGTH = 2.0
 # - a problem is born (when first solved) with a score=0 and natural strength 1.0 = BASE^(score=0)
