@@ -16,6 +16,12 @@ MISSIONS = ["train","test"]
 
 MAXINT = 2**32
 
+def get_status(info):
+  if isinstance(info,IC.VampResult):
+    return info.status
+  else:
+    return info[0]
+
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
   #
@@ -58,7 +64,7 @@ if __name__ == "__main__":
           fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
         else:
           # started using NUM_PERFORMS with different params; only the 0-labeled run, however, counts
-          fractional = sum(1.0 for prob,runs in results.items() for (i,info) in runs if (i == 0 and info[0] == "uns"))
+          fractional = sum(1.0 for prob,runs in results.items() for (i,info) in runs if (i == 0 and get_status(info) == "uns"))
 
         # print("     -> ",successes)
         for m in MISSIONS:
