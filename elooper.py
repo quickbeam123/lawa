@@ -230,8 +230,9 @@ def worker(q_in, q_out):
           # print(tweaks_to_try)
           loss += local_fact*learn_model.forward()
       except Exception as e:
-        print(f"Exception {e} occurred in EVAL")
-        sys.stdout.flush()
+        with open(f"exception{os.getpid()}.log", "w") as f:
+          f.write(f"{e} occurred in EVAL\n")
+        raise
 
       # print("EVAL on",prob,fact,trace_file_paths,loss.item())
 
@@ -265,8 +266,9 @@ def worker(q_in, q_out):
 
         loss.backward()
       except Exception as e:
-        print(f"Exception {e} occurred in TRAIN")
-        sys.stdout.flush()
+        with open(f"exception{os.getpid()}.log", "w") as f:
+          f.write(f"{e} occurred in TRAIN\n")
+        raise
 
       # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
 
