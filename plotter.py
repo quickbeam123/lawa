@@ -13,6 +13,7 @@ import os, sys, shutil, pickle, random, atexit, time
 from collections import defaultdict
 
 MISSIONS = ["train","test"]
+STYLES = { MISSIONS[0] : "-", MISSIONS[1] : "--"}
 
 MAXINT = 2**32
 
@@ -66,6 +67,8 @@ if __name__ == "__main__":
           # started using NUM_PERFORMS with different params; only the 0-labeled run, however, counts
           fractional = sum(1.0 for prob,runs in results.items() for (i,info) in runs if (i == 0 and get_status(info) == "uns"))
 
+        fractional /= len(results.items())
+
         # print("     -> ",successes)
         for m in MISSIONS:
           if file.startswith(m):
@@ -78,18 +81,19 @@ if __name__ == "__main__":
 
   import matplotlib.pyplot as plt
 
-  for m in MISSIONS:
-    fig, ax1 = plt.subplots(figsize=(6,4))
+  fig, ax1 = plt.subplots(figsize=(6,4))
+  color_cycle = ax1._get_lines.prop_cycler
+  handles = []
 
-    plotted = False
-    handles = []
+  common_prefix = os.path.commonprefix(list(expers.keys()))
 
-    for exper_dir,plottables in expers.items():
-      Xs,Ys = plottables[m]
+  for exper_dir,plottables in expers.items():
+    col = next(color_cycle)['color']
+
+    for m,(Xs,Ys) in plottables.items():
       if Xs:
-        h, = ax1.plot(Xs, Ys, "--", linewidth = 1, label = exper_dir)
+        h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = exper_dir[len(common_prefix):]+"_"+m, color=col)
         handles.append(h)
-        plotted = True
 
         max_val,max_idx = (0.0,0)
         imax_val,imax_idx = (0.0,0)
@@ -104,12 +108,9 @@ if __name__ == "__main__":
         print(exper_dir,m,"max with",max_val,"at",max_idx)
         print("Also imax with",imax_val,"at",imax_idx)
 
-    ax1.set_ylim(ymin=5000)
-
-    if plotted:
-      plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
-      plt.savefig("{}_{}_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:]),m),format="pdf", bbox_inches="tight")
-    plt.close(fig)
+  plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
+  plt.savefig("{}_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
+  plt.close(fig)
 
 
 
