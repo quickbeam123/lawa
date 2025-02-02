@@ -538,9 +538,9 @@ if __name__ == "__main__":
             seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
             # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
-            opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
+            opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim}"
             # will stay the same
-            opts2_base = f" -sa {HP.SATURATION_ALGORITHM} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+            opts2_base = f" {HP.SHUFFLING_OPTIONS} -sa {HP.SATURATION_ALGORITHM} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
             if not HP.IMITATE or loop > 1:
               opts2_base += f" -npcc on -ncem {script_model_file_path}"
             if HP.IMITATE and loop > 1:

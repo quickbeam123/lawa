@@ -6,6 +6,7 @@ from typing import Final, List
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
 VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8867"
+SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
