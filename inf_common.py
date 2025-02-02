@@ -116,7 +116,9 @@ class MonsterModules(torch.nn.Module):
     nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
 
     self.gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
-    for lidx in range(HP.GNN_NUM_LAYERS):
+    for lidx in range(HP.GNN_NUM_LAYERS*HP.GNN_MULTIPLIER):
+      if lidx % HP.GNN_MULTIPLIER == 0:
+        last_fresh_layer = lidx
       layer = []
       for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
                                     ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
@@ -125,7 +127,11 @@ class MonsterModules(torch.nn.Module):
         # in the last layer, no need for any other output than ["symbol","clause","sort"]
         # and vars don't need to talk to terms in the second to last layer (as vars never link to literals and only literal-terms talk to clauses)
         if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]) and (lidx != HP.GNN_NUM_LAYERS-2 or (src,tgt) != ('var', 'term')):
-          conv = get_conv()
+          # effectively copies the same convolution for HP.GNN_MULTIPLIER many times
+          if lidx == last_fresh_layer:
+            conv = get_conv()
+          else:
+            conv = nested_modules[f"gnn_layer[{last_fresh_layer}]:{src}->{tgt}:{i}"]
           nested_modules[f"gnn_layer[{lidx}]:{src}->{tgt}:{i}"] = conv
           layer.append((src,tgt,i,conv))
       self.gnn_layers.append(layer)
