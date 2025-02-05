@@ -81,7 +81,7 @@ if __name__ == "__main__":
 
   import matplotlib.pyplot as plt
 
-  fig, ax1 = plt.subplots(figsize=(6,4))
+  fig, ax1 = plt.subplots(figsize=(8,6))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
@@ -92,7 +92,7 @@ if __name__ == "__main__":
 
     for m,(Xs,Ys) in plottables.items():
       if Xs:
-        h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = exper_dir[len(common_prefix):]+"_"+m, color=col)
+        h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = exper_dir[len(common_prefix)-1:]+"_"+m, color=col)
         handles.append(h)
 
         max_val,max_idx = (0.0,0)
