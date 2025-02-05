@@ -40,7 +40,7 @@ CUM_MAX_STRENGTH = 2.0
 NUM_PERFORMS = 1
 
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = ["", " -npcct 0.001", " -npcct 0.01", " -npcct 0.1", " -npcct 1.0"]
+PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
 
 # in elooper, maybe we don't want to parallelize too much
