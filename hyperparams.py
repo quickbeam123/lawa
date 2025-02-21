@@ -124,5 +124,8 @@ LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
+# should be use AVG (False) or the MAX (True) for picking, at each time moment, which good action to reinforce?
+GOOD_LOGIT_MAX : Final[bool] = False
+
 # TODO: To be experimented with later
 DISCOUNT_FACTOR = 1.0

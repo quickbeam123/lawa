@@ -817,6 +817,10 @@ class LearningModel(torch.nn.Module):
 
       assert tag == EVENT_SEL
 
+      # newly, we don't merge clauses based on common abstractions, so these arrays are just 0-1
+      assert max(passive) <= 1
+      assert max(passive_good) <= 1
+
       # don't learn from every selection for traces with many-many of them (but go and learn at least once)
       if sum(passive_good): # can learn
         if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
@@ -826,28 +830,24 @@ class LearningModel(torch.nn.Module):
           passive_good_t = torch.tensor(passive_good,dtype=logits.dtype)
           passive_t = torch.tensor(passive,dtype=logits.dtype)
 
-          masked_logits = logits[passive_t > 0.0]
-          passive_good_t = passive_good_t[passive_t > 0.0]
-          passive_t = passive_t[passive_t > 0.0]
-
-          # print("masked_logits",masked_logits.shape)
-          # print("passive_good_t",passive_good_t.shape)
-          # print("passive_t",passive_t.shape)
+          masked_logits = logits[passive_t > 0.0]           # exactly the logis of passive
+          passive_good_t = passive_good_t[passive_t > 0.0]  # same lenght as masked_logits, but only contains 1s if it's a good clause
 
           # manually computing log_softmax with multiplicities
           c = torch.max(masked_logits,dim=-1)[0] # the second part, which we ignore, is the argmax' idx
           exp_logits = torch.exp(masked_logits - c)
           # print("exp_logits.shape",exp_logits.shape)
-          logsumexp = torch.log(torch.matmul(exp_logits,passive_t))
-          lsm = masked_logits-c-logsumexp
-          # print("lsm.shape",lsm.shape)
-          # print("lsm",lsm)
-          good_lsm = torch.matmul(lsm,passive_good_t)
-          # print("good_lsm",good_lsm.shape)
+          logsumexp = torch.log(torch.sum(exp_logits))
 
-          assert not torch.isnan(good_lsm).any(), "Got nan in good_lsm " + str(good_lsm)
+          if HP.GOOD_LOGIT_MAX:
+            good_logit_max = torch.max(masked_logits[passive_good_t > 0.0],dim=-1)[0]
+            good_lsm = good_logit_max-c-logsumexp
+          else:
+            good_logit_avg = torch.sum(masked_logits[passive_good_t > 0.0])/sum(passive_good)
+            good_lsm = good_logit_avg-c-logsumexp
 
-          good_action_reward_loss += -good_lsm/sum(passive_good)
+          good_action_reward_loss += -good_lsm
+
           num_good_steps += 1
 
         learn_ord += 1
