@@ -5,22 +5,22 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8867"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8868"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
-PROBLEM_LIST = "problemsSTD.txt"
+PROBLEM_LIST = "problemsSTDclean.txt"
 NUM_TRAIN_PROBLEMS = 15000
 EVAL_ON_TEST = True
-NUM_TEST_PROBLEMS = 4486 # the rest of current TPTP
+NUM_TEST_PROBLEMS = 4477 # the rest of current TPTP
 
 # currently not supported with mtpa-gnn!
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
 NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering
-INSTRUCTION_LIMIT = 10000
+INSTRUCTION_LIMIT = 30000
 # in elooper:
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
@@ -81,7 +81,7 @@ INTERAL_SIZE : Final[int] = 256
 GNN_SAGE_PROJECT = False # rather experiment with different Convs
 GNN_SAGE_AGGREG = "mean"
 
-GNN_NUM_LAYERS : Final[int] = 10
+GNN_NUM_LAYERS : Final[int] = 8
 GNN_MULTIPLIER : Final[int] = 1
 GNN_INTERNAL_SIZE : Final[int] = 32
 
