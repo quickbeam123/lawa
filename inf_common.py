@@ -692,6 +692,8 @@ def trace_good_for_learning(trace_file_path,logfile=None):
   gage_h,gage_w = gage_stats(gnn_init_clause_nums,gage_infers)
   gweight_h,gweight_w = gweight_stats(gweight_terms)
 
+  kbSize = os.path.getsize(trace_file_path)//1024
+
   if logfile is not None:
     # if not num_good_selections:
     #  logfile.write(f"Dropping {trace_file_path} - no steps to learn from\n")
@@ -701,11 +703,14 @@ def trace_good_for_learning(trace_file_path,logfile=None):
       logfile.write(f"Dropping {trace_file_path} - exceeded MAX_GWEIGHT_HEIGHT with its {gweight_h}\n")
     if len(clause_simple_features) > HP.MAX_BOX_SIZE:
       logfile.write(f"Dropping {trace_file_path} - exceeded MAX_BOX_SIZE with its {len(clause_simple_features)}\n")
+    if kbSize > HP.MAX_KBSIZE:
+      logfile.write(f"Dropping {trace_file_path} - exceeded MAX_KBSIZE with its {kbSize}\n")
 
   if (num_good_selections
       and (not HP.USE_GAGE or gage_h <= HP.MAX_GAGE_HEIGHT)
       and (not HP.USE_GWEIGHT or gweight_h <= HP.MAX_GWEIGHT_HEIGHT)
-      and (len(clause_simple_features) <= HP.MAX_BOX_SIZE)):
+      and (len(clause_simple_features) <= HP.MAX_BOX_SIZE)
+      and kbSize <= HP.MAX_KBSIZE):
     torch.save((problem_features,clause_simple_features,newjournal,num_good_selections,
                 init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses),trace_file_path)
