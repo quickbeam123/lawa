@@ -8,7 +8,7 @@ import torch
 import warnings
 warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
 
-import os, sys, shutil, pickle, random, atexit, time
+import os, sys, shutil, pickle, random, atexit, time, subprocess
 
 from collections import defaultdict
 
@@ -75,6 +75,17 @@ if __name__ == "__main__":
                 if rate > 0.99:
                   total += 1
                   print("      ",i,prob,total,rate,vr)
+                  res = subprocess.run(["grep", "Rating", prob], stdout=subprocess.PIPE, text=True)
+                  output = res.stdout
+                  spl = output.split()
+                  assert spl[0] == "%"
+                  assert spl[1] == "Rating"
+                  assert spl[2] == ":"
+                  if len(spl) == 5:
+                      print("SHORT!")
+                  print(output)
+                  print(info[1])
+                  print(info[2])
 
       loop += update
 

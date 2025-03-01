@@ -112,6 +112,22 @@ if __name__ == "__main__":
 
   trace_index = torch.load(sys.argv[1])
 
-  for prob in trace_index.cur_problems():
+  max_size = 0
+  size_sum = 0
+  num_traces = 0
+
+  for prob,traces in trace_index.traces.items():
+    print(prob,traces)
+    assert len(traces) == 1
+    size = os.path.getsize(traces[0])
+    max_size = max(max_size,size)
+    size_sum += size
+    num_traces += 1
+    print("Ofsize:",size//1024,"KB")
+    """
     if trace_index.prob_scores[prob] <= 0:
       print(trace_index.prob_traces(prob)[0])
+    """
+  print("max_size",max_size//1024//1024,"MB")
+  print("avg_size",size_sum/num_traces//1024//1024,"MB")
+

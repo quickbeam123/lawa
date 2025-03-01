@@ -69,10 +69,17 @@ if __name__ == "__main__":
 
         fractional /= len(results.items())
 
+        """
+        for prob,runs in results.items():
+          for (i,info) in runs:
+            if info.status == None and info.instructions >= 10000:
+            print(prob,info)
+        """
+
         # print("     -> ",successes)
         for m in MISSIONS:
           if file.startswith(m):
-            plottables[m][0].append(loop)
+            plottables[m][0].append(loop-1) # TODO: remove this shit when done with plotting for the paper!
             plottables[m][1].append(fractional)
 
       loop += 1
@@ -80,20 +87,32 @@ if __name__ == "__main__":
     expers[exper_dir] = plottables
 
   import matplotlib.pyplot as plt
+  from matplotlib.ticker import MaxNLocator
 
-  fig, ax1 = plt.subplots(figsize=(8,6))
+  fig, ax1 = plt.subplots(figsize=(3.2,3))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
   common_prefix = os.path.commonprefix(list(expers.keys()))
+
+  REPLACE = {"/home/sudamar2/mtpa-gnn/newSplit30k":"base",
+             "/home/sudamar2/mtpa-gnn/newSplit30k-noImit": "noImit",
+             "/home/sudamar2/mtpa-gnn/newSplit30k-cumul-np5": "boost"}
 
   for exper_dir,plottables in expers.items():
     col = next(color_cycle)['color']
 
     for m,(Xs,Ys) in plottables.items():
       if Xs:
-        h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = exper_dir[len(common_prefix)-1:]+"_"+m, color=col)
-        handles.append(h)
+        print(exper_dir)
+        if exper_dir in REPLACE:
+          lab = REPLACE[exper_dir]
+        else:
+          lab = exper_dir[len(common_prefix)-1:]+"_"+m
+
+        h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = lab, color=col)
+        if m == "train":
+          handles.append(h)
 
         max_val,max_idx = (0.0,0)
         imax_val,imax_idx = (0.0,0)
@@ -107,6 +126,16 @@ if __name__ == "__main__":
 
         print(exper_dir,m,"max with",max_val,"at",max_idx)
         print("Also imax with",imax_val,"at",imax_idx)
+
+  # Apply integer-only ticks to X-axis
+  ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+  ax1.set_xlim(xmin=0,xmax=24)
+  ax1.set_ylim(ymin=0.45)
+  ax1.axhline(y=0.463, color='gray', linestyle='--', linewidth=0.5)
+
+  plt.xlabel("improvement loop iteration")
+  plt.ylabel(f"percentage problems proven")
 
   plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
   plt.savefig("{}_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")

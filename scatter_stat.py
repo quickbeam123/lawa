@@ -26,22 +26,52 @@ if __name__ == "__main__":
     probinfo = pickle.load(f)
 
   PLOT_WHATS = [(0,"height"),(1,"width")]
-  PLOT_WHAT = 0
+  PLOT_WHAT = 1
 
   stats = torch.load(sys.argv[1])
 
   Xs = []
   Ys = []
 
+  gage_height_sum = 0
+  gage_width_sum = 0
+  gage_height_max = 0
+  gweight_height_sum = 0
+  gweight_width_sum = 0
+  gweight_height_max = 0
+  count = 0
+
   for prob, records in stats.items():
     assert len(records) == 1
     gage_stats, gweight_stats = records[0]
 
-    if gage_stats[PLOT_WHATS[PLOT_WHAT][0]] > 500 or gweight_stats[PLOT_WHATS[PLOT_WHAT][0]] > 500:
+    gage_height = gage_stats[0]
+    gage_width = gage_stats[1]
+    gweight_height = gweight_stats[0]
+    gweight_width = gweight_stats[1]
+
+    gage_height_sum += gage_height
+    gage_width_sum += gage_width
+    gage_height_max = max(gage_height_max, gage_height)
+    gweight_height_sum += gweight_height
+    gweight_width_sum += gweight_width
+    gweight_height_max = max(gweight_height_max, gweight_height)
+    count += 1
+
+    if gage_stats[PLOT_WHATS[0][0]] > 500 or gweight_stats[PLOT_WHATS[0][0]] > 500:
       print(f"Skipping extreme {prob} with {(gage_stats, gweight_stats)}")
     else:
       Xs.append(gage_stats[PLOT_WHATS[PLOT_WHAT][0]])
       Ys.append(gweight_stats[PLOT_WHATS[PLOT_WHAT][0]])
+
+  print(f"gage_height_avg: {gage_height_sum/count}")
+  print(f"gage_width_avg: {gage_width_sum/count}")
+  print(f"gage_height_max: {gage_height_max}")
+  print(f"gweight_height_avg: {gweight_height_sum/count}")
+  print(f"gweight_width_avg: {gweight_width_sum/count}")
+  print(f"gweight_height_max: {gweight_height_max}")
+
+  exit(0)
 
   import matplotlib.pyplot as plt
 
