@@ -90,6 +90,7 @@ if __name__ == "__main__":
   from matplotlib.ticker import MaxNLocator
 
   fig, ax1 = plt.subplots(figsize=(3.2,3))
+  # fig, ax1 = plt.subplots(figsize=(5,4))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
@@ -97,7 +98,21 @@ if __name__ == "__main__":
 
   REPLACE = {"/home/sudamar2/mtpa-gnn/newSplit30k":"base",
              "/home/sudamar2/mtpa-gnn/newSplit30k-noImit": "noImit",
-             "/home/sudamar2/mtpa-gnn/newSplit30k-cumul-np5": "boost"}
+             "/home/sudamar2/mtpa-gnn/newSplit30k-cumul-np5": "boost",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul": "base10k",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-noGage": "noGage",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-noGweight": "noGweight",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-noSF": "noSF",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-justGage": "justGage",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-justGweight": "justGweight",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-justSF": "justSF",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-is128": "m=128",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-es48": "n=48",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-es16": "m=16",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl4": "k=4",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl8": "k=8",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl16": "k=16",
+             }
 
   for exper_dir,plottables in expers.items():
     col = next(color_cycle)['color']
@@ -131,8 +146,8 @@ if __name__ == "__main__":
   ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
 
   ax1.set_xlim(xmin=0,xmax=24)
-  ax1.set_ylim(ymin=0.45)
-  ax1.axhline(y=0.463, color='gray', linestyle='--', linewidth=0.5)
+  ax1.set_ylim(ymin=0.42,ymax=0.54)
+  ax1.axhline(y=0.435, color='gray', linestyle='--', linewidth=0.5)
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"percentage problems proven")

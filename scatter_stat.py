@@ -34,9 +34,11 @@ if __name__ == "__main__":
   Ys = []
 
   gage_height_sum = 0
+  gage_heights = []
   gage_width_sum = 0
   gage_height_max = 0
   gweight_height_sum = 0
+  gweight_heights = []
   gweight_width_sum = 0
   gweight_height_max = 0
   count = 0
@@ -49,6 +51,9 @@ if __name__ == "__main__":
     gage_width = gage_stats[1]
     gweight_height = gweight_stats[0]
     gweight_width = gweight_stats[1]
+
+    gage_heights.append(gage_height)
+    gweight_heights.append(gweight_height)
 
     gage_height_sum += gage_height
     gage_width_sum += gage_width
@@ -65,9 +70,11 @@ if __name__ == "__main__":
       Ys.append(gweight_stats[PLOT_WHATS[PLOT_WHAT][0]])
 
   print(f"gage_height_avg: {gage_height_sum/count}")
+  print(f"gage_height_median: {sorted(gage_heights)[len(gage_heights)//2]}")
   print(f"gage_width_avg: {gage_width_sum/count}")
   print(f"gage_height_max: {gage_height_max}")
   print(f"gweight_height_avg: {gweight_height_sum/count}")
+  print(f"gweight_height_median: {sorted(gweight_heights)[len(gweight_heights)//2]}")
   print(f"gweight_width_avg: {gweight_width_sum/count}")
   print(f"gweight_height_max: {gweight_height_max}")
 
