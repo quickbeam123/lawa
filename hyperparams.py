@@ -126,7 +126,8 @@ LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
 # should be use AVG (False) or the MAX (True) for picking, at each time moment, which good action to reinforce?
-GOOD_LOGIT_MAX : Final[bool] = False
+GOOD_LOGIT_MAX : Final[bool] = False # GOOD_LOGIT_MAX (nor MIN for that matter) seemed better than the default AVG (so we preach complete democracy in this regard in the paper)
+# also sticking with democracy in what regards the time stamp of the experience along the trace. But early and late decisions matter (similarly); at least so it seemed in one abandoned experiment
 
 # TODO: To be experimented with later
 DISCOUNT_FACTOR = 1.0
