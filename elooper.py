@@ -680,6 +680,10 @@ if __name__ == "__main__":
 
     # ===========================================================================
 
+    # don't run the full last loop - otherwise, we are training a model nobody will see evaluated
+    if loop_count == 0:
+      break
+
     # STAGE 2: alternate EVAL, TRAIN, EVAL until no longer improving
     print()
     sys.stdout.flush()
