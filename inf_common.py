@@ -142,7 +142,7 @@ class MonsterModules(torch.nn.Module):
     self.gage_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
-      # TODO: experiment with dropout?
+      torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
@@ -151,7 +151,7 @@ class MonsterModules(torch.nn.Module):
     self.gweight_term_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
-      # TODO: experiment with dropout?
+      torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     )
@@ -373,6 +373,8 @@ class MonsterNN(torch.nn.Module):
     if self.computing:
       for key,embedder in self.gnn_node_init:
         self.gnn_nodes[key] = embedder.forward(self.gnn_nodes[key]).relu()
+        if HP.GNN_DROPOUT > 0.0:
+          self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
 
       for layer in self.gnn_layers:
         out_dict: Dict[str, Tensor] = {}
@@ -387,6 +389,8 @@ class MonsterNN(torch.nn.Module):
 
         for key, out in out_dict.items():
           self.gnn_nodes[key] = out.relu()
+          if HP.GNN_DROPOUT > 0.0:
+            self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
           out_dict = {}
 
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use

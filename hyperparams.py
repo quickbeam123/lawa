@@ -86,11 +86,15 @@ GNN_NUM_LAYERS : Final[int] = 8
 GNN_MULTIPLIER : Final[int] = 1
 GNN_INTERNAL_SIZE : Final[int] = 32
 
+GNN_DROPOUT : Final[float] = 0.0
+
 NUM_INFERENCE_RULES : Final[int] = 205
 GAGE_EMBEDDING_SIZE : Final[int] = 32
 
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32
 GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
+
+TREE_DROPOUT : Final[float] = 0.1
 
 USE_PROBLEM_FEATURES : Final[bool] = False # True seemed slighly worse on TPTP (let;s not consider this part of the official architecture for now)
 USE_SIMPLE_FEATURES : Final[bool] = True
