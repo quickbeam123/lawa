@@ -234,6 +234,7 @@ def worker(q_in, q_out):
       except Exception as e:
         with open(f"exception{os.getpid()}.log", "w") as f:
           f.write(f"{e} occurred in EVAL\n")
+          f.write(f"(prob: {prob},fact {fact},trace_file_paths {trace_file_paths},model_file_path {model_file_path})")
         raise
 
       took = time.time()-eval_begin
@@ -276,6 +277,7 @@ def worker(q_in, q_out):
       except Exception as e:
         with open(f"exception{os.getpid()}.log", "w") as f:
           f.write(f"{e} occurred in TRAIN\n")
+          f.write(f"(prob: {prob},fact {fact},trace_file_paths {trace_file_paths},model_file_path {model_file_path})")
         raise
 
       # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
@@ -384,12 +386,14 @@ if __name__ == "__main__":
     load_dir = os.path.join(folder_with_prev_exper,f"loop{loop}")
 
     load_model = True
-    load_traces = False
+    load_traces_new = False
+    load_traces_old = False
     steal_script_model = False
 
     if len(sys.argv) > 6:
       load_model = "m" in sys.argv[6]
-      load_traces = "t" in sys.argv[6]
+      load_traces_new = "t" in sys.argv[6]
+      load_traces_old = "T" in sys.argv[6]
       steal_script_model = "s" in sys.argv[6]
 
     if load_model:
@@ -398,10 +402,15 @@ if __name__ == "__main__":
       model.load_state_dict(amodel_state_dict)
       optimizer.load_state_dict(anoptimizer_state_dict)
 
-    if load_traces:
+    if load_traces_new:
       trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
       skip_first_stage = True
       print("Starting from loop",loop,"and a half")
+      trace_index.report()
+
+    if load_traces_old:
+      trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop}"))
+      print("Starting from loop",loop)
       trace_index.report()
 
     if steal_script_model:
@@ -558,7 +567,6 @@ if __name__ == "__main__":
 
               yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
 
-      # new way makes per_prob_trace_cnt redundant, as we only collect one trace per problem (even with NUM_PERFORMS > 1)
       per_prob_trace_cnt = defaultdict(int)
       currently_solving = set()
 
@@ -569,7 +577,7 @@ if __name__ == "__main__":
           (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
           result_dicts[res_filename][prob].append((i,result))
 
-          if result.status == "uns" and gatherwish and prob not in currently_solving:
+          if result.status == "uns" and gatherwish and (HP.KEEP_ALL_TRACES or prob not in currently_solving):
             currently_solving.add(prob)
             counter = per_prob_trace_cnt[prob]
             per_prob_trace_cnt[prob] += 1
