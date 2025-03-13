@@ -79,7 +79,7 @@ if __name__ == "__main__":
         # print("     -> ",successes)
         for m in MISSIONS:
           if file.startswith(m):
-            plottables[m][0].append(loop-1) # TODO: remove this shit when done with plotting for the paper!
+            plottables[m][0].append(loop) # NOTE: add -1 here to get the plots starting at 0, like for CADE
             plottables[m][1].append(fractional)
 
       loop += 1
@@ -89,8 +89,8 @@ if __name__ == "__main__":
   import matplotlib.pyplot as plt
   from matplotlib.ticker import MaxNLocator
 
-  fig, ax1 = plt.subplots(figsize=(3.2,3))
-  # fig, ax1 = plt.subplots(figsize=(5,4))
+  # fig, ax1 = plt.subplots(figsize=(3.2,3))
+  fig, ax1 = plt.subplots(figsize=(6,5))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
@@ -145,9 +145,9 @@ if __name__ == "__main__":
   # Apply integer-only ticks to X-axis
   ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-  ax1.set_xlim(xmin=0,xmax=24)
-  ax1.set_ylim(ymin=0.42,ymax=0.54)
-  ax1.axhline(y=0.435, color='gray', linestyle='--', linewidth=0.5)
+  # ax1.set_xlim(xmin=0,xmax=24)
+  # ax1.set_ylim(ymin=0.42,ymax=0.54)
+  ax1.axhline(y=0.463, color='gray', linestyle='--', linewidth=0.5)
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"percentage problems proven")

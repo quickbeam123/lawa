@@ -112,6 +112,44 @@ if __name__ == "__main__":
 
   trace_index = torch.load(sys.argv[1])
 
+  if False:
+    print(trace_index.traces["Problems/SYN/SYN759-1.p"])
+    print(trace_index.prob_scores["Problems/SYN/SYN759-1.p"])
+
+    del trace_index.traces["Problems/SYN/SYN759-1.p"]
+
+    torch.save(trace_index, sys.argv[1])
+
+    exit(0)
+
+  if False:
+    tasks = []
+    for prob,traces in trace_index.traces.items():
+      for idx,trace in enumerate(traces):
+        tasks.append((trace,prob,idx))
+
+    def process_trace(task):
+      trace_path,prob,idx = task
+
+      ttuple = torch.load(trace_path)
+      # check if it's an int
+      if isinstance(ttuple[3], int):
+        pass
+        # print("Already processed",trace_path, prob, idx)
+      else:
+        trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_path, sys.stdout)
+        if not trace_kept:
+          print("Dropping trace", trace_path, prob, idx)
+          # delete the trace file:
+          os.remove(trace_path)
+
+    with multiprocessing.Pool(120) as pool:
+      pool.map(process_trace, tasks)
+
+    exit(0)
+
+
+
   max_size = 0
   size_sum = 0
   num_traces = 0
