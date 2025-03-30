@@ -82,7 +82,7 @@ INTERAL_SIZE : Final[int] = 256
 GNN_SAGE_PROJECT = False # rather experiment with different Convs
 GNN_SAGE_AGGREG = "mean"
 
-GNN_NUM_LAYERS : Final[int] = 8
+GNN_NUM_LAYERS : Final[int] = 5
 GNN_MULTIPLIER : Final[int] = 1
 GNN_INTERNAL_SIZE : Final[int] = 32
 
