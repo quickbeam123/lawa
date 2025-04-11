@@ -5,7 +5,7 @@ from typing import Final, List
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8868"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8899"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
@@ -20,7 +20,7 @@ IMITATE = True # should the first loop use the given clause selection heuristic?
 NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering
-INSTRUCTION_LIMIT = 30000
+INSTRUCTION_LIMIT = 10000
 # in elooper:
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
@@ -92,15 +92,16 @@ NUM_INFERENCE_RULES : Final[int] = 205
 GAGE_EMBEDDING_SIZE : Final[int] = 32
 
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32
-GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
+# GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
 
-TREE_DROPOUT : Final[float] = 0.1
+TREE_DROPOUT : Final[float] = 0.0 # maybe is good, but also contributes to higher variance (ingore by default)
 
-USE_PROBLEM_FEATURES : Final[bool] = False # True seemed slighly worse on TPTP (let;s not consider this part of the official architecture for now)
+USE_PROBLEM_FEATURES : Final[bool] = True # means they are fed to the final MLP; actually helps a bit
 USE_SIMPLE_FEATURES : Final[bool] = True
 USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
+FEED_PROBLEM_FEAUTURES_TO_GNN: Final[bool] = True # additionally feed these features already to the GNN
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 
