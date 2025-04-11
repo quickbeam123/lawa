@@ -423,6 +423,9 @@ class MonsterNN(torch.nn.Module):
         self.gage_embed_store[cl_num] = initial_clause_gage[i]
         self.gage_cl_layers[cl_num] = 0
 
+      # also initialized the variable embedding for terms
+      self.gweight_term_embed_store[0] = self.gweight_var_embed.forward(torch.tensor(0.0)) # the input will be ignored
+
       # TODO: could drop all the gnn stuff not needed anymore (hard to do in script?)
       '''
       empty_gnn_node_init: List[Tuple[str, torch.nn.modules.linear.Linear]] = []
@@ -505,7 +508,7 @@ class MonsterNN(torch.nn.Module):
       # layer_idx = 1+max(self.gweight_term_layers[a] for a in args if a >= 0)
       layer_idx = 0
       for a in args:
-        if a >= 0:
+        if a > 0:
           v = self.gweight_term_layers[a]
           if v > layer_idx:
             layer_idx = v
@@ -542,12 +545,6 @@ class MonsterNN(torch.nn.Module):
       self.gweight_clause_todo.append((cl_num,lits))
     '''
 
-  def get_subterm_embed(self,id: int) -> Tensor:
-    if id < 0:
-      return self.gweight_var_embed(torch.tensor([id % HP.GWEIGHT_NUM_VAR_EMBEDS]))[0]
-    else:
-      return self.gweight_term_embed_store[id]
-
   def gweight_embed_pending(self):
     # first like what gage does with clause, but here with terms
     for todos in self.gweight_todo_layers:
@@ -565,11 +562,11 @@ class MonsterNN(torch.nn.Module):
           first_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
           other_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
         else:
-          first_args.append(self.get_subterm_embed(args[0]))
+          first_args.append(self.gweight_term_embed_store[args[0]])
           if len(args) == 1:
             other_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
           else:
-            other_arg = torch.sum(torch.stack([self.get_subterm_embed(a) for a in args[1:]]),dim=0)/(len(args)-1)
+            other_arg = torch.sum(torch.stack([self.gweight_term_embed_store[a] for a in args[1:]]),dim=0)/(len(args)-1)
             other_args.append(other_arg)
 
       res = self.gweight_term_combine(torch.cat((torch.stack(functors), torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
@@ -665,7 +662,7 @@ def gweight_stats(terms):
     if args:
       layer_idx = 0
       for a in args:
-        if a >= 0:
+        if a > 0:
           v = term_layers[a]
           if v > layer_idx:
             layer_idx = v
