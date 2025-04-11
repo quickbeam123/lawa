@@ -97,6 +97,14 @@ def get_conv():
       project=HP.GNN_SAGE_PROJECT,    # extra non-lineary before aggregating
       bias=True)        # and why not add a bias before the relu that's about to come?
 
+class SingleEmbedding(torch.nn.Module):
+    def __init__(self, embedding_dim):
+        super().__init__()
+        self.embedding = torch.nn.Parameter(torch.randn(embedding_dim))  # Learnable vector
+
+    def forward(self,input):
+        return self.embedding  # Return the stored embedding directly
+
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work
 
@@ -109,7 +117,9 @@ class MonsterModules(torch.nn.Module):
                 ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
                 ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
 
-    self.gnn_clause_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
+    self.gnn_clause_final = torch.nn.Sequential(
+        torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
+        torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE))
     self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
@@ -147,7 +157,13 @@ class MonsterModules(torch.nn.Module):
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
 
-    self.gweight_var_embed = torch.nn.Embedding(num_embeddings=HP.GWEIGHT_NUM_VAR_EMBEDS, embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
+    # TODO: the var embed is LayerNormalized, so that it "lives in the same space as the other term embeddings"
+    # self.gweight_var_embed = torch.nn.Sequential(
+    #    SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE),
+    #    torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE))
+    # so far was unstable?
+    self.gweight_var_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
+
     self.gweight_term_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
