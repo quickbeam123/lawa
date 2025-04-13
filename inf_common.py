@@ -111,11 +111,13 @@ class MonsterModules(torch.nn.Module):
   def __init__(self):
     super().__init__()
 
-    self.gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
-                ("symbol",  torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
+    adding_problem_features = HP.NUM_PROBLEM_FEATURES if HP.FEED_PROBLEM_FEAUTURES_TO_GNN else 0
+
+    self.gnn_node_init = [("sort",  torch.nn.Linear(3+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
+                ("symbol",  torch.nn.Linear(11+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
+                ("clause", torch.nn.Linear(10+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
+                ("term", torch.nn.Linear(10+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
+                ("var", torch.nn.Linear(1+adding_problem_features,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
 
     self.gnn_clause_final = torch.nn.Sequential(
         torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
@@ -356,8 +358,7 @@ class MonsterNN(torch.nn.Module):
 
   @torch.jit.export
   def set_problem_features(self, features: Tensor):
-    if self.recording:
-      self.problem_features = features.clone()
+    self.problem_features = features.clone()
 
     if self.computing:
       with torch.no_grad():
@@ -388,7 +389,13 @@ class MonsterNN(torch.nn.Module):
 
     if self.computing:
       for key,embedder in self.gnn_node_init:
-        self.gnn_nodes[key] = embedder.forward(self.gnn_nodes[key]).relu()
+        node_features = self.gnn_nodes[key]
+
+        if HP.FEED_PROBLEM_FEAUTURES_TO_GNN:
+          problem_features_expanded = self.problem_features.unsqueeze(0).expand(node_features.size(0), -1)
+          node_features = torch.cat((node_features,problem_features_expanded),dim=1)
+
+        self.gnn_nodes[key] = embedder.forward(node_features).relu()
         if HP.GNN_DROPOUT > 0.0:
           self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
 
@@ -759,6 +766,9 @@ class LearningModel(torch.nn.Module):
 
     self.nn.computing = True
     self.nn.old_computing = True # some parts are otherwise skipped (as outsourced to cpp)
+
+    self.nn.problem_features = problem_features # not calling set_problem_features (that's only from Vampire)
+
     if HP.USE_GAGE or HP.USE_GWEIGHT:
       self.nn.gnn_nodes = init_gnn_nodes
       self.nn.gnn_edges = gnn_edges
