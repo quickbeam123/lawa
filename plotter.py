@@ -123,7 +123,7 @@ if __name__ == "__main__":
         if exper_dir in REPLACE:
           lab = REPLACE[exper_dir]
         else:
-          lab = exper_dir[len(common_prefix)-1:]+"_"+m
+          lab = exper_dir[len(common_prefix)-2:]+"_"+m
 
         h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = lab, color=col)
         if m == "train":
