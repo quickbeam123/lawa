@@ -2,6 +2,29 @@
 
 from typing import Final, List
 
+SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
+                    "../snake/mtpa2025/evals74",
+                    "../snake/mtpa2025/evals79",
+                    "../snake/mtpa2025/evals_2",
+                    "../snake/mtpa2025/evals74_2",
+                    "../snake/mtpa2025/evals79_2",
+                    "../snake/mtpa2025/evals74_3",
+                    "../snake/mtpa2025/evals79_3",
+                    "../snake/mtpa2025/evals74_4",
+                    "../snake/mtpa2025/evals79_4",
+                    "../snake/mtpa2025/evals79_5"]
+
+SNAKE_SORT_BY_INSTR: Final[bool] = True # instead of random strat, let's prefer strats that solve the problem fastests
+SNAKE_MAX_TRACES_PER_PROBLEM = 1
+# don't even try to look for a solution that originally took longer than this
+SNAKE_MAX_INSTRUCTIONS = 100000
+
+SNAKE_MAX_FAULS = 5 # how many strategies to try per problem, if they seem to be failing for "Too big or trivial" reason
+SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and the last one will be unshuffled)
+
+
+
+
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
