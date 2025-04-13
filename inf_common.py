@@ -158,6 +158,11 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
+    self.gage_problem_feeder = torch.nn.Sequential(
+      torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
+    )
 
     # TODO: the var embed is LayerNormalized, so that it "lives in the same space as the other term embeddings"
     # self.gweight_var_embed = torch.nn.Sequential(
@@ -172,6 +177,11 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
+    )
+    self.gweight_problem_feeder = torch.nn.Sequential(
+      torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     )
 
     self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
@@ -225,6 +235,8 @@ class MonsterNN(torch.nn.Module):
   gage_cur_base_layer: int
   gage_todo_layers: list[list[Tuple[int,int,list[int]]]]
 
+  gage_problem_tweak: Tensor
+
   # gweight modules
   # gweight_var_embed:
   # gweight_term_combine:
@@ -243,11 +255,13 @@ class MonsterNN(torch.nn.Module):
   gweight_clause_todo: List[Tuple[int,list[int]]]
   gweight_clause_embeds: Dict[int,Tensor]
 
+  gweight_problem_tweak: Tensor
+
   def __init__(self,
               problem_embedder, clause_embedder, clause_valuator,
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,
-              gage_rule_embed, gage_combine,
-              gweight_var_embed, gweight_term_combine
+              gage_rule_embed, gage_combine, gage_problem_feeder,
+              gweight_var_embed, gweight_term_combine, gweight_problem_feeder
               ):
     super().__init__()
 
@@ -288,9 +302,11 @@ class MonsterNN(torch.nn.Module):
     # modules
     self.gage_rule_embed = gage_rule_embed
     self.gage_combine = gage_combine
+    self.gage_problem_feeder = gage_problem_feeder
 
     # records
     self.gage_infers = []
+    self.gage_problem_tweak = torch.zeros(HP.GAGE_EMBEDDING_SIZE) # dummy, overwritten by set_problem_features
 
     # helpers
     self.gage_embed_store = {}
@@ -301,10 +317,12 @@ class MonsterNN(torch.nn.Module):
     # modules
     self.gweight_var_embed = gweight_var_embed
     self.gweight_term_combine = gweight_term_combine
+    self.gweight_problem_feeder = gweight_problem_feeder
 
     # records
     self.gweight_terms = []
     self.gweight_clauses = []
+    self.gweight_problem_tweak = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE) # dummy, overwritten by set_problem_features
 
     # helpers
     self.gweight_symbol_embeds = torch.zeros(0) # dummy, overwritten by gnn_perform
@@ -359,6 +377,18 @@ class MonsterNN(torch.nn.Module):
   @torch.jit.export
   def set_problem_features(self, features: Tensor):
     self.problem_features = features.clone()
+
+    if HP.USE_GAGE and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
+      self.gage_problem_tweak = self.gage_problem_feeder.forward(features)
+    else:
+      pass # no need, this is how it's initialized
+      # self.gage_problem_tweak = torch.zeros(HP.GAGE_EMBEDDING_SIZE)
+
+    if HP.USE_GWEIGHT and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
+      self.gweight_problem_tweak = self.gweight_problem_feeder.forward(features)
+    else:
+      pass # no need, this is how it's initialized
+      # self.gweight_problem_tweak = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE)
 
     if self.computing:
       with torch.no_grad():
@@ -419,6 +449,8 @@ class MonsterNN(torch.nn.Module):
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
 
       initial_clause_gage = self.gnn_clause_final.forward(self.gnn_nodes["clause"])
+      initial_clause_gage += self.gage_problem_tweak # broadcasting for every inital clause
+
       self.gweight_symbol_embeds = torch.cat(
         (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
 
@@ -511,6 +543,7 @@ class MonsterNN(torch.nn.Module):
       mainPremEbeds = torch.stack(mainPrems)
       otherPremEbeds = torch.stack(otherPrems)
       res = self.gage_combine(torch.cat((ruleEbeds, mainPremEbeds, otherPremEbeds), dim=1))
+      res += self.gage_problem_tweak # broadcasting for every line in res
       for j,(clNum,_,_) in enumerate(todos):
         self.gage_embed_store[clNum] = res[j]
 
@@ -585,6 +618,7 @@ class MonsterNN(torch.nn.Module):
             other_args.append(other_arg)
 
       res = self.gweight_term_combine(torch.cat((torch.stack(functors), torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
+      res += self.gweight_problem_tweak # broadcasting for every line in res
       for j,(id,_,_,_) in enumerate(todos):
         self.gweight_term_embed_store[id] = res[j]
 
@@ -648,8 +682,8 @@ def export_model(model_state_dict,name):
 
   module = MonsterNN(m.problem_embedder,m.clause_embedder,m.clause_valuator,
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,
-                    m.gage_rule_embed,m.gage_combine,
-                    m.gweight_var_embed,m.gweight_term_combine)
+                    m.gage_rule_embed,m.gage_combine,m.gage_problem_feeder,
+                    m.gweight_var_embed,m.gweight_term_combine,m.gweight_problem_feeder)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -765,8 +799,8 @@ class LearningModel(torch.nn.Module):
     self.trace_tuple = trace_tuple
     self.nn = MonsterNN(m.problem_embedder,m.clause_embedder,m.clause_valuator,
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,
-                    m.gage_rule_embed,m.gage_combine,
-                    m.gweight_var_embed,m.gweight_term_combine)
+                    m.gage_rule_embed,m.gage_combine,m.gage_problem_feeder,
+                    m.gweight_var_embed,m.gweight_term_combine,m.gweight_problem_feeder)
     self.verbose = verbose
     if verbose:
       print("Got verbose")
@@ -780,6 +814,11 @@ class LearningModel(torch.nn.Module):
     self.nn.old_computing = True # some parts are otherwise skipped (as outsourced to cpp)
 
     self.nn.problem_features = problem_features # not calling set_problem_features (that's only from Vampire)
+    # although we could make sure we unify this more!
+    if HP.USE_GAGE and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
+      self.nn.gage_problem_tweak = self.nn.gage_problem_feeder.forward(problem_features)
+    if HP.USE_GWEIGHT and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
+      self.nn.gweight_problem_tweak = self.nn.gweight_problem_feeder.forward(problem_features)
 
     if HP.USE_GAGE or HP.USE_GWEIGHT:
       self.nn.gnn_nodes = init_gnn_nodes
