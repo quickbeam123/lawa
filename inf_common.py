@@ -461,7 +461,11 @@ class MonsterNN(torch.nn.Module):
                 self.gage_infers,self.gweight_terms,self.gweight_clauses),filename)
 
   def gage_enqueue_one(self,cl_num: int, inf_rule: int, parents: list[int]):
-    layer_idx = max(1+max(self.gage_cl_layers[p] for p in parents),self.gage_cur_base_layer)
+    if parents:
+      layer_idx = max(1+max(self.gage_cl_layers[p] for p in parents),self.gage_cur_base_layer)
+    else:
+      # for inference rules without parents (such as "function definition" introduction)
+      layer_idx = self.gage_cur_base_layer
     # index (counting from 0 with the initials) where cl_num could (and will) be derived
     self.gage_cl_layers[cl_num] = layer_idx
 
@@ -490,15 +494,19 @@ class MonsterNN(torch.nn.Module):
       otherPrems = []
       for clNum,infRule,parents in todos:
         ruleIdxs.append(infRule)
-        mainPrems.append(self.gage_embed_store[parents[0]])
-        if len(parents) == 1:
+        if len(parents) == 0:
+          mainPrems.append(torch.zeros(HP.GAGE_EMBEDDING_SIZE))
           otherPrems.append(torch.zeros(HP.GAGE_EMBEDDING_SIZE))
-        elif len(parents) == 2:
-          otherPrems.append(self.gage_embed_store[parents[1]])
         else:
-          # this would work even in the binary case, but let's not invoke the monster if we don't need to
-          otherPrem = torch.sum(torch.stack([self.gage_embed_store[parents[p]] for p in parents[1:]]),dim=0)/(len(parents)-1)
-          otherPrems.append(otherPrem)
+          mainPrems.append(self.gage_embed_store[parents[0]])
+          if len(parents) == 1:
+            otherPrems.append(torch.zeros(HP.GAGE_EMBEDDING_SIZE))
+          elif len(parents) == 2:
+            otherPrems.append(self.gage_embed_store[parents[1]])
+          else:
+            # this would work even in the binary case, but let's not invoke the monster if we don't need to
+            otherPrem = torch.sum(torch.stack([self.gage_embed_store[p] for p in parents[1:]]),dim=0)/(len(parents)-1)
+            otherPrems.append(otherPrem)
       ruleEbeds = self.gage_rule_embed(torch.tensor(ruleIdxs))
       mainPremEbeds = torch.stack(mainPrems)
       otherPremEbeds = torch.stack(otherPrems)
@@ -652,8 +660,12 @@ def gage_stats(init_clases,infers):
   widths = defaultdict(int)
   cl_layers = { cl_num:0 for cl_num in init_clases }
   widths[0] = len(init_clases)
-  for (cl_num,_inf_rule,parents) in infers:
-    layer_idx = 1+max(cl_layers[p] for p in parents)
+  for (cl_num,inf_rule,parents) in infers:
+    if parents:
+      layer_idx = 1+max(cl_layers[p] for p in parents)
+    else:
+      # print(inf_rule)
+      layer_idx = 0
     cl_layers[cl_num] = layer_idx
     widths[layer_idx] += 1
   # print("gage_stats",widths)
