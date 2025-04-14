@@ -509,11 +509,12 @@ class MonsterNN(torch.nn.Module):
                 self.gage_infers,self.gweight_terms,self.gweight_clauses),filename)
 
   def gage_enqueue_one(self,cl_num: int, inf_rule: int, parents: list[int]):
-    if parents:
-      layer_idx = max(1+max(self.gage_cl_layers[p] for p in parents),self.gage_cur_base_layer)
-    else:
-      # for inference rules without parents (such as "function definition" introduction)
-      layer_idx = self.gage_cur_base_layer
+    layer_idx = 0
+    for p in parents:
+      layer_idx = max(layer_idx,self.gage_cl_layers[p])
+    layer_idx += 1
+    layer_idx = max(layer_idx,self.gage_cur_base_layer)
+
     # index (counting from 0 with the initials) where cl_num could (and will) be derived
     self.gage_cl_layers[cl_num] = layer_idx
 
@@ -568,17 +569,11 @@ class MonsterNN(torch.nn.Module):
     self.gage_todo_layers = empty_todo_layers
 
   def gweight_enqueue_one_term(self,id: int, functor: int, sign: float, args: list[int]):
-    if args:
-      # layer_idx = 1+max(self.gweight_term_layers[a] for a in args if a >= 0)
-      layer_idx = 0
-      for a in args:
-        if a > 0:
-          v = self.gweight_term_layers[a]
-          if v > layer_idx:
-            layer_idx = v
-      layer_idx += 1
-    else:
-      layer_idx = 0
+    layer_idx = 0
+    for a in args:
+      if a > 0:
+        layer_idx = max(layer_idx,self.gweight_term_layers[a])
+    layer_idx += 1
     layer_idx = max(layer_idx,self.gweight_cur_base_layer)
 
     self.gweight_term_layers[id] = layer_idx
@@ -711,11 +706,11 @@ def gage_stats(init_clases,infers):
   cl_layers = { cl_num:0 for cl_num in init_clases }
   widths[0] = len(init_clases)
   for (cl_num,inf_rule,parents) in infers:
-    if parents:
-      layer_idx = 1+max(cl_layers[p] for p in parents)
-    else:
-      # print(inf_rule)
-      layer_idx = 0
+    layer_idx = 0
+    for p in parents:
+      layer_idx = max(layer_idx,cl_layers[p])
+    layer_idx += 1
+
     cl_layers[cl_num] = layer_idx
     widths[layer_idx] += 1
   # print("gage_stats",widths)
@@ -728,16 +723,11 @@ def gweight_stats(terms):
   widths = defaultdict(int)
   term_layers = {}
   for (id,_functor,_sign,args) in terms:
-    if args:
-      layer_idx = 0
-      for a in args:
-        if a > 0:
-          v = term_layers[a]
-          if v > layer_idx:
-            layer_idx = v
-      layer_idx += 1
-    else:
-      layer_idx = 0
+    layer_idx = 0
+    for a in args:
+      if a > 0:
+        layer_idx = max(layer_idx,term_layers[a])
+    layer_idx += 1
     term_layers[id] = layer_idx
     widths[layer_idx] += 1
   # print("gweight_stats",widths)
