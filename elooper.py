@@ -246,6 +246,7 @@ def worker(q_in, q_out):
       q_out.put((job_kind,input,fact*loss.item()))
 
       del loss
+      del trace_tuples
       del learn_model
       del local_model
       gc.collect()  # Force garbage collection
@@ -300,6 +301,7 @@ def worker(q_in, q_out):
       q_out.put((job_kind,input,fact*loss.item()))
 
       del loss
+      del trace_tuples
       del learn_model
       del local_model
       gc.collect()  # Force garbage collection
