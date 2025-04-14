@@ -28,7 +28,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8902"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8904"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
@@ -95,6 +95,8 @@ MAX_TEST_IMPROVE_ITER = 30
 NUM_CLAUSE_FEATURES : Final[int] = 12
 # todo: think of normalization / regularization ...
 
+# these two together are the STATIC features for a particular vampire run
+NUM_STRATEGY_FEATURES : Final[int] = 0
 NUM_PROBLEM_FEATURES : Final[int] = 15
 
 # Architecture
@@ -107,7 +109,7 @@ GNN_SAGE_AGGREG = "mean"
 
 GNN_NUM_LAYERS : Final[int] = 5
 GNN_MULTIPLIER : Final[int] = 1
-GNN_INTERNAL_SIZE : Final[int] = 32
+GNN_INTERNAL_SIZE : Final[int] = 32 # TODO: did I experiment with this at all?
 
 GNN_DROPOUT : Final[float] = 0.0
 
@@ -119,13 +121,19 @@ GWEIGHT_EMBEDDING_SIZE : Final[int] = 32
 
 TREE_DROPOUT : Final[float] = 0.0 # maybe is good, but also contributes to higher variance (ingore by default)
 
-USE_PROBLEM_FEATURES : Final[bool] = True # means they are fed to the final MLP; actually helps a bit
 USE_SIMPLE_FEATURES : Final[bool] = True
 USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
-FEED_PROBLEM_FEAUTURES_TO_GNN: Final[bool] = True # additionally feed these features already to the GNN
-FEED_PROBLEM_FEAUTURES_TO_THE_TREES: Final[bool] = True
+# these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
+USE_STRATEGY_FEATURES : Final[bool] = False
+USE_PROBLEM_FEATURES : Final[bool] = False
+
+# this is the main flag for STATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
+USE_STATIC_FEATURES : Final[bool] = False
+FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
+FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
+FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
 

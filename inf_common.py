@@ -78,15 +78,6 @@ def vampire_perfrom(prob,opts):
   # print(status,instructions,activations)
   return VampResult(status,instructions,activations,nn_warmup,nn_gnn,nn_bulks)
 
-def get_clause_valuator():
-  layer_list = [torch.nn.ReLU()]
-  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
-    layer_list.append(torch.nn.ReLU())
-  layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
-
-  return torch.nn.Sequential(*layer_list)
-
 def get_conv():
   return torch_geometric.nn.SAGEConv(
       (HP.GNN_INTERNAL_SIZE,HP.GNN_INTERNAL_SIZE),
@@ -105,25 +96,45 @@ class SingleEmbedding(torch.nn.Module):
     def forward(self,input):
         return self.embedding  # Return the stored embedding directly
 
+CLAUSE_EMBEDDER_INPUT_SIZE = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIMPLE_FEATURES else 0)
+                            + (HP.GAGE_EMBEDDING_SIZE if HP.USE_GAGE else 0)
+                            + (HP.GWEIGHT_EMBEDDING_SIZE if HP.USE_GWEIGHT else 0))
+
+def get_clause_valuator():
+  layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE),torch.nn.ReLU()]
+
+  # so far, we never used multiple layers here
+  for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
+    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
+    layer_list.append(torch.nn.ReLU())
+
+  layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
+
+  return torch.nn.Sequential(*layer_list)
+
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work
 
   def __init__(self):
     super().__init__()
 
-    adding_problem_features = HP.NUM_PROBLEM_FEATURES if HP.FEED_PROBLEM_FEAUTURES_TO_GNN else 0
-
-    self.gnn_node_init = [("sort",  torch.nn.Linear(3+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
-                ("symbol",  torch.nn.Linear(11+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
-                ("clause", torch.nn.Linear(10+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
-                ("term", torch.nn.Linear(10+adding_problem_features,HP.GNN_INTERNAL_SIZE)),
-                ("var", torch.nn.Linear(1+adding_problem_features,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
+    self.gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
+                ("symbol",  torch.nn.Linear(11,HP.GNN_INTERNAL_SIZE)),
+                ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
 
     self.gnn_clause_final = torch.nn.Sequential(
         torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
         torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE))
     self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
+
+    self.gnn_static_embedder = torch.nn.Sequential(
+      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GNN_INTERNAL_SIZE),
+    )
 
     nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
 
@@ -158,17 +169,15 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
-    self.gage_problem_feeder = torch.nn.Sequential(
-      torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+    self.gage_static_embedder = torch.nn.Sequential(
+      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
     )
 
-    # TODO: the var embed is LayerNormalized, so that it "lives in the same space as the other term embeddings"
-    # self.gweight_var_embed = torch.nn.Sequential(
-    #    SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE),
-    #    torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE))
-    # so far was unstable?
+    # TODO: should the var embed be LayerNormalized, so that it "lives in the same space as the other term embeddings"?
+    # first attempt to do this was unstable in training
+    # - now we don't do it, but also don't try to add static features to this var embedding (just let it stay weird)
     self.gweight_var_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
 
     self.gweight_term_combine = torch.nn.Sequential(
@@ -178,41 +187,43 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     )
-    self.gweight_problem_feeder = torch.nn.Sequential(
-      torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+    self.gweight_static_embedder = torch.nn.Sequential(
+      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     )
 
-    self.problem_embedder = torch.nn.Linear(HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE,bias=False)
-
-    clause_embbeder_input_size = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIMPLE_FEATURES else 0)
-                                + (HP.GAGE_EMBEDDING_SIZE if HP.USE_GAGE else 0)
-                                + (HP.GWEIGHT_EMBEDDING_SIZE if HP.USE_GWEIGHT else 0))
-
-    self.clause_embedder = torch.nn.Linear(clause_embbeder_input_size,HP.INTERAL_SIZE)
+    self.final_static_embedder = torch.nn.Sequential(
+      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.ReLU(),
+      torch.nn.Linear(HP.INTERAL_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE)
+    )
     self.clause_valuator = get_clause_valuator()
+
 
 def get_initial_model():
   return MonsterModules()
 
 class MonsterNN(torch.nn.Module):
   # good old simple feature stuff - modules
-  # problem_embedder: torch.nn.Module
+  # final_static_embedder: torch.nn.Module
   # clause_embedder: torch.nn.Module
   # clause_valuator: torch.nn.Module
 
   # good old simple feature stuff - records
-  problem_features: Tensor
+  static_features: Tensor
   clause_simple_features: Dict[int,Tensor]
   journal: List[Tuple[int,int]]
   # proof_units: List[int] # no need to store here, just dump them to file
+
+  final_static_tweak: Tensor
 
   # gnn "modules"
   gnn_node_init: List[Tuple[str,torch.nn.modules.linear.Linear]]
   gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]]
   # gnn_clause_final: torch.nn.Module
   # gnn_symbol_final: torch.nn.Module
+  # gnn_static_embedder: torch.nn.Module
 
   # gnn records
   init_gnn_nodes: Dict[str,Tensor]
@@ -222,9 +233,12 @@ class MonsterNN(torch.nn.Module):
   # gnn helper data
   gnn_nodes: Dict[str,Tensor]
 
+  gnn_static_tweak: Tensor
+
   # gage modules
   # gage_rule_embed: torch.nn.Module
   # gage_combine: torch.nn.Module
+  # gage_static_embedder: torch.nn.Module
 
   # gage records
   gage_infers: list[Tuple[int,int,list[int]]]
@@ -235,11 +249,12 @@ class MonsterNN(torch.nn.Module):
   gage_cur_base_layer: int
   gage_todo_layers: list[list[Tuple[int,int,list[int]]]]
 
-  gage_problem_tweak: Tensor
+  gage_static_tweak: Tensor
 
   # gweight modules
-  # gweight_var_embed:
-  # gweight_term_combine:
+  # gweight_var_embed: SingleEmbedding
+  # gweight_term_combine: torch.nn.Module
+  # gweight_static_embedder: torch.nn.Module
 
   # gweight records
   gweight_terms: List[Tuple[int,int,float,list[int]]]
@@ -255,14 +270,13 @@ class MonsterNN(torch.nn.Module):
   gweight_clause_todo: List[Tuple[int,list[int]]]
   gweight_clause_embeds: Dict[int,Tensor]
 
-  gweight_problem_tweak: Tensor
+  gweight_static_tweak: Tensor
 
   def __init__(self,
-              problem_embedder, clause_embedder, clause_valuator,
-              gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,
-              gage_rule_embed, gage_combine, gage_problem_feeder,
-              gweight_var_embed, gweight_term_combine, gweight_problem_feeder
-              ):
+              gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
+              gage_rule_embed, gage_combine, gage_static_embedder,
+              gweight_var_embed, gweight_term_combine, gweight_static_embedder,
+              final_static_embedder, clause_valuator):
     super().__init__()
 
     self.recording = False
@@ -275,38 +289,29 @@ class MonsterNN(torch.nn.Module):
     self.dummy = torch_geometric.nn.SAGEConv((1,1),1)
     self.dummy2 = torch.nn.Linear(1,1)
 
-    # modules
-    self.problem_embedder = problem_embedder
-    self.clause_embedder = clause_embedder
-    self.clause_valuator = clause_valuator
-
-    # records
-    self.problem_features = torch.zeros(0) # dummy, overwritten by set_problem_features
-    self.clause_simple_features = {} # filled up gradually, only when recording
-    self.journal = [] # filled up gradually, only when recording
-    self.proof_units = []
-
     # modules-like
     self.gnn_node_init = gnn_node_init
     self.gnn_layers = gnn_layers
     self.gnn_clause_final = gnn_clause_final
     self.gnn_symbol_final = gnn_symbol_final
     self.gnn_sort_final = gnn_sort_final
+    self.gnn_static_embedder = gnn_static_embedder
 
     # records
     self.init_gnn_nodes = {}
     self.gnn_nodes = {}
     self.gnn_edges = []
     self.gnn_init_clause_nums = [] # will be set from Vampire later anyway
+    self.gnn_static_tweak = torch.zeros(HP.GNN_INTERNAL_SIZE) # dummy, overwritten by set_static_features
 
     # modules
     self.gage_rule_embed = gage_rule_embed
     self.gage_combine = gage_combine
-    self.gage_problem_feeder = gage_problem_feeder
+    self.gage_problem_feeder = gage_static_embedder
 
     # records
     self.gage_infers = []
-    self.gage_problem_tweak = torch.zeros(HP.GAGE_EMBEDDING_SIZE) # dummy, overwritten by set_problem_features
+    self.gage_static_tweak = torch.zeros(HP.GAGE_EMBEDDING_SIZE) # dummy, overwritten by set_static_features
 
     # helpers
     self.gage_embed_store = {}
@@ -317,12 +322,12 @@ class MonsterNN(torch.nn.Module):
     # modules
     self.gweight_var_embed = gweight_var_embed
     self.gweight_term_combine = gweight_term_combine
-    self.gweight_problem_feeder = gweight_problem_feeder
+    self.gweight_static_embedder = gweight_static_embedder
 
     # records
     self.gweight_terms = []
     self.gweight_clauses = []
-    self.gweight_problem_tweak = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE) # dummy, overwritten by set_problem_features
+    self.gweight_static_tweak = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE) # dummy, overwritten by set_static_features
 
     # helpers
     self.gweight_symbol_embeds = torch.zeros(0) # dummy, overwritten by gnn_perform
@@ -333,6 +338,18 @@ class MonsterNN(torch.nn.Module):
 
     self.gweight_clause_todo = []
     self.gweight_clause_embeds = {}
+
+    # modules
+    self.final_static_embedder = final_static_embedder
+    self.clause_valuator = clause_valuator
+
+    # records
+    self.static_features = torch.zeros(0) # dummy, overwritten by set_static_features
+    self.clause_simple_features = {} # filled up gradually, only when recording
+    self.journal = [] # filled up gradually, only when recording
+    self.proof_units = []
+    self.final_static_tweak = torch.zeros(CLAUSE_EMBEDDER_INPUT_SIZE) # dummy, overwritten by set_static_features
+
 
   @torch.jit.export
   def use_problem_features(self) -> bool:
@@ -375,24 +392,29 @@ class MonsterNN(torch.nn.Module):
     self.computing = True
 
   @torch.jit.export
-  def set_problem_features(self, features: Tensor):
-    self.problem_features = features.clone()
-
-    if HP.USE_GAGE and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
-      self.gage_problem_tweak = self.gage_problem_feeder.forward(features)
-    else:
-      pass # no need, this is how it's initialized
-      # self.gage_problem_tweak = torch.zeros(HP.GAGE_EMBEDDING_SIZE)
-
-    if HP.USE_GWEIGHT and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
-      self.gweight_problem_tweak = self.gweight_problem_feeder.forward(features)
-    else:
-      pass # no need, this is how it's initialized
-      # self.gweight_problem_tweak = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE)
+  def set_static_features(self, features: Tensor):
+    if self.recording:
+      self.static_features = features.clone()
 
     if self.computing:
-      with torch.no_grad():
-        self.clause_embedder.bias.add_(self.problem_embedder(features))
+      if (HP.USE_GAGE or HP.USE_GWEIGHT) and HP.FEED_STATIC_FEAUTURES_TO_GNN:
+        self.gnn_static_tweak = self.gnn_static_embedder(features)
+
+      if HP.USE_GAGE and HP.FEED_STATIC_FEAUTURES_TO_THE_TREES:
+        self.gage_static_tweak = self.gage_problem_feeder.forward(features)
+
+      if HP.USE_GWEIGHT and HP.FEED_STATIC_FEAUTURES_TO_THE_TREES:
+        self.gweight_static_tweak = self.gweight_static_embedder.forward(features)
+
+      if HP.FEED_STATIC_FEATURES_FINAL_MLP:
+        self.final_static_tweak = self.final_static_embedder.forward(features)
+
+    """
+    print("set_static_features - gnn_static_tweak",self.gnn_static_tweak)
+    print("set_static_features - gage_static_twea",self.gage_static_tweak)
+    print("set_static_features - gweight_static_tweak",self.gweight_static_tweak)
+    print("set_static_features - final_static_tweak",self.final_static_tweak)
+    """
 
   @torch.jit.export
   def gnn_node_kind(self,what: str,features: Tensor):
@@ -419,13 +441,7 @@ class MonsterNN(torch.nn.Module):
 
     if self.computing:
       for key,embedder in self.gnn_node_init:
-        node_features = self.gnn_nodes[key]
-
-        if HP.FEED_PROBLEM_FEAUTURES_TO_GNN:
-          problem_features_expanded = self.problem_features.unsqueeze(0).expand(node_features.size(0), -1)
-          node_features = torch.cat((node_features,problem_features_expanded),dim=1)
-
-        self.gnn_nodes[key] = embedder.forward(node_features).relu()
+        self.gnn_nodes[key] = embedder.forward(self.gnn_nodes[key]).relu() + self.gnn_static_tweak # broadcasting to every embedded node
         if HP.GNN_DROPOUT > 0.0:
           self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
 
@@ -449,7 +465,7 @@ class MonsterNN(torch.nn.Module):
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
 
       initial_clause_gage = self.gnn_clause_final.forward(self.gnn_nodes["clause"])
-      initial_clause_gage += self.gage_problem_tweak # broadcasting for every inital clause
+      initial_clause_gage += self.gage_static_tweak # broadcasting for every inital clause
 
       self.gweight_symbol_embeds = torch.cat(
         (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
@@ -488,7 +504,7 @@ class MonsterNN(torch.nn.Module):
     # does not really matter, just save them below
     # self.proof_units = proof_units
 
-    torch.save((self.problem_features,self.clause_simple_features,self.journal,proof_units,
+    torch.save((self.static_features,self.clause_simple_features,self.journal,proof_units,
                 self.init_gnn_nodes,self.gnn_edges,self.gnn_init_clause_nums,
                 self.gage_infers,self.gweight_terms,self.gweight_clauses),filename)
 
@@ -543,7 +559,7 @@ class MonsterNN(torch.nn.Module):
       mainPremEbeds = torch.stack(mainPrems)
       otherPremEbeds = torch.stack(otherPrems)
       res = self.gage_combine(torch.cat((ruleEbeds, mainPremEbeds, otherPremEbeds), dim=1))
-      res += self.gage_problem_tweak # broadcasting for every line in res
+      res += self.gage_static_tweak # broadcasting for every line in res
       for j,(clNum,_,_) in enumerate(todos):
         self.gage_embed_store[clNum] = res[j]
 
@@ -618,7 +634,7 @@ class MonsterNN(torch.nn.Module):
             other_args.append(other_arg)
 
       res = self.gweight_term_combine(torch.cat((torch.stack(functors), torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
-      res += self.gweight_problem_tweak # broadcasting for every line in res
+      res += self.gweight_static_tweak # broadcasting for every line in res
       for j,(id,_,_,_) in enumerate(todos):
         self.gweight_term_embed_store[id] = res[j]
 
@@ -656,8 +672,8 @@ class MonsterNN(torch.nn.Module):
       if HP.USE_GWEIGHT:
         feature_parts.append(gweight_embeds)
 
-      # assumes problems features are already hardwired into clause_embedder's bias
-      return self.clause_valuator(self.clause_embedder(torch.cat(feature_parts, dim=1)))
+      all_features = torch.cat(feature_parts, dim=1) + self.final_static_tweak # broadcasting for every clause
+      return self.clause_valuator(all_features)
 
     return torch.zeros(0)
 
@@ -680,10 +696,10 @@ def export_model(model_state_dict,name):
   for param in m.parameters():
     param.requires_grad = False
 
-  module = MonsterNN(m.problem_embedder,m.clause_embedder,m.clause_valuator,
-                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,
-                    m.gage_rule_embed,m.gage_combine,m.gage_problem_feeder,
-                    m.gweight_var_embed,m.gweight_term_combine,m.gweight_problem_feeder)
+  module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
+                     m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
+                     m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
+                     m.final_static_embedder,m.clause_valuator)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -732,7 +748,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
   # open what's been saved and check it
   # if good, save with additional info as needed by learning
 
-  (problem_features,clause_simple_features,journal,proof_units,
+  (static_features,clause_simple_features,journal,proof_units,
    init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
    gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path)
 
@@ -781,7 +797,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
       and (not HP.USE_GWEIGHT or gweight_h <= HP.MAX_GWEIGHT_HEIGHT)
       and (len(clause_simple_features) <= HP.MAX_BOX_SIZE)
       and kbSize <= HP.MAX_KBSIZE):
-    torch.save((problem_features,clause_simple_features,newjournal,num_good_selections,
+    torch.save((static_features,clause_simple_features,newjournal,num_good_selections,
                 init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses),trace_file_path)
     return True, (gage_h,gage_w), (gweight_h,gweight_w)
@@ -797,28 +813,25 @@ class LearningModel(torch.nn.Module):
     super().__init__()
 
     self.trace_tuple = trace_tuple
-    self.nn = MonsterNN(m.problem_embedder,m.clause_embedder,m.clause_valuator,
-                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,
-                    m.gage_rule_embed,m.gage_combine,m.gage_problem_feeder,
-                    m.gweight_var_embed,m.gweight_term_combine,m.gweight_problem_feeder)
+
+    self.nn = MonsterNN(
+                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
+                    m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
+                    m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
+                    m.final_static_embedder,m.clause_valuator)
     self.verbose = verbose
     if verbose:
       print("Got verbose")
 
   def forward(self):
-    (problem_features,clause_simple_features,journal,num_good_selections,
+    (static_features,clause_simple_features,journal,num_good_selections,
                 init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses) = self.trace_tuple
 
     self.nn.computing = True
     self.nn.old_computing = True # some parts are otherwise skipped (as outsourced to cpp)
 
-    self.nn.problem_features = problem_features # not calling set_problem_features (that's only from Vampire)
-    # although we could make sure we unify this more!
-    if HP.USE_GAGE and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
-      self.nn.gage_problem_tweak = self.nn.gage_problem_feeder.forward(problem_features)
-    if HP.USE_GWEIGHT and HP.FEED_PROBLEM_FEAUTURES_TO_THE_TREES:
-      self.nn.gweight_problem_tweak = self.nn.gweight_problem_feeder.forward(problem_features)
+    self.nn.set_static_features(static_features)
 
     if HP.USE_GAGE or HP.USE_GWEIGHT:
       self.nn.gnn_nodes = init_gnn_nodes
@@ -852,20 +865,8 @@ class LearningModel(torch.nn.Module):
       if HP.USE_GWEIGHT:
         gweight_feature_vecs.append(self.nn.gweight_clause_embeds[cl_num])
 
-    feature_parts = []
-    if HP.USE_SIMPLE_FEATURES:
-      feature_parts.append(torch.stack(simple_feature_vecs))
-    if HP.USE_GAGE:
-      feature_parts.append(torch.stack(gage_feature_vecs))
-    if HP.USE_GWEIGHT:
-      feature_parts.append(torch.stack(gweight_feature_vecs))
-
-    all_features = torch.cat(feature_parts, dim=1)
-    embedded_features = self.nn.clause_embedder(all_features)
-    if HP.USE_PROBLEM_FEATURES:
-      # broadcasting the problem embedding over the matrix clause embeddings?
-      embedded_features += self.nn.problem_embedder(problem_features)
-    logits = self.nn.clause_valuator(embedded_features)
+    logits = self.nn.eval_clauses([], # clause_nums, ignored when not recording
+        torch.stack(simple_feature_vecs),torch.stack(gage_feature_vecs),torch.stack(gweight_feature_vecs))
     logits = logits.squeeze(1) # squeeze-away the second dimension, where the feartures were
 
     # print("logits",logits.shape)
@@ -875,8 +876,8 @@ class LearningModel(torch.nn.Module):
 
     # TODO: couldn't this be one-off compiled to get much more efficient?
 
-    passive = [0]*len(all_features)
-    passive_good = [0]*len(all_features)
+    passive = [0]*len(clause_simple_features)
+    passive_good = [0]*len(clause_simple_features)
 
     learn_for_every = num_good_selections / HP.MAX_TRAINS_PER_TRACE
     learn_for_every_sum = 0.0
