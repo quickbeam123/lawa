@@ -393,6 +393,7 @@ class MonsterNN(torch.nn.Module):
 
   @torch.jit.export
   def set_static_features(self, features: Tensor):
+    # print("set_static_features",features)
     if self.recording:
       self.static_features = features.clone()
 

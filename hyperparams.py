@@ -15,20 +15,19 @@ SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
                     "../snake/mtpa2025/evals79_5"]
 
 SNAKE_SORT_BY_INSTR: Final[bool] = True # instead of random strat, let's prefer strats that solve the problem fastests
-SNAKE_MAX_TRACES_PER_PROBLEM = 1
+SNAKE_SHUFFLE_THE_EASY: Final[bool] = True # do the sorting above, but then look at the part of the list that is below 10000K Mi and shuffle these anyway
+SNAKE_MAX_TRACES_PER_PROBLEM = 3
 # don't even try to look for a solution that originally took longer than this
-SNAKE_MAX_INSTRUCTIONS = 100000
+SNAKE_MAX_INSTRUCTIONS = 50000
 
 SNAKE_MAX_FAULS = 5 # how many strategies to try per problem, if they seem to be failing for "Too big or trivial" reason
 SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and the last one will be unshuffled)
 
 
-
-
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8904"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8906"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
@@ -96,8 +95,8 @@ NUM_CLAUSE_FEATURES : Final[int] = 12
 # todo: think of normalization / regularization ...
 
 # these two together are the STATIC features for a particular vampire run
-NUM_STRATEGY_FEATURES : Final[int] = 0
 NUM_PROBLEM_FEATURES : Final[int] = 15
+NUM_STRATEGY_FEATURES : Final[int] = 30
 
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
@@ -126,11 +125,11 @@ USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = False
-USE_PROBLEM_FEATURES : Final[bool] = False
+USE_STRATEGY_FEATURES : Final[bool] = True
+USE_PROBLEM_FEATURES : Final[bool] = True
 
 # this is the main flag for STATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = False
+USE_STATIC_FEATURES : Final[bool] = True
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
@@ -144,7 +143,7 @@ MAX_TRAINS_PER_TRACE = 1000
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
 MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 150000
+MAX_KBSIZE = 75000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)

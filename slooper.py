@@ -373,6 +373,15 @@ def collect_traces(task):
 
   if HP.SNAKE_SORT_BY_INSTR:
     solns.sort(reverse = True) # we pop the small solutions from the end
+
+    if HP.SNAKE_SHUFFLE_THE_EASY:
+      idx = len(solns)-1
+      while idx > 0 and solns[idx][0] <= 10000:
+        idx -= 1
+      hard = solns[:idx]
+      easy = solns[idx:]
+      random.shuffle(easy)
+      solns = hard + easy
   else:
     random.shuffle(solns)
 
@@ -463,7 +472,7 @@ if __name__ == "__main__":
 
   parallelism = int(sys.argv[1])
 
-  RECOVERING = True
+  RECOVERING = False
 
   if RECOVERING:
     traces_from =  sys.argv[2]
@@ -568,7 +577,12 @@ if __name__ == "__main__":
             solutions[longname].append((instr,stratstr))
 
     tasks = []
-    for prob,solns in solutions.items():
+    if False: # just for testing
+      over_what = list(solutions.items())[1010:1020]
+    else:
+      over_what = solutions.items()
+
+    for prob,solns in over_what:
       #if prob in partial_trace_index and len(partial_trace_index[prob]) >= HP.SNAKE_MAX_TRACES_PER_PROBLEM:
       #  print("Already happy for",prob)
       #else:
@@ -709,9 +723,15 @@ if __name__ == "__main__":
 
       def get_eval_tasks():
         fact = 1/len(valid_trace_problems)
-        for prob in valid_trace_problems:
-            # print((JK_EVAL,(prob,fact,trace_list,eval_model_file_path)))
-            yield (JK_EVAL,(prob,fact*1.0,trace_index[prob],eval_model_file_path))
+        # split the traces apart:
+        traces = []
+        for prob,prob_traces in trace_index.items():
+          for trace_file in prob_traces:
+            traces.append((os.path.getsize(trace_file),prob,fact/len(prob_traces),trace_file))
+        traces.sort(reverse=True) # descending by the filesize (i.e., the big ones first)
+        for _sz,prob,his_fact,trace_file in traces:
+            # print("For EVAL",_sz,prob,his_fact,trace_file)
+            yield (JK_EVAL,(prob,his_fact,[trace_file],eval_model_file_path))
 
       def process_results_from_eval(job_kind,input,result):
         global weighted_eval_loss
@@ -763,7 +783,7 @@ if __name__ == "__main__":
       fact = 1/len(train_trace_problems)
 
       # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-      proto_tasks = [[prob,fact*1.0,trace_index[prob]] for prob in train_trace_problems]
+      proto_tasks = [[prob,fact/len(trace_index[prob]),[trace_file]] for prob in train_trace_problems for trace_file in trace_index[prob]]
 
       random.shuffle(proto_tasks)
 
@@ -773,6 +793,7 @@ if __name__ == "__main__":
         train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
         torch.save(model.state_dict(), train_model_file_path)
         arg_list.append(train_model_file_path)
+        # print("For TRAIN",arg_list)
         yield (JK_TRAIN,tuple(arg_list))
 
     weighted_train_loss = 0.0
