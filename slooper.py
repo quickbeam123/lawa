@@ -438,7 +438,8 @@ def collect_traces(task):
             raise ValueError(f"Trace was either trivial or too big for {prob} {opts1+opts2}")
         except Exception as e:
           print(e)
-          os.remove(trace_file_path)
+          if os.path.isfile(trace_file_path):
+            os.remove(trace_file_path)
           fauls += 1
 
         # if the trace was too ugly, don't even try again with this strategy
