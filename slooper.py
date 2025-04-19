@@ -446,6 +446,10 @@ def collect_traces(task):
         break
       else:
         print("      Iter",i,"failed to reprove",prob,opts1+opts2)
+    else:
+      # to speed things up - notoriously irreproducible problem/strats are taking ages to finish off
+      # note that one reasons for irreproducibility is that we require the whole thing to be done under 60s, but parsing_does_not_count could make this harder even if HP.SNAKE_MAX_INSTRUCTIONS is reasonable
+      fauls += 1
 
     if lrs_trace_file and os.path.isfile(lrs_trace_file):
               os.remove(lrs_trace_file)
