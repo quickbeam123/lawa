@@ -411,7 +411,7 @@ def collect_traces(task):
         opt_random = f"{HP.SHUFFLING_OPTIONS} --random_seed {seed}"
 
       # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
-      opts1 = f"-t {ilim2tlim(ilim)} -i {ilim}"
+      opts1 = f"-t 60 -i {ilim}"
       opts2 = f" -p off --parsing_does_not_count on {opt_random} --decode {stratstr}"
       if stratstr.startswith("lrs"):
         lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}.lrs".format(prob.replace("/","_"),os.getpid()))
@@ -422,7 +422,7 @@ def collect_traces(task):
         trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),len(traces_collected)))
         ilim = max(10*ilim,5000) # to have enough instructions/time to load a model
         lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
-        opts1 = f"-t {ilim2tlim(ilim)} -i {ilim} {lrs_trace_str} -ncem {random_script_model_file_path} -nar {trace_file_path} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+        opts1 = f"-t 180 -i {ilim} {lrs_trace_str} -ncem {random_script_model_file_path} -nar {trace_file_path} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
 
         vamp_res = IC.vampire_perfrom(prob,opts1+opts2)
         print("      gather",opts1+opts2)
