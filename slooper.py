@@ -533,6 +533,9 @@ if __name__ == "__main__":
 
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
+  if len(sys.argv) > 4:
+    model.load_state_dict(torch.load(sys.argv[4]))
+
   optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   random_script_model_file_path = os.path.join(exper_dir,"random-script-model.pt")
@@ -591,6 +594,8 @@ if __name__ == "__main__":
   # for now, we just scan the dir
   # save_trace_index(exper_dir,primitive_trace_index)
 
+  if False: # just prepare data for now
+    exit(0)
 
   # ===========================================================================
   # ===========================================================================
@@ -662,7 +667,7 @@ if __name__ == "__main__":
   trace_index = {}
   if RECOVERING:
     if False: # just for quick debugging
-      for prob,traces in list(partial_trace_index.items())[:10]:
+      for prob,traces in list(partial_trace_index.items())[1000:1010]:
         trace_index[prob] = traces[:1]
     else:
       for prob,traces in list(partial_trace_index.items()):
