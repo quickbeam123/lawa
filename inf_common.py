@@ -137,7 +137,7 @@ class MonsterModules(torch.nn.Module):
     self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
     self.gnn_static_embedder = torch.nn.Sequential(
-      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GNN_INTERNAL_SIZE),
     )
@@ -176,7 +176,7 @@ class MonsterModules(torch.nn.Module):
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
     self.gage_static_embedder = torch.nn.Sequential(
-      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
     )
@@ -194,13 +194,13 @@ class MonsterModules(torch.nn.Module):
       torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     )
     self.gweight_static_embedder = torch.nn.Sequential(
-      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     )
 
     self.final_static_embedder = torch.nn.Sequential(
-      torch.nn.Linear(HP.NUM_STRATEGY_FEATURES+HP.NUM_PROBLEM_FEATURES,HP.INTERAL_SIZE),
+      torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE)
     )
@@ -404,6 +404,13 @@ class MonsterNN(torch.nn.Module):
       self.static_features = features.clone()
 
     if self.computing:
+      total_len = HP.NUM_STRATEGY_FEATURES + HP.NUM_PROBLEM_FEATURES
+      # we assume vampire is giving us everything, but if we don't want something, we need to crop it out!
+      idx_from = 0 if HP.USE_PROBLEM_FEATURES else HP.NUM_PROBLEM_FEATURES
+      idx_to = total_len if HP.USE_STRATEGY_FEATURES else total_len-HP.NUM_STRATEGY_FEATURES
+
+      features = features[idx_from:idx_to]
+
       if (HP.USE_GAGE or HP.USE_GWEIGHT) and HP.FEED_STATIC_FEAUTURES_TO_GNN:
         self.gnn_static_tweak = self.gnn_static_embedder(features)
 
