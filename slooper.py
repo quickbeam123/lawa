@@ -217,10 +217,10 @@ JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training tra
   # input:     (mission,prob,counter,opts)
   # output:    filename where got saved if got a non-degenerate trace; or None
 JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
-  # input:     (prob,fact,trace_file_paths,model_file_path)
+  # input:     (package,model_file_path)
   # output:    the computed loss
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
-  # input:     (prob,fact,trace_file_paths,train_model_file_path)
+  # input:     (package,train_model_file_path)
   # output:    the computed loss
 
 def worker(q_in, q_out):
@@ -246,9 +246,9 @@ def worker(q_in, q_out):
       q_out.put((job_kind,input,(trace_kept, gage_stats, gweight_stats)))
 
     elif job_kind == JK_EVAL:
-      (prob,fact,trace_file_paths,model_file_path) = input
+      (package,model_file_path) = input
 
-      # print("EVAL",prob,fact,trace_file_paths,model_file_path)
+      # print("EVAL",fact,trace_file_paths,model_file_path)
       # sys.stdout.flush()
 
       eval_begin = time.time()
@@ -256,32 +256,30 @@ def worker(q_in, q_out):
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(model_file_path))
 
-      local_fact = 1/len(trace_file_paths)
-      trace_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
+      # print("EVAL on",fact,trace_file_paths)
 
-      # print("EVAL on",prob,fact,trace_file_paths)
-
-      try:
-        loss = torch.zeros(1)
-        for trace_tuple in trace_tuples:
+      loss = torch.zeros(1)
+      for _sz,prob,local_fact,trace_file_path in package:
+        try:
+          trace_tuple = torch.load(trace_file_path)
           learn_model = IC.LearningModel(False,local_model,trace_tuple)
           learn_model.eval()
-          # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
+          # print("For",temp,"with",tweak_start,tweak_std,"will try")
           # print(tweaks_to_try)
           loss += local_fact*learn_model.forward()
-      except Exception as e:
-        with open(f"exception{os.getpid()}.log", "w") as f:
-          f.write(f"{e} occurred in EVAL\n")
-          f.write(f"(prob: {prob},fact {fact},trace_file_paths {trace_file_paths},model_file_path {model_file_path})")
-        raise
+        except Exception as e:
+          with open(f"exception{os.getpid()}.log", "w") as f:
+            f.write(f"{e} occurred in EVAL\n")
+            f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {model_file_path})")
+          raise
 
       took = time.time()-eval_begin
       if took > HP.WORTH_REPORTING:
-        train_log.write(f"EVAL of {prob} took {took}\n")
+        train_log.write(f"EVAL of {package} took {took}\n")
 
       # print("EVAL on",prob,fact,trace_file_paths,loss.item())
 
-      q_out.put((job_kind,input,fact*loss.item()))
+      q_out.put((job_kind,input,loss.item()))
 
       del loss
       del learn_model
@@ -289,39 +287,34 @@ def worker(q_in, q_out):
       gc.collect()  # Force garbage collection
 
     elif job_kind == JK_TRAIN:
-      (prob,fact,trace_file_paths,train_model_file_path) = input
+      (package,train_model_file_path) = input
 
       # print("TRAIN",prob,fact,trace_file_paths,train_model_file_path)
       # sys.stdout.flush()
 
       train_begin = time.time()
 
-      local_fact = 1/len(trace_file_paths)
-      trace_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
-
       local_model = IC.get_initial_model()
       local_model.load_state_dict(torch.load(train_model_file_path))
 
       verbose = False # (prob in {'Problems/COM/COM021+4.p'})
 
-      # print("TRAIN on",prob,fact,trace_file_paths)
-
-      try:
-        loss = torch.zeros(1)
-        for trace_tuple in trace_tuples:
+      loss = torch.zeros(1)
+      for _sz,prob,local_fact,trace_file_path in package:
+        try:
+          trace_tuple = torch.load(trace_file_path)
           learn_model = IC.LearningModel(verbose,local_model,trace_tuple)
           learn_model.train()
 
           loss += local_fact*learn_model.forward()
+        except Exception as e:
+          with open(f"exception{os.getpid()}.log", "w") as f:
+            f.write(f"{e} occurred in TRAIN\n")
+            f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {train_model_file_path})")
+          raise
 
-        loss.backward()
-      except Exception as e:
-        with open(f"exception{os.getpid()}.log", "w") as f:
-          f.write(f"{e} occurred in TRAIN\n")
-          f.write(f"(prob: {prob},fact {fact},trace_file_paths {trace_file_paths},model_file_path {model_file_path})")
-        raise
-
-      # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
+      loss.backward()
+      # print("TRAIN on",fact,trace_file_paths,loss.item())
 
       for param in local_model.parameters():
         grad = param.grad
@@ -336,9 +329,9 @@ def worker(q_in, q_out):
 
       took = time.time()-train_begin
       if took > HP.WORTH_REPORTING:
-        train_log.write(f"TRAIN of {prob} took {took}\n")
+        train_log.write(f"TRAIN of {package} took {took}\n")
 
-      q_out.put((job_kind,input,fact*loss.item()))
+      q_out.put((job_kind,input,loss.item()))
 
       del loss
       del learn_model
@@ -730,13 +723,30 @@ if __name__ == "__main__":
         fact = 1/len(valid_trace_problems)
         # split the traces apart:
         traces = []
-        for prob,prob_traces in trace_index.items():
+        for prob in valid_trace_problems:
+          prob_traces = trace_index[prob]
           for trace_file in prob_traces:
             traces.append((os.path.getsize(trace_file),prob,fact/len(prob_traces),trace_file))
         traces.sort(reverse=True) # descending by the filesize (i.e., the big ones first)
-        for _sz,prob,his_fact,trace_file in traces:
-            # print("For EVAL",_sz,prob,his_fact,trace_file)
-            yield (JK_EVAL,(prob,his_fact,[trace_file],eval_model_file_path))
+        max_size = traces[0][0] # may the size of the biggest one be also the size of the largest package
+        while traces:
+          cur_size = 0
+          package = []
+          while True:
+            # look for an index of the largest that still fits
+            good_idx = None
+            for i,pkg_item in enumerate(traces):
+              if cur_size+pkg_item[0] <= max_size:
+                good_idx = i
+                break
+            if good_idx is not None:
+              cur_size += traces[good_idx][0]
+              package.append(traces[good_idx])
+              del traces[good_idx]
+            else:
+              break
+          assert package
+          yield (JK_EVAL,(package,eval_model_file_path))
 
       def process_results_from_eval(job_kind,input,result):
         global weighted_eval_loss
@@ -787,19 +797,38 @@ if __name__ == "__main__":
     def get_train_tasks():
       fact = 1/len(train_trace_problems)
 
-      # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-      proto_tasks = [[prob,fact/len(trace_index[prob]),[trace_file]] for prob in train_trace_problems for trace_file in trace_index[prob]]
+      # split the traces apart
+      traces = []
+      for prob in train_trace_problems:
+        prob_traces = trace_index[prob]
+        for trace_file in prob_traces:
+          traces.append((os.path.getsize(trace_file),prob,fact/len(prob_traces),trace_file))
 
-      random.shuffle(proto_tasks)
+      random.shuffle(traces)
 
       global train_model_version
-      for arg_list in proto_tasks:
+      max_size = max(pkg_item[0] for pkg_item in traces)
+      while traces:
+        cur_size = 0
+        package = []
+        while True:
+          # look for an index of the closest that still fits
+          good_idx = None
+          for i,pkg_item in enumerate(traces):
+            if cur_size+pkg_item[0] <= max_size:
+              good_idx = i
+              break
+          if good_idx is not None:
+            cur_size += traces[good_idx][0]
+            package.append(traces[good_idx])
+            del traces[good_idx]
+          else:
+            break
+
         train_model_version += 1
         train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
         torch.save(model.state_dict(), train_model_file_path)
-        arg_list.append(train_model_file_path)
-        # print("For TRAIN",arg_list)
-        yield (JK_TRAIN,tuple(arg_list))
+        yield (JK_TRAIN,(package,train_model_file_path))
 
     weighted_train_loss = 0.0
 
@@ -807,7 +836,7 @@ if __name__ == "__main__":
       global weighted_train_loss
 
       assert job_kind == JK_TRAIN
-      (prob,fact,trace_file_paths,train_model_file_path) = input
+      (package,train_model_file_path) = input
       loss = result
 
       weighted_train_loss += result # (= the loss) multiplied by fact already in the child
