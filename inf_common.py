@@ -98,7 +98,11 @@ class SingleEmbedding(torch.nn.Module):
     def forward(self,input):
         return self.embedding  # Return the stored embedding directly
 
-CLAUSE_EMBEDDER_INPUT_SIZE = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIMPLE_FEATURES else 0)
+STATIC_FEATURES_SIZE : Final[int] = (
+                        (HP.NUM_STRATEGY_FEATURES if HP.USE_STRATEGY_FEATURES else 0)
+                      + (HP.NUM_PROBLEM_FEATURES if HP.USE_PROBLEM_FEATURES else 0))
+
+CLAUSE_EMBEDDER_INPUT_SIZE : Final[int] = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIMPLE_FEATURES else 0)
                             + (HP.GAGE_EMBEDDING_SIZE if HP.USE_GAGE else 0)
                             + (HP.GWEIGHT_EMBEDDING_SIZE if HP.USE_GWEIGHT else 0))
 
