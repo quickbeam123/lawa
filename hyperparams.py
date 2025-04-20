@@ -16,9 +16,9 @@ SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
 
 SNAKE_SORT_BY_INSTR: Final[bool] = True # instead of random strat, let's prefer strats that solve the problem fastests
 SNAKE_SHUFFLE_THE_EASY: Final[bool] = True # do the sorting above, but then look at the part of the list that is below 10000K Mi and shuffle these anyway
-SNAKE_MAX_TRACES_PER_PROBLEM = 3
+SNAKE_MAX_TRACES_PER_PROBLEM = 16
 # don't even try to look for a solution that originally took longer than this
-SNAKE_MAX_INSTRUCTIONS = 50000
+SNAKE_MAX_INSTRUCTIONS = 30000
 
 SNAKE_MAX_FAULS = 5 # how many strategies to try per problem, if they seem to be failing for "Too big or trivial" reason
 SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and the last one will be unshuffled)
@@ -27,7 +27,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8906"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8908"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
@@ -69,14 +69,14 @@ PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -np
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
-TRAINING_PARALLELISM = 60
-WORTH_REPORTING = 60 # more than this many seconds and a new line goes into detailed.log file in exper_dir
+TRAINING_PARALLELISM = 64
+WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
 # also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest valid-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 5
+TEST_IMPROVE_WINDOW = 10
 
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the first loop (if you don't like it, set it to the same thing as MAX_TEST_IMPROVE_ITER below)
@@ -126,7 +126,7 @@ USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
 USE_STRATEGY_FEATURES : Final[bool] = True
-USE_PROBLEM_FEATURES : Final[bool] = True
+USE_PROBLEM_FEATURES : Final[bool] = False
 
 # this is the main flag for STATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
 USE_STATIC_FEATURES : Final[bool] = True
@@ -143,7 +143,7 @@ MAX_TRAINS_PER_TRACE = 1000
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
 MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 75000
+MAX_KBSIZE = 100000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
