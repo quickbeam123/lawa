@@ -29,6 +29,16 @@ if __name__ == "__main__":
     probinfo = pickle.load(f)
 
   (_meta1,results1) = torch.load(sys.argv[1])
+  if False:
+    for prob, res_list in results1.items():
+      for res in res_list:
+        vr = res[1]
+        if vr.status == "uns":
+          rate = get_info(probinfo,prob)[0]
+          if rate > 0.97:
+            print(prob,rate,vr)
+
+    exit(0)
   (_meta2,results2) = torch.load(sys.argv[2])
 
   Xs = []
