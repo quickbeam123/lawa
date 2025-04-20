@@ -7,6 +7,8 @@ import os
 import torch
 from torch import Tensor
 
+from typing import List, Final
+
 import torch_geometric
 
 # print(torch.__config__.parallel_info())
@@ -228,7 +230,7 @@ class MonsterNN(torch.nn.Module):
   # gnn records
   init_gnn_nodes: Dict[str,Tensor]
   gnn_edges: List[Tuple[str,str,Tensor]]
-  gnn_init_clause_nums: list[int]
+  gnn_init_clause_nums: List[int]
 
   # gnn helper data
   gnn_nodes: Dict[str,Tensor]
@@ -241,13 +243,13 @@ class MonsterNN(torch.nn.Module):
   # gage_static_embedder: torch.nn.Module
 
   # gage records
-  gage_infers: list[Tuple[int,int,list[int]]]
+  gage_infers: List[Tuple[int,int,List[int]]]
 
   # gage helper data
   gage_embed_store: Dict[int,Tensor]
   gage_cl_layers: Dict[int,int]
   gage_cur_base_layer: int
-  gage_todo_layers: list[list[Tuple[int,int,list[int]]]]
+  gage_todo_layers: List[List[Tuple[int,int,List[int]]]]
 
   gage_static_tweak: Tensor
 
@@ -257,17 +259,17 @@ class MonsterNN(torch.nn.Module):
   # gweight_static_embedder: torch.nn.Module
 
   # gweight records
-  gweight_terms: List[Tuple[int,int,float,list[int]]]
-  gweight_clauses: List[Tuple[int,list[int]]]
+  gweight_terms: List[Tuple[int,int,float,List[int]]]
+  gweight_clauses: List[Tuple[int,List[int]]]
 
   # gweight helper data
   gweight_symbol_embeds: Tensor
   gweight_term_embed_store: Dict[int,Tensor]
   gweight_term_layers: Dict[int,int]
   gweight_cur_base_layer: int
-  gweight_todo_layers: list[list[Tuple[int,int,float,list[int]]]]
+  gweight_todo_layers: List[List[Tuple[int,int,float,List[int]]]]
 
-  gweight_clause_todo: List[Tuple[int,list[int]]]
+  gweight_clause_todo: List[Tuple[int,List[int]]]
   gweight_clause_embeds: Dict[int,Tensor]
 
   gweight_static_tweak: Tensor
@@ -426,7 +428,7 @@ class MonsterNN(torch.nn.Module):
     self.gnn_nodes[what] = features
 
   @torch.jit.export
-  def gnn_edge_kind(self,src: str, tgt: str, src_idxs: list[int], tgt_idxs: list[int]):
+  def gnn_edge_kind(self,src: str, tgt: str, src_idxs: List[int], tgt_idxs: List[int]):
     src_idxs_t = torch.tensor(src_idxs)
     tgt_idxs_t = torch.tensor(tgt_idxs)
 
@@ -435,7 +437,7 @@ class MonsterNN(torch.nn.Module):
     self.gnn_edges.append((tgt,src,torch.stack([tgt_idxs_t,src_idxs_t])))
 
   @torch.jit.export
-  def gnn_perform(self, clause_nums: list[int]) -> Tuple[Tensor,Tensor]:
+  def gnn_perform(self, clause_nums: List[int]) -> Tuple[Tensor,Tensor]:
     # the clause numbers in clause_nums are promised to go in the same order as the clauses in previously added via gnnNodeKind("clause",...)
     if self.recording:
       self.gnn_init_clause_nums = clause_nums
@@ -501,7 +503,7 @@ class MonsterNN(torch.nn.Module):
     self.journal.append((tag, cl_num))
 
   @torch.jit.export
-  def set_proof_units_and_save_recorded(self, proof_units: list[int], filename: str):
+  def set_proof_units_and_save_recorded(self, proof_units: List[int], filename: str):
     # does not really matter, just save them below
     # self.proof_units = proof_units
 
@@ -509,7 +511,7 @@ class MonsterNN(torch.nn.Module):
                 self.init_gnn_nodes,self.gnn_edges,self.gnn_init_clause_nums,
                 self.gage_infers,self.gweight_terms,self.gweight_clauses),filename)
 
-  def gage_enqueue_one(self,cl_num: int, inf_rule: int, parents: list[int]):
+  def gage_enqueue_one(self,cl_num: int, inf_rule: int, parents: List[int]):
     layer_idx = 0
     for p in parents:
       layer_idx = max(layer_idx,self.gage_cl_layers[p])
@@ -521,12 +523,12 @@ class MonsterNN(torch.nn.Module):
 
     eff_layer_idx = layer_idx-self.gage_cur_base_layer
     if len(self.gage_todo_layers) == eff_layer_idx:
-      empty_todo_layer: list[Tuple[int,int,list[int]]] = []
+      empty_todo_layer: List[Tuple[int,int,List[int]]] = []
       self.gage_todo_layers.append(empty_todo_layer)
     self.gage_todo_layers[eff_layer_idx].append((cl_num,inf_rule,parents))
 
   @torch.jit.export
-  def gage_enqueue(self,cl_num: int, inf_rule: int, parents: list[int]):
+  def gage_enqueue(self,cl_num: int, inf_rule: int, parents: List[int]):
     if self.recording:
       self.gage_infers.append((cl_num,inf_rule,parents))
 
@@ -539,7 +541,7 @@ class MonsterNN(torch.nn.Module):
     for todos in self.gage_todo_layers:
       # print("gage layers:",len(todos))
       # creating an input to the bulk
-      ruleIdxs: list[int] = [] # into gage_rule_embed
+      ruleIdxs: List[int] = [] # into gage_rule_embed
       mainPrems = []
       otherPrems = []
       for clNum,infRule,parents in todos:
@@ -566,10 +568,10 @@ class MonsterNN(torch.nn.Module):
         self.gage_embed_store[clNum] = res[j]
 
     self.gage_cur_base_layer += len(self.gage_todo_layers)
-    empty_todo_layers: list[list[Tuple[int,int,list[int]]]] = []
+    empty_todo_layers: List[List[Tuple[int,int,List[int]]]] = []
     self.gage_todo_layers = empty_todo_layers
 
-  def gweight_enqueue_one_term(self,id: int, functor: int, sign: float, args: list[int]):
+  def gweight_enqueue_one_term(self,id: int, functor: int, sign: float, args: List[int]):
     layer_idx = 0
     for a in args:
       if a > 0:
@@ -581,12 +583,12 @@ class MonsterNN(torch.nn.Module):
 
     eff_layer_idx = layer_idx-self.gweight_cur_base_layer
     if len(self.gweight_todo_layers) == eff_layer_idx:
-      empty_todo_layer: list[Tuple[int,int,float,list[int]]] = []
+      empty_todo_layer: List[Tuple[int,int,float,List[int]]] = []
       self.gweight_todo_layers.append(empty_todo_layer)
     self.gweight_todo_layers[eff_layer_idx].append((id,functor,sign,args))
 
   @torch.jit.export
-  def gweight_enqueue_term(self,id: int, functor: int, sign: float, args: list[int]):
+  def gweight_enqueue_term(self,id: int, functor: int, sign: float, args: List[int]):
     if self.recording:
       self.gweight_terms.append((id,functor,sign,args))
 
@@ -596,7 +598,7 @@ class MonsterNN(torch.nn.Module):
     '''
 
   @torch.jit.export
-  def gweight_enqueue_clause(self,cl_num: int, lits: list[int]):
+  def gweight_enqueue_clause(self,cl_num: int, lits: List[int]):
     if self.recording:
       self.gweight_clauses.append((cl_num,lits))
 
@@ -635,7 +637,7 @@ class MonsterNN(torch.nn.Module):
         self.gweight_term_embed_store[id] = res[j]
 
     self.gweight_cur_base_layer += len(self.gweight_todo_layers)
-    empty_todo_layers: list[list[Tuple[int,int,float,list[int]]]] = []
+    empty_todo_layers: List[List[Tuple[int,int,float,List[int]]]] = []
     self.gweight_todo_layers = empty_todo_layers
 
     # second, do the clauses part
@@ -654,7 +656,7 @@ class MonsterNN(torch.nn.Module):
       self.gweight_embed_pending()
 
   @torch.jit.export
-  def eval_clauses(self, clause_nums: list[int], clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
+  def eval_clauses(self, clause_nums: List[int], clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
     if self.recording:
       for i,cl_num in enumerate(clause_nums):
         self.clause_simple_features[cl_num] = clause_features[i].clone()
