@@ -381,7 +381,7 @@ def collect_traces(task):
   fauls = 0
 
   traces_collected = []
-  while len(traces_collected) < HP.SNAKE_MAX_TRACES_PER_PROBLEM and fauls < HP.SNAKE_MAX_FAULS:
+  while solns and len(traces_collected) < HP.SNAKE_MAX_TRACES_PER_PROBLEM and fauls < HP.SNAKE_MAX_FAULS:
     (instr,stratstr) = solns.pop()
 
     # if expected to take too long, don't even bother reproving
