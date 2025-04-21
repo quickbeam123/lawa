@@ -12,13 +12,19 @@ SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
                     "../snake/mtpa2025/evals79_3",
                     "../snake/mtpa2025/evals74_4",
                     "../snake/mtpa2025/evals79_4",
-                    "../snake/mtpa2025/evals79_5"]
+                    "../snake/mtpa2025/evals79_5",
+                    "../snake/mtpa2025/evals76_neural1",
+                    "../snake/mtpa2025/evals76_neural2",
+                    "../snake/mtpa2025/evals74_neural3",
+                    "../snake/mtpa2025/evals76_neural4",]
+
+SNAKE_PREFER_STRATS = "ncem=models/fast1-1.pt"
 
 SNAKE_SORT_BY_INSTR: Final[bool] = True # instead of random strat, let's prefer strats that solve the problem fastests
 SNAKE_SHUFFLE_THE_EASY: Final[bool] = True # do the sorting above, but then look at the part of the list that is below 10000K Mi and shuffle these anyway
-SNAKE_MAX_TRACES_PER_PROBLEM = 16
+SNAKE_MAX_TRACES_PER_PROBLEM = 3
 # don't even try to look for a solution that originally took longer than this
-SNAKE_MAX_INSTRUCTIONS = 30000
+SNAKE_MAX_INSTRUCTIONS = 50000
 
 SNAKE_MAX_FAULS = 5 # how many strategies to try per problem, if they seem to be failing for "Too big or trivial" reason
 SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and the last one will be unshuffled)
@@ -108,7 +114,7 @@ GNN_SAGE_AGGREG = "mean"
 
 GNN_NUM_LAYERS : Final[int] = 5
 GNN_MULTIPLIER : Final[int] = 1
-GNN_INTERNAL_SIZE : Final[int] = 32 # TODO: did I experiment with this at all?
+GNN_INTERNAL_SIZE : Final[int] = 32
 
 GNN_DROPOUT : Final[float] = 0.0
 
@@ -125,11 +131,11 @@ USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = True
+USE_STRATEGY_FEATURES : Final[bool] = False
 USE_PROBLEM_FEATURES : Final[bool] = False
 
 # this is the main flag for STATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = True
+USE_STATIC_FEATURES : Final[bool] = False
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
@@ -143,7 +149,7 @@ MAX_TRAINS_PER_TRACE = 1000
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
 MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 100000
+MAX_KBSIZE = 50000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
@@ -155,7 +161,7 @@ MAX_KBSIZE = 100000
 # next time I play with the entropy regularization, let me try the normalized one
 # ENTROPY_NORMALIZED = True
 
-LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
+LEARNING_RATE : Final[float] = 0.0001 # 0.0002 seemed a tad better and could become the default for the official experiments
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs

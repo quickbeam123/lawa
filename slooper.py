@@ -359,24 +359,46 @@ def worker(q_in, q_out):
 
 from multiprocessing import Pool
 
+def shuffle_the_easy(solns):
+  idx = len(solns)-1
+  while idx > 0 and solns[idx][0] <= 10000:
+    idx -= 1
+  hard = solns[:idx]
+  easy = solns[idx:]
+  random.shuffle(easy)
+  return hard + easy
+
 def collect_traces(task):
   prob,solns = task
 
   print("collect_traces for",prob,"with",len(solns),"avaliable solns")
 
-  if HP.SNAKE_SORT_BY_INSTR:
-    solns.sort(reverse = True) # we pop the small solutions from the end
+  if HP.SNAKE_PREFER_STRATS is not None:
+    prefered = []
+    remains = []
+    for (instr,stratstr) in solns:
+      if HP.SNAKE_PREFER_STRATS in stratstr:
+        prefered.append((instr,stratstr))
+      else:
+        remains.append((instr,stratstr))
 
-    if HP.SNAKE_SHUFFLE_THE_EASY:
-      idx = len(solns)-1
-      while idx > 0 and solns[idx][0] <= 10000:
-        idx -= 1
-      hard = solns[:idx]
-      easy = solns[idx:]
-      random.shuffle(easy)
-      solns = hard + easy
+    if HP.SNAKE_SORT_BY_INSTR:
+      prefered.sort(reverse = True)
+      remains.sort(reverse = True)
+
+      if HP.SNAKE_SHUFFLE_THE_EASY:
+        prefered = shuffle_the_easy(prefered)
+        remains = shuffle_the_easy(remains)
+
+    solns = remains + prefered
   else:
-    random.shuffle(solns)
+    if HP.SNAKE_SORT_BY_INSTR:
+      solns.sort(reverse = True) # we pop the small solutions from the end
+
+      if HP.SNAKE_SHUFFLE_THE_EASY:
+        solns = shuffle_the_easy(solns)
+    else:
+      random.shuffle(solns)
 
   fauls = 0
 
@@ -417,7 +439,7 @@ def collect_traces(task):
         lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
         opts1 = f"-t 180 -i {ilim} {lrs_trace_str} -ncem {random_script_model_file_path} -nar {trace_file_path} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
 
-        vamp_res = IC.vampire_perfrom(prob,opts1+opts2)
+        vamp_res = IC.vampire_perfrom(prob,opts1+opts2) # since opts2 comes second, the ncem from a neural strategy will overrule our ncem=random_script_model_file_path
         print("      gather",opts1+opts2)
 
         try:
@@ -533,10 +555,13 @@ if __name__ == "__main__":
 
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
-  if len(sys.argv) > 4:
-    model.load_state_dict(torch.load(sys.argv[4]))
-
   optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
+  if len(sys.argv) > 4:
+    if True:
+      aloop,amodel_state_dict,anoptimizer_state_dict = load_loop_model_and_optimizer(sys.argv[4])
+      model.load_state_dict(amodel_state_dict)
+    else:
+      model.load_state_dict(torch.load(sys.argv[4]))
 
   random_script_model_file_path = os.path.join(exper_dir,"random-script-model.pt")
   IC.export_model(model.state_dict(),random_script_model_file_path)
@@ -579,7 +604,9 @@ if __name__ == "__main__":
 
     tasks = []
     if False: # just for testing
-      over_what = list(solutions.items())[1010:1020]
+      # AGATHA="Problems/PUZ/PUZ001+1.p"
+      # over_what = [(AGATHA,solutions[AGATHA])]
+      over_what = list(solutions.items())[:10]
     else:
       over_what = solutions.items()
 
@@ -667,7 +694,7 @@ if __name__ == "__main__":
   trace_index = {}
   if RECOVERING:
     if False: # just for quick debugging
-      for prob,traces in list(partial_trace_index.items())[1000:1010]:
+      for prob,traces in list(partial_trace_index.items())[:10]:
         trace_index[prob] = traces[:1]
     else:
       for prob,traces in list(partial_trace_index.items()):
