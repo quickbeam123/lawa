@@ -16,9 +16,12 @@ SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
                     "../snake/mtpa2025/evals76_neural1",
                     "../snake/mtpa2025/evals76_neural2",
                     "../snake/mtpa2025/evals74_neural3",
-                    "../snake/mtpa2025/evals76_neural4",]
+                    "../snake/mtpa2025/evals76_neural4",
+                    "../snake/mtpa2025/evals74_neural5",
+                    "../snake/mtpa2025/evals76_neural6",]
 
-SNAKE_PREFER_STRATS = "ncem=models/fast1-1.pt"
+SNAKE_PREFER_STRATS = "ncem=models/fstatic3-1.pt"
+SNAKE_KICK_OUT_NON_PREFER_NEURALS = True
 
 SNAKE_SORT_BY_INSTR: Final[bool] = True # instead of random strat, let's prefer strats that solve the problem fastests
 SNAKE_SHUFFLE_THE_EASY: Final[bool] = True # do the sorting above, but then look at the part of the list that is below 10000K Mi and shuffle these anyway

@@ -371,7 +371,7 @@ def shuffle_the_easy(solns):
 def collect_traces(task):
   prob,solns = task
 
-  print("collect_traces for",prob,"with",len(solns),"avaliable solns")
+  # print("collect_traces for",prob,"with",len(solns),"avaliable solns")
 
   if HP.SNAKE_PREFER_STRATS is not None:
     prefered = []
@@ -380,7 +380,10 @@ def collect_traces(task):
       if HP.SNAKE_PREFER_STRATS in stratstr:
         prefered.append((instr,stratstr))
       else:
-        remains.append((instr,stratstr))
+        if HP.SNAKE_KICK_OUT_NON_PREFER_NEURALS and "ncem=" in stratstr:
+          pass # these might be neural runs which cannot collect static_features yet
+        else:
+          remains.append((instr,stratstr))
 
     if HP.SNAKE_SORT_BY_INSTR:
       prefered.sort(reverse = True)
@@ -410,7 +413,7 @@ def collect_traces(task):
     if instr > HP.SNAKE_MAX_INSTRUCTIONS:
       continue
 
-    print("    popped soln of instr",instr,"and stratstr",stratstr)
+    # print("    popped soln of instr",instr,"and stratstr",stratstr)
 
     # add 10% extra (and don't be a Scrooge)
     ilim = max(int(1.1*instr),125)
@@ -419,7 +422,7 @@ def collect_traces(task):
     lrs_trace_file = None
     for i in range(HP.SNAKE_MAX_TRIES):
       if i == HP.SNAKE_MAX_TRIES-1:
-        print("      will try unshuffled one")
+        # print("      will try unshuffled one")
         opt_random = ""
       else:
         seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
@@ -440,7 +443,7 @@ def collect_traces(task):
         opts1 = f"-t 180 -i {ilim} {lrs_trace_str} -ncem {random_script_model_file_path} -nar {trace_file_path} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
 
         vamp_res = IC.vampire_perfrom(prob,opts1+opts2) # since opts2 comes second, the ncem from a neural strategy will overrule our ncem=random_script_model_file_path
-        print("      gather",opts1+opts2)
+        # print("      gather",opts1+opts2)
 
         try:
           if vamp_res.status != "uns":
@@ -460,7 +463,8 @@ def collect_traces(task):
         # if the trace was too ugly, don't even try again with this strategy
         break
       else:
-        print("      Iter",i,"failed to reprove",prob,opts1+opts2)
+        pass
+        # print("      Iter",i,"failed to reprove",prob,opts1+opts2)
     else:
       # to speed things up - notoriously irreproducible problem/strats are taking ages to finish off
       # note that one reasons for irreproducibility is that we require the whole thing to be done under 60s, but parsing_does_not_count could make this harder even if HP.SNAKE_MAX_INSTRUCTIONS is reasonable
@@ -555,13 +559,14 @@ if __name__ == "__main__":
 
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
-  optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
   if len(sys.argv) > 4:
     if True:
       aloop,amodel_state_dict,anoptimizer_state_dict = load_loop_model_and_optimizer(sys.argv[4])
       model.load_state_dict(amodel_state_dict)
     else:
       model.load_state_dict(torch.load(sys.argv[4]))
+    print("Loaded state dict from",sys.argv[4])
+  optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
 
   random_script_model_file_path = os.path.join(exper_dir,"random-script-model.pt")
   IC.export_model(model.state_dict(),random_script_model_file_path)
@@ -602,7 +607,6 @@ if __name__ == "__main__":
           if res == "uns": # or res == "sat"
             solutions[longname].append((instr,stratstr))
 
-    tasks = []
     if False: # just for testing
       # AGATHA="Problems/PUZ/PUZ001+1.p"
       # over_what = [(AGATHA,solutions[AGATHA])]
@@ -610,11 +614,7 @@ if __name__ == "__main__":
     else:
       over_what = solutions.items()
 
-    for prob,solns in over_what:
-      #if prob in partial_trace_index and len(partial_trace_index[prob]) >= HP.SNAKE_MAX_TRACES_PER_PROBLEM:
-      #  print("Already happy for",prob)
-      #else:
-      tasks.append((prob,solns))
+    tasks = list(over_what)
 
     primitive_trace_index = collect_traces_POOL(tasks)
 
