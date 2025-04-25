@@ -313,7 +313,7 @@ class MonsterNN(torch.nn.Module):
     # modules
     self.gage_rule_embed = gage_rule_embed
     self.gage_combine = gage_combine
-    self.gage_problem_feeder = gage_static_embedder
+    self.gage_static_embedder = gage_static_embedder
 
     # records
     self.gage_infers = []
@@ -415,7 +415,7 @@ class MonsterNN(torch.nn.Module):
         self.gnn_static_tweak = self.gnn_static_embedder(features)
 
       if HP.USE_GAGE and HP.FEED_STATIC_FEAUTURES_TO_THE_TREES:
-        self.gage_static_tweak = self.gage_problem_feeder.forward(features)
+        self.gage_static_tweak = self.gage_static_embedder.forward(features)
 
       if HP.USE_GWEIGHT and HP.FEED_STATIC_FEAUTURES_TO_THE_TREES:
         self.gweight_static_tweak = self.gweight_static_embedder.forward(features)
