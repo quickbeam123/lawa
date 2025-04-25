@@ -18,7 +18,8 @@ SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
                     "../snake/mtpa2025/evals74_neural3",
                     "../snake/mtpa2025/evals76_neural4",
                     "../snake/mtpa2025/evals74_neural5",
-                    "../snake/mtpa2025/evals76_neural6",]
+                    "../snake/mtpa2025/evals76_neural6",
+                    "../snake/mtpa2025/evals79_neural7",]
 
 SNAKE_PREFER_STRATS = "ncem=models/fstatic3-1.pt"
 SNAKE_KICK_OUT_NON_PREFER_NEURALS = True
@@ -36,7 +37,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8908"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8910"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
@@ -78,6 +79,7 @@ PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -np
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
+EVAL_PARALLELISM = 8 # should be TRAINING_PARALLELISM / NUM_GSD_FEATURES, but I think I can afford a bit leeway
 TRAINING_PARALLELISM = 64
 WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
@@ -85,12 +87,13 @@ WORTH_REPORTING = 120 # more than this many seconds and a new line goes into det
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest valid-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 10
+TEST_IMPROVE_WINDOW = 20
 
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the first loop (if you don't like it, set it to the same thing as MAX_TEST_IMPROVE_ITER below)
 MAX_TEST_IMPROVE_ITER = 30
 
+MIN_TEST_IMPROVE_ITER = 10
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
@@ -106,6 +109,7 @@ NUM_CLAUSE_FEATURES : Final[int] = 12
 # these two together are the STATIC features for a particular vampire run
 NUM_PROBLEM_FEATURES : Final[int] = 15
 NUM_STRATEGY_FEATURES : Final[int] = 30
+NUM_GSD_FEATURES : Final[int] = 8
 
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
@@ -134,11 +138,12 @@ USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = False
+USE_STRATEGY_FEATURES : Final[bool] = True
 USE_PROBLEM_FEATURES : Final[bool] = False
+USE_GSD : Final[bool] = True
 
 # this is the main flag for STATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = False
+USE_STATIC_FEATURES : Final[bool] = True
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
@@ -164,8 +169,17 @@ MAX_KBSIZE = 50000
 # next time I play with the entropy regularization, let me try the normalized one
 # ENTROPY_NORMALIZED = True
 
-LEARNING_RATE : Final[float] = 0.0001 # 0.0002 seemed a tad better and could become the default for the official experiments
-TWEAKS_LEARNING_RATE : Final[float] = 0.1
+GSD_NEGENTROPY_COEF = 0.0
+
+GSD_TEMP_INIT = 2.0
+GSD_TEMP_FACT = 0.9   # 0.87055 = (0.5)^(1/5) = halving every five epochs
+GSD_TEMP_MIN = 0.005  # reached this temp in ~ 50 iters
+
+# relative streght of the gumbel noise towards the logits
+# (this is quite low, because the logits start all zero and never get too far with our default LR)
+GUMBEL_STRENGTH : Final[float] = 0.005
+
+LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
