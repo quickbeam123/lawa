@@ -36,27 +36,27 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8908"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8910"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
-SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+SATURATION_ALGORITHM = "lrs --decode lrs+2_1:1_sil=64000:sp=occurrence:ss=axioms:sgt=8_0" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
-PROBLEM_LIST = "problemsSTDclean.txt"
-NUM_TRAIN_PROBLEMS = 15000
-EVAL_ON_TEST = True
-NUM_TEST_PROBLEMS = 4477 # the rest of current TPTP
+PROBLEM_LIST = "problemsCNFFOF.txt"
+NUM_TRAIN_PROBLEMS = 17433
+EVAL_ON_TEST = False
+NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
 
 # currently not supported with mtpa-gnn!
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
 NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering
-INSTRUCTION_LIMIT = 10000
+INSTRUCTION_LIMIT = 64000
 # in elooper:
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
 # - when set to True, elooper will keep traces of problems not solved in the last loop and still try to learn from them (sometimes)
-CUMULATIVE : Final[bool] = False
+CUMULATIVE : Final[bool] = True
 CUM_STALE_AFTER = 5 # if we can't solve a problem for this many loops, let's give up on it
 CUM_MAX_STRENGTH = 2.0
 # - a problem is born (when first solved) with a score=0 and natural strength 1.0 = BASE^(score=0)
@@ -68,7 +68,7 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
-NUM_PERFORMS = 1
+NUM_PERFORMS = 5
 KEEP_ALL_TRACES = False
 
 # each subsequent "PERFORM" shall be fed with these given extra options
@@ -164,7 +164,7 @@ MAX_KBSIZE = 50000
 # next time I play with the entropy regularization, let me try the normalized one
 # ENTROPY_NORMALIZED = True
 
-LEARNING_RATE : Final[float] = 0.0001 # 0.0002 seemed a tad better and could become the default for the official experiments
+LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
 TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
