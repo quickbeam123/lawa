@@ -204,9 +204,14 @@ def worker(q_in, q_out):
       (mission,prob,lrs_trace_file,trace_file_path,opts) = input
       vamp_res = IC.vampire_perfrom(prob,opts)
 
-      assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res}"
-      assert os.path.isfile(trace_file_path)
-      trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path,train_log)
+      if vamp_res.status == "uns":
+        # assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res}"
+        assert os.path.isfile(trace_file_path)
+        trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path,train_log)
+      else:
+        print("Failed to reproduce success for",prob,opts,file=train_log)
+        train_log.flush()
+        trace_kept, gage_stats, gweight_stats = False, 0, 0
 
       q_out.put((job_kind,input,(trace_kept, gage_stats, gweight_stats)))
 
@@ -605,6 +610,8 @@ if __name__ == "__main__":
           if trace_kept:
             trace_index.add_prob_trace(loop,prob,trace_file_path)
           else:
+            # TODO: this is suspicious, as the trace was non necessarily trivial; it might also have been too big! (or we simply failed to reproduce the JK_PERFORM run!
+            # think!
             trace_index.report_trivial_trace(loop,prob)
             # os.remove(trace_file_path)
 

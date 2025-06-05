@@ -39,7 +39,7 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8910"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
-SATURATION_ALGORITHM = "lrs --decode lrs+2_1:1_sil=64000:sp=occurrence:ss=axioms:sgt=8_0" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+SATURATION_ALGORITHM = "lrs --decode lrs+21_1:1_sil=64000:tgt=ground:sp=const_max:kws=precedence:bd=preordered:dpc=on:ss=axioms:st=5.0:crc=on_0" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsCNFFOF.txt"
 NUM_TRAIN_PROBLEMS = 17433
