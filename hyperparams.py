@@ -39,7 +39,7 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8910"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
-SATURATION_ALGORITHM = "lrs --decode lrs+21_1:1_sil=64000:tgt=ground:sp=const_max:kws=precedence:bd=preordered:dpc=on:ss=axioms:st=5.0:crc=on_0" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsCNFFOF.txt"
 NUM_TRAIN_PROBLEMS = 17433
@@ -68,12 +68,17 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
-NUM_PERFORMS = 5
-KEEP_ALL_TRACES = False
+NUM_PERFORMS = 7
+KEEP_ALL_TRACES = True
 
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
-
+PERFORMS_SPECIAL = [" --decode lrs+1002_1:3_sil=64000:tgt=ground:sp=reverse_arity:lrd=on:lwlo=on_0",
+                    " --decode dis+1011_1:32_sil=64000:sp=reverse_frequency:nwc=3.0:kws=precedence:s2a=on:s2agt=4:bd=off:fd=preordered_0",
+                    " --decode lrs+2_1:1_sil=64000:sp=occurrence:ss=axioms:sgt=8_0",
+                    " --decode dis+1011_1:4_sil=64000:tgt=full:plsq=on:plsqc=1:plsql=on:cond=fast:nm=30:sp=frequency:ins=10:aac=none:afp=100000:afq=1.7944:bsr=on:irw=on:slsq=on:slsqr=4,1:s2agt=100:s2at=3.0:lcm=reverse:lma=on:anc=none:slsqc=3:bsd=on_0",
+                    " --decode lrs+1011_1:6_sil=64000:sp=const_max:sac=on:st=6.0:s2a=on:sd=1:doe=on:nm=16:ss=axioms:s2agt=32:sgt=40:erd=off:spb=units:kws=inv_arity:nwc=2.0:lcm=reverse:uhcvi=on:etr=on_0",
+                    " --decode dis-1010_16:1_sil=64000:sos=on:bd=off:nm=10:lma=on:kws=inv_arity:acc=on:amm=off_0",
+                    " --decode lrs+21_1:1_sil=64000:tgt=ground:sp=const_max:kws=precedence:bd=preordered:dpc=on:ss=axioms:st=5.0:crc=on_0"]
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
@@ -134,11 +139,11 @@ USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = False
+USE_STRATEGY_FEATURES : Final[bool] = True
 USE_PROBLEM_FEATURES : Final[bool] = False
 
-# this is the main flag for STATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = False
+# this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
+USE_STATIC_FEATURES : Final[bool] = True
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
