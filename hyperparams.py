@@ -41,8 +41,8 @@ SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
-PROBLEM_LIST = "problemsCNFFOF.txt"
-NUM_TRAIN_PROBLEMS = 17433
+PROBLEM_LIST = "problemsCNFFOFuns.txt" # newly, we don't want to run on SAT
+NUM_TRAIN_PROBLEMS = 14907
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
 
