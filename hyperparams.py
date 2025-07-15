@@ -36,7 +36,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_8910"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10119"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
@@ -51,7 +51,7 @@ IMITATE = True # should the first loop use the given clause selection heuristic?
 NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering
-INSTRUCTION_LIMIT = 64000
+INSTRUCTION_LIMIT = 16000
 # in elooper:
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
@@ -68,17 +68,23 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
-NUM_PERFORMS = 7
+NUM_PERFORMS = 10
 KEEP_ALL_TRACES = True
 
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = [" --decode lrs+1002_1:3_sil=64000:tgt=ground:sp=reverse_arity:lrd=on:lwlo=on_0",
-                    " --decode dis+1011_1:32_sil=64000:sp=reverse_frequency:nwc=3.0:kws=precedence:s2a=on:s2agt=4:bd=off:fd=preordered_0",
-                    " --decode lrs+2_1:1_sil=64000:sp=occurrence:ss=axioms:sgt=8_0",
-                    " --decode dis+1011_1:4_sil=64000:tgt=full:plsq=on:plsqc=1:plsql=on:cond=fast:nm=30:sp=frequency:ins=10:aac=none:afp=100000:afq=1.7944:bsr=on:irw=on:slsq=on:slsqr=4,1:s2agt=100:s2at=3.0:lcm=reverse:lma=on:anc=none:slsqc=3:bsd=on_0",
-                    " --decode lrs+1011_1:6_sil=64000:sp=const_max:sac=on:st=6.0:s2a=on:sd=1:doe=on:nm=16:ss=axioms:s2agt=32:sgt=40:erd=off:spb=units:kws=inv_arity:nwc=2.0:lcm=reverse:uhcvi=on:etr=on_0",
-                    " --decode dis-1010_16:1_sil=64000:sos=on:bd=off:nm=10:lma=on:kws=inv_arity:acc=on:amm=off_0",
-                    " --decode lrs+21_1:1_sil=64000:tgt=ground:sp=const_max:kws=precedence:bd=preordered:dpc=on:ss=axioms:st=5.0:crc=on_0"]
+PERFORMS_SPECIAL = [" --decode lrs-1011_7:8_drc=off:bd=preordered:fgj=on_0", # 8404
+                    " --decode lrs+10_1:2_tgt=ground:plsq=on:plsqr=1,1:sac=on_0", # 870
+                    " --decode ott+10_1:1_drc=ordering:abs=on:urr=on:br=off:cond=on:s2a=on:ss=axioms:sgt=8:gtg=position_0", # 503
+                    " --decode lrs-1011_1:8_to=lpo:sp=unary_frequency:spb=goal:lsd=10:nwc=0.5:s2agt=16:cond=fast:s2a=on:s2at=2.0:bd=all:ins=5:slsq=on:av=off:erd=off_0", # 236
+                    " --decode lrs+1002_1:1_to=lpo:fde=none:sos=on:sac=on:st=2.0:sd=4:ss=included:s2a=on:s2at=2.0_0", # 169
+                    " --decode lrs+1010_1:16_tgt=ground:sp=reverse_frequency:spb=intro:fd=preordered:kws=precedence_0", # 146
+                    " --decode lrs+10_1:1_sp=unary_first:sd=1:bd=all:ss=included:urr=on:s2a=on:s2agt=32_0", # 120
+                    " --decode dis+1011_1:93_tgt=ground:spb=goal_then_units:lsd=100:nwc=1.2:bs=on:av=off:kws=inv_precedence:lftc=20_0", # 102
+                    " --decode lrs+10_1:1_st=4.0:sd=15:ss=axioms:sgt=8:lma=off:sos=all_0", # 87
+                    " --decode lrs+10_1:2_tgt=ground:sp=unary_first:kmz=on:bd=all:gtg=all:gtgl=5_0",] # 74
+# these strategies were obtained by running quickGreedyProduceCASC2025.py and looking at bracket 16
+# they covered (on snake's problemsCNFFOF.txt, which exclude ARI/NAR) a total 10711 problems
+
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
@@ -139,11 +145,11 @@ USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = True
+USE_STRATEGY_FEATURES : Final[bool] = False
 USE_PROBLEM_FEATURES : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = True
+USE_STATIC_FEATURES : Final[bool] = False
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
