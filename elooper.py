@@ -600,7 +600,7 @@ if __name__ == "__main__":
             prob_solved += 1
 
         print(res_filename)
-        print("         {:10.4f} = {:>5} / {} ADDING".format(prob_solved/len(results),prob_solved,len(results)))
+        print("          {:10.4f} = {:>5} / {:>5} ADDING".format(prob_solved/len(results),prob_solved,len(results)))
 
         covered = set()
         adds = []
@@ -610,7 +610,8 @@ if __name__ == "__main__":
           covered = covered | by_performs_solved[i]
 
         for i in range(max_i+1):
-          print("   {:>3} {:>6} {:6.4f} = {:>5} / {:>5} {:>5}".format(i,ilims[i],len(by_performs_solved[i])/len(by_performs_attempted[i]),len(by_performs_solved[i]),len(by_performs_attempted[i]),adds[i]))
+          print("   {:>3} {:>6} {:6.4f} = {:>5} / {:>5} {:>5} {}".format(
+                  i,ilims[i],len(by_performs_solved[i])/len(by_performs_attempted[i]),len(by_performs_solved[i]),len(by_performs_attempted[i]),adds[i],HP.PERFORMS_SPECIAL[i] if i < len(HP.PERFORMS_SPECIAL) else None))
 
       print()
       print("  Stage 1 took",time.time()-stage_start_time)
