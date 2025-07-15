@@ -2,6 +2,7 @@
 
 import inf_common as IC
 import hyperparams as HP
+import workers as W
 
 import os, sys, shutil, random, atexit, time, pickle, math
 from collections import defaultdict
@@ -10,8 +11,6 @@ from itertools import chain
 
 import multiprocessing
 import numpy
-
-import gc
 
 # first environ, then load torch, also later we set_num_treads (in "main")
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -75,10 +74,25 @@ def load_loop_model_and_optimizer(adir):
   loop_model_and_optimizer_state_file_path = os.path.join(adir,LOOP_MODEL_AND_OPTIMIZER)
   return torch.load(loop_model_and_optimizer_state_file_path)
 
+def is_sound(trace_file_name):
+  if not os.path.isfile(trace_file_name):
+    print("Trace file",trace_file_name,"no longer exists")
+    return False
+  tt = torch.load(trace_file_name)
+  if isinstance(tt[3], int):
+    return True
+  print("Unconverted trace file",trace_file_name)
+  return False
+
+def filter_trace_file_names(task):
+  prob,trace_file_names = task
+  return prob,[tfn for tfn in trace_file_names if is_sound(tfn)]
+
 class TraceIndex:
   def __init__(self):
     self.traces = {} # problem -> [trace_file_name]  # a list to support more than one sample per problem per loop (c.f. HP.NUM_PERFORMS)
     self.last_solved = {}
+    self.num_cur_loop_trivials = defaultdict(int)
     self.prob_scores = {}
 
     if HP.CUMULATIVE:
@@ -88,12 +102,26 @@ class TraceIndex:
   def loop_finished(self):
     if not HP.CUMULATIVE:
       self.traces = {}
+    self.num_cur_loop_trivials = defaultdict(int)
 
   def cur_problems(self):
     return self.traces.keys()
 
   def prob_traces(self,prob):
     return self.traces[prob]
+
+  def num_contemporary_traces(self,loop,prob):
+    res = self.num_cur_loop_trivials[prob]
+    if (prob in self.traces and
+       (not HP.CUMULATIVE or # if CUMMULATIVE, old traces don't count as contemporary
+          (prob in self.last_solved and self.last_solved == loop)
+       )
+    ):
+      res += len(self.traces[prob])
+
+    # print(prob,"contemp",res,"triv:",self.num_cur_loop_trivials[prob])
+
+    return res
 
   def prob_factor(self,prob):
     if not HP.CUMULATIVE:
@@ -110,9 +138,14 @@ class TraceIndex:
 
     self.last_solved[prob] = loop
 
-  def report_trivial_trace(self,loop,prob):
-    if HP.CUMULATIVE and prob in self.traces:
-      del self.traces[prob]
+  def report_bad_trace(self,loop,prob,trivial):
+    if (HP.CUMULATIVE and prob in self.last_solved and self.last_solved[prob] < loop):
+      # we didn't solve it this loop yet
+      self.traces[prob] = []
+
+    if trivial:
+      self.num_cur_loop_trivials[prob] += 1
+    self.last_solved[prob] = loop
 
   def update_scores(self,loop):
     if not HP.CUMULATIVE:
@@ -154,6 +187,11 @@ class TraceIndex:
       print("    {:>6} {:>6}".format(score, val))
     print()
 
+  def consolidate(self):
+    with multiprocessing.Pool(120) as pool:
+      for prob,trace_file_names_updated in pool.map(filter_trace_file_names, list(self.traces.items())):
+        self.traces[prob] = trace_file_names_updated
+
   def report(self):
     trace_cnt = 0
     for prob,trace_list in self.traces.items():
@@ -174,142 +212,57 @@ def ilim2tlim(ilim):
   secs = max(5,ilim // 1000) # it's 2 times more than the instrlimit on a 2GHz machine
   return secs
 
-# Kinds of jobs a worker can be asked to do
-JK_PERFORM = 0 # runs vampire in "real-time" mode to assess its performance
-  # input:     (res_filename,gatherwish,mission,prob,opts1,opts2)
-  # output:    result as coming from IC.vampire_eval
-JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training trace
-  # input:     (mission,prob,counter,opts)
-  # output:    filename where got saved if got a non-degenerate trace; or None
-JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
-  # input:     (prob,fact,trace_file_paths,model_file_path)
-  # output:    the computed loss
-JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
-  # input:     (prob,fact,trace_file_paths,train_model_file_path)
-  # output:    the computed loss
+def create_trace_records(trace_problems):
+  fact = 1/len(trace_problems)
+  # split the traces apart:
+  trace_records = []
+  for prob in trace_problems:
+    prob_traces = trace_index.prob_traces(prob)
+    prob_fact = trace_index.prob_factor(prob)*fact
+    for trace_file in prob_traces:
+      trace_records.append((os.path.getsize(trace_file),prob,prob_fact/len(prob_traces),trace_file))
+  return trace_records
 
-def worker(q_in, q_out):
-  # tell each worker we don't want any extra threads
-  torch.set_num_threads(1)
-  torch.set_num_interop_threads(1)
+def package_trace_records(trace_records,max_size):
+  # TODO: later maybe pick a different one for EVAL, now it's shared
+  max_size *= HP.TRAIN_MAX_SIZE_MULTIPLIER
 
-  while True:
-    (job_kind,input) = q_in.get()
-
-    if job_kind == JK_PERFORM:
-      (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
-      result = IC.vampire_perfrom(prob,opts1+opts2)
-      q_out.put((job_kind,input,result))
-    elif job_kind == JK_GATHER:
-      (mission,prob,lrs_trace_file,trace_file_path,opts) = input
-      vamp_res = IC.vampire_perfrom(prob,opts)
-
-      if vamp_res.status == "uns":
-        # assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res}"
-        assert os.path.isfile(trace_file_path)
-        trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path,train_log)
+  while trace_records:
+    cur_size = 0
+    package = []
+    while True:
+      # look for an index of the largest that still fits
+      good_idx = None
+      for i,pkg_item in enumerate(trace_records):
+        if cur_size+pkg_item[0] <= max_size:
+          good_idx = i
+          break
+      if good_idx is not None:
+        cur_size += trace_records[good_idx][0]
+        package.append(trace_records[good_idx])
+        del trace_records[good_idx]
       else:
-        print("Failed to reproduce success for",prob,opts,file=train_log)
-        train_log.flush()
-        trace_kept, gage_stats, gweight_stats = False, 0, 0
+        break
+    assert package
+    yield package
 
-      q_out.put((job_kind,input,(trace_kept, gage_stats, gweight_stats)))
-
-    elif job_kind == JK_EVAL:
-      (prob,fact,trace_file_paths,model_file_path) = input
-
-      eval_begin = time.time()
-
-      local_model = IC.get_initial_model()
-      local_model.load_state_dict(torch.load(model_file_path))
-
-      local_fact = 1/len(trace_file_paths)
-      trace_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
-
-      # print("EVAL on",prob,fact,trace_file_paths)
-
-      try:
-        loss = torch.zeros(1)
-        for trace_tuple in trace_tuples:
-          learn_model = IC.LearningModel(False,local_model,trace_tuple)
-          learn_model.eval()
-          # print("For",prob,temp,"with",tweak_start,tweak_std,"will try")
-          # print(tweaks_to_try)
-          loss += local_fact*learn_model.forward()
-      except Exception as e:
-        with open(f"exception{os.getpid()}.log", "w") as f:
-          f.write(f"{e} occurred in EVAL\n")
-          f.write(f"(prob: {prob},fact {fact},trace_file_paths {trace_file_paths},model_file_path {model_file_path})")
-        raise
-
-      took = time.time()-eval_begin
-      if took > HP.WORTH_REPORTING:
-        train_log.write(f"EVAL of {prob} took {took}\n")
-
-      # print("EVAL on",prob,fact,trace_file_paths,loss.item())
-
-      q_out.put((job_kind,input,fact*loss.item()))
-
-      del loss
-      del trace_tuples
-      del learn_model
-      del local_model
-      gc.collect()  # Force garbage collection
-
-    elif job_kind == JK_TRAIN:
-      (prob,fact,trace_file_paths,train_model_file_path) = input
-
-      train_begin = time.time()
-
-      local_fact = 1/len(trace_file_paths)
-      trace_tuples = [torch.load(trace_file_path) for trace_file_path in trace_file_paths]
-
-      local_model = IC.get_initial_model()
-      local_model.load_state_dict(torch.load(train_model_file_path))
-
-      verbose = False # (prob in {'Problems/COM/COM021+4.p'})
-
-      # print("TRAIN on",prob,fact,trace_file_paths)
-
-      try:
-        loss = torch.zeros(1)
-        for trace_tuple in trace_tuples:
-          learn_model = IC.LearningModel(verbose,local_model,trace_tuple)
-          learn_model.train()
-
-          loss += local_fact*learn_model.forward()
-
-        loss.backward()
-      except Exception as e:
-        with open(f"exception{os.getpid()}.log", "w") as f:
-          f.write(f"{e} occurred in TRAIN\n")
-          f.write(f"(prob: {prob},fact {fact},trace_file_paths {trace_file_paths},model_file_path {model_file_path})")
-        raise
-
-      # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
-
-      for param in local_model.parameters():
-        grad = param.grad
-        param.requires_grad = False # to allow the in-place operation just below
-        if grad is not None:
-          param.copy_(grad)
-        else:
-          param.zero_()
-
-      # use the same file also for the journey back (which brings the gradients inside the actual params)
-      torch.save(local_model.state_dict(), train_model_file_path)
-
-      took = time.time()-train_begin
-      if took > HP.WORTH_REPORTING:
-        train_log.write(f"TRAIN of {prob} took {took}\n")
-
-      q_out.put((job_kind,input,fact*loss.item()))
-
-      del loss
-      del trace_tuples
-      del learn_model
-      del local_model
-      gc.collect()  # Force garbage collection
+def luby(min,max):
+  next = min
+  seq = [min]
+  i = 0
+  while True:
+    while i < len(seq):
+      yield seq[i]
+      i += 1
+    next *= 2
+    if next > max:
+      break
+    seq = seq + seq
+    seq.append(next)
+  # do "repeat forever", for now
+  while True:
+    for i in seq:
+      yield i
 
 
 if __name__ == "__main__":
@@ -413,11 +366,13 @@ if __name__ == "__main__":
       trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
       skip_first_stage = True
       print("Starting from loop",loop,"and a half")
+      trace_index.consolidate()
       trace_index.report()
 
     if load_traces_old:
       trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop}"))
       print("Starting from loop",loop)
+      trace_index.consolidate()
       trace_index.report()
 
     if steal_script_model:
@@ -435,62 +390,19 @@ if __name__ == "__main__":
   # ===========================================================================
   # the parallel business set up here:
 
-  train_log = open(os.path.join(exper_dir,'detailed.log'), 'w', buffering=1)
+  W.train_log = open(os.path.join(exper_dir,'detailed.log'), 'w', buffering=1)
 
   # create our worker processes and register a cleanup
-  perform_and_gather_in = multiprocessing.Queue()
-  perform_and_gather_out = multiprocessing.Queue()
-  eval_and_train_in = multiprocessing.Queue()
-  eval_and_train_out = multiprocessing.Queue()
-  my_processes = []
-  for i in range(parallelism):
-    p = multiprocessing.Process(target=worker, args=(perform_and_gather_in,perform_and_gather_out))
-    p.start()
-    my_processes.append(p)
-
+  perf_and_gather = W.create_workforce(parallelism)
   eval_and_train_parallelism = min(parallelism,HP.TRAINING_PARALLELISM)
-
-  for i in range(eval_and_train_parallelism):
-    p = multiprocessing.Process(target=worker, args=(eval_and_train_in,eval_and_train_out))
-    p.start()
-    my_processes.append(p)
-
-  def cleanup():
-    for p in my_processes:
-      p.kill()
-    train_log.close()
-  atexit.register(cleanup)
-
-  def do_in_parallel(q_in,q_out,tasks,max_parallelism,process_results_callback):
-    num_active_tasks = 0
-
-    # we assume there is at least one task
-    have_tasks = True
-    while have_tasks or num_active_tasks:
-      # first of all: make all the workers busy, if possible
-      if have_tasks and num_active_tasks < max_parallelism:
-        # we assume tasks are not None
-        task = next(tasks,None)
-        if task is None:
-          have_tasks = False
-        else:
-          # print("PUT:",task)
-          q_in.put(task)
-          num_active_tasks += 1
-        continue
-
-      # result collecting (workers get a new job immediately, or get freed up)
-      (job_kind,input,result) = q_out.get() # this may block
-      # print("GOT:",(job_kind,input,result))
-
-      num_active_tasks -= process_results_callback(job_kind,input,result)
+  eval_and_train = W.create_workforce(eval_and_train_parallelism)
+  W.workforces_finished()
 
   def perform_and_gather_in_parallel(tasks,process_results_callback):
-    do_in_parallel(perform_and_gather_in,perform_and_gather_out,tasks,parallelism,process_results_callback)
+    W.do_in_parallel(perf_and_gather,tasks,parallelism,process_results_callback)
 
   def eval_and_train_in_parallel(tasks,process_results_callback):
-    do_in_parallel(eval_and_train_in,eval_and_train_out,tasks,eval_and_train_parallelism,process_results_callback)
-
+    W.do_in_parallel(eval_and_train,tasks,eval_and_train_parallelism,process_results_callback)
 
   # only after the forks, otherwise weird trouble
   '''
@@ -541,79 +453,113 @@ if __name__ == "__main__":
       else:
         IC.export_model(model.state_dict(),script_model_file_path)
 
+      # we need this, so that we don't gather to the same index if two perf jobs come too close one after another
+      per_prob_trace_cnt = defaultdict(int)
+
       def get_perform_tasks():
-        ilim = HP.INSTRUCTION_LIMIT
+        global per_prob_trace_cnt
         for mission,gatherwish,prob_lists in [("train",True,train_problems),("test",False,test_problems)]:
           if not HP.EVAL_ON_TEST and mission == "test":
             continue
           res_filename = f"{mission}_res.pt"
 
-          result_metas.append((res_filename,mission,ilim))
+          result_metas.append((res_filename,mission))
 
-          for i in range(HP.NUM_PERFORMS):
+          for i,ilim in enumerate(luby(HP.INSTRUCTION_LIMIT_MIN,HP.INSTRUCTION_LIMIT_MAX)):
+            if i >= HP.NUM_PERFORMS and loop > 1 or i >= HP.INITIAL_NUM_PERFORMS:
+              break
             seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
+
+            # print(i,"for",ilim)
 
             # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
             opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
+
+            if HP.RANDOMIZED_STRATEGIES:
+              saturation_algorithm = ""
+              opts1_base += f" --sample_strategy {HP.RANDOMIZED_STRATEGIES}"
+            else:
+              saturation_algorithm = f"-sa {HP.SATURATION_ALGORITHM}"
+
             # will stay the same
-            opts2_base = f" {HP.SHUFFLING_OPTIONS} -sa {HP.SATURATION_ALGORITHM} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+            opts2_base = f" {HP.SHUFFLING_OPTIONS} {saturation_algorithm} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+
             if not HP.IMITATE or loop > 1:
               opts2_base += f" -npcc on -ncem {script_model_file_path}"
             if HP.IMITATE and loop > 1:
               opts2_base = HP.NON_IMIT_EXTRA + opts2_base
 
-            opts2_base += HP.PERFORMS_SPECIAL[i]
+            if HP.USE_SPECIAL:
+              opts2_base += HP.PERFORMS_SPECIAL[i]
 
             for prob in prob_lists:
+              if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
+                # print("Skipping for",prob,"who already has enough")
+                # we are starting to skip problems that already have enough traces
+                continue
+
               opts1 = opts1_base
-              if HP.SATURATION_ALGORITHM.startswith("lrs"):
+              if HP.SATURATION_ALGORITHM.startswith("lrs") or HP.RANDOMIZED_STRATEGIES:
                 lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}_{}_{}.lrs".format(prob.replace("/","_"),i,seed,os.getpid()))
                 opts1 += f" -lstf {lrs_trace_file}"
               else:
                 lrs_trace_file = ""
 
-              yield (JK_PERFORM,(res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}"))
+              # perf_log = os.path.join(cur_dir,"{}_{}_{}_{}.perf".format(prob.replace("/","_"),i,seed,os.getpid()))
+              perf_log = None
 
-      per_prob_trace_cnt = defaultdict(int)
-      currently_solving = set()
+              yield (W.JK_PERFORM,(res_filename,gatherwish,mission,prob,i,ilim,lrs_trace_file,opts1,opts2_base + f" --random_seed {seed}",perf_log))
 
       def process_results_from_perform_and_gather(job_kind,input,result):
         global per_prob_trace_cnt
         workers_freed = 0
-        if job_kind == JK_PERFORM:
-          (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
-          result_dicts[res_filename][prob].append((i,result))
+        if job_kind == W.JK_PERFORM:
+          (res_filename,gatherwish,mission,prob,i,ilim,lrs_trace_file,opts1,opts2,perf_log) = input
+          result_dicts[res_filename][prob].append((i,ilim,result))
 
-          if result.status == "uns" and gatherwish and (HP.KEEP_ALL_TRACES or prob not in currently_solving):
-            currently_solving.add(prob)
+          # the discrepancy between num_contemporary_traces and counter might lead to us in the end having a bit more traces than NUM_TRACES_TO_KEEP, but that's better than fewerwho already has enough
+          if result.status == "uns" and gatherwish and (per_prob_trace_cnt[prob] < HP.MAX_TRACES_TO_KEEP):
             counter = per_prob_trace_cnt[prob]
             per_prob_trace_cnt[prob] += 1
 
+            # print("Gather for",prob,"counter:",counter,"ncp:",trace_index.num_contemporary_traces(loop,prob))
+
             trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
 
-            ilim = 10*HP.INSTRUCTION_LIMIT
+            ilim *= 10
             lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
             # -nar needs a model, and with imitation it's not added to the JK_PERFORM options
             model_for_imitation = f"-ncem {script_model_file_path}" if HP.IMITATE and loop == 1 else ""
-            task = (JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
-                                f"-t {ilim2tlim(ilim)} -i {ilim} {model_for_imitation} -nar {trace_file_path} {lrs_trace_str}"+opts2))
+
+            if HP.RANDOMIZED_STRATEGIES:
+              strat_str = result.strategy
+              # kick out the implicit time limit at the end after the last _
+              strat_str = "_".join(strat_str.split("_")[:-1] + ["0"])
+              insert_decode = f"--decode {strat_str}"
+            else:
+              insert_decode = ""
+
+            gather_log = perf_log+".gather" if perf_log else None
+
+            task = (W.JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
+                                f"-t {ilim2tlim(ilim)} {insert_decode} -i {ilim} {model_for_imitation} -nar {trace_file_path} {lrs_trace_str}"+opts2,opts1+opts2,gather_log))
             # print("PUT:",task)
-            perform_and_gather_in.put(task)
+            perf_and_gather[0].put(task)
           else:
             workers_freed = 1
             if lrs_trace_file and os.path.isfile(lrs_trace_file):
               os.remove(lrs_trace_file)
-        elif job_kind == JK_GATHER:
-          (mission,prob,lrs_trace_file,trace_file_path,opts) = input
-          trace_kept, gage_stats, gweight_stats = result
+        elif job_kind == W.JK_GATHER:
+          (mission,prob,lrs_trace_file,trace_file_path,opts,eval_opts,gather_log) = input
+          trace_kept, trace_trivial, gage_stats, gweight_stats = result
           stats[prob].append((gage_stats, gweight_stats))
           if trace_kept:
             trace_index.add_prob_trace(loop,prob,trace_file_path)
           else:
-            # TODO: this is suspicious, as the trace was non necessarily trivial; it might also have been too big! (or we simply failed to reproduce the JK_PERFORM run!
-            # think!
-            trace_index.report_trivial_trace(loop,prob)
+            # TODO: consider deleting (if the trace file exists). But since we overwrite each loop, the memory waste is not tremendous
             # os.remove(trace_file_path)
+
+            trace_index.report_bad_trace(loop,prob,trace_trivial)
 
           workers_freed = 1
           if lrs_trace_file and os.path.isfile(lrs_trace_file):
@@ -628,50 +574,43 @@ if __name__ == "__main__":
       torch.save(stats,os.path.join(cur_dir,"stats.pt"))
 
       # let's report what happened so far (and save the results into files, for later analysis):
-      for (res_filename,mission,ilim) in result_metas:
+      for (res_filename,mission) in result_metas:
         results = result_dicts[res_filename]
-        torch.save((f"ilim: {ilim}",results), os.path.join(cur_dir,res_filename))
+        torch.save(("Unused",results), os.path.join(cur_dir,res_filename))
 
-        by_performs = defaultdict(int)
-        by_performs_set = defaultdict(set)
+        by_performs_attempted = defaultdict(set)
+        by_performs_solved = defaultdict(set)
+        ilims = defaultdict(int)
+
+        max_i = 0
 
         prob_solved = 0
         prob_fractional = 0.0
-        attempts = None
         for prob,runs in results.items():
           succs = 0
-          for (i,vamp_res) in runs:
+          for (i,ilim,vamp_res) in runs:
+            max_i = max(i,max_i)
+            ilims[i] = ilim
+            by_performs_attempted[i].add(prob)
             if vamp_res.status == "uns":
               succs += 1
-              by_performs[i] += 1
-              by_performs_set[i].add(prob)
-          if attempts is None:
-            attempts = len(runs)
-          else:
-            assert attempts == len(runs)
+              by_performs_solved[i].add(prob)
 
           if succs > 0:
             prob_solved += 1
-          prob_fractional += succs/attempts
 
         print(res_filename)
-        print("    {:10.4f}% = {:10.1f} / {} ({} attempts) {} total".format(prob_fractional/len(results),prob_fractional,len(results),attempts,prob_solved))
+        print("         {:10.4f} = {:>5} / {} ADDING".format(prob_solved/len(results),prob_solved,len(results)))
 
         covered = set()
         adds = []
 
-        best_i = -1
-        best_p = 0
-        for i in range(HP.NUM_PERFORMS):
-          adds.append(len(by_performs_set[i]-covered))
-          covered = covered | by_performs_set[i]
+        for i in range(max_i+1):
+          adds.append(len(by_performs_solved[i]-covered))
+          covered = covered | by_performs_solved[i]
 
-          if by_performs[i] > best_p:
-            best_p = by_performs[i]
-            best_i = i
-
-        for i in range(HP.NUM_PERFORMS):
-          print("   {}  {} {:6.4f} {:>5}:{}".format(i,"*" if i == best_i else " ",by_performs[i]/len(results),adds[i],HP.PERFORMS_SPECIAL[i]))
+        for i in range(max_i+1):
+          print("   {:>3} {:>6} {:6.4f} = {:>5} / {:>5} {:>5}".format(i,ilims[i],len(by_performs_solved[i])/len(by_performs_attempted[i]),len(by_performs_solved[i]),len(by_performs_attempted[i]),adds[i]))
 
       print()
       print("  Stage 1 took",time.time()-stage_start_time)
@@ -725,14 +664,15 @@ if __name__ == "__main__":
         eval_models[stage2iter % TIW] = eval_model_file_path
 
         def get_eval_tasks():
-          fact = 1/len(valid_trace_problems)
-          for prob in valid_trace_problems:
-              # print((JK_EVAL,(prob,fact,trace_list,eval_model_file_path)))
-              yield (JK_EVAL,(prob,fact*trace_index.prob_factor(prob),trace_index.prob_traces(prob),eval_model_file_path))
+          trace_records = create_trace_records(valid_trace_problems)
+          trace_records.sort(reverse=True) # descending by the filesize (i.e., the big ones first)
+          max_size = trace_records[0][0] # may the size of the biggest one be also the size of the largest package
+          for package in package_trace_records(trace_records,max_size):
+            yield (W.JK_EVAL,(package,eval_model_file_path))
 
         def process_results_from_eval(job_kind,input,result):
           global weighted_eval_loss
-          assert job_kind == JK_EVAL
+          assert job_kind == W.JK_EVAL
           weighted_eval_loss += result # (= the loss) multiplied by fact already in the child
           return 1
 
@@ -777,28 +717,23 @@ if __name__ == "__main__":
       # TRAIN on train problems
       train_model_version = 0
       def get_train_tasks():
-        fact = 1/len(train_trace_problems)
-
-        # TODO: also here we could consider exerting extra force on harder problems (according to how recently they got solved) under CUMMULATIVE
-        proto_tasks = [[prob,fact*trace_index.prob_factor(prob),trace_index.prob_traces(prob)] for prob in train_trace_problems]
-
-        random.shuffle(proto_tasks)
-
+        trace_records = create_trace_records(train_trace_problems)
+        random.shuffle(trace_records)
         global train_model_version
-        for arg_list in proto_tasks:
+        max_size = max(pkg_item[0] for pkg_item in trace_records)
+        for package in package_trace_records(trace_records,max_size):
           train_model_version += 1
           train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
           torch.save(model.state_dict(), train_model_file_path)
-          arg_list.append(train_model_file_path)
-          yield (JK_TRAIN,tuple(arg_list))
+          yield (W.JK_TRAIN,(package,train_model_file_path))
 
       weighted_train_loss = 0.0
 
       def process_results_from_train(job_kind,input,result):
         global weighted_train_loss
 
-        assert job_kind == JK_TRAIN
-        (prob,fact,trace_file_paths,train_model_file_path) = input
+        assert job_kind == W.JK_TRAIN
+        (package,train_model_file_path) = input
         loss = result
 
         weighted_train_loss += result # (= the loss) multiplied by fact already in the child

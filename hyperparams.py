@@ -18,14 +18,15 @@ SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
                     "../snake/mtpa2025/evals74_neural3",
                     "../snake/mtpa2025/evals76_neural4",
                     "../snake/mtpa2025/evals74_neural5",
-                    "../snake/mtpa2025/evals76_neural6",]
+                    "../snake/mtpa2025/evals76_neural6",
+                    "../snake/mtpa2025/evals79_neural7",]
 
-SNAKE_PREFER_STRATS = "ncem=models/fstatic3-1.pt"
+SNAKE_PREFER_STRATS = "ncem=models/fstrat10es48-1.pt"
 SNAKE_KICK_OUT_NON_PREFER_NEURALS = True
 
 SNAKE_SORT_BY_INSTR: Final[bool] = True # instead of random strat, let's prefer strats that solve the problem fastests
-SNAKE_SHUFFLE_THE_EASY: Final[bool] = True # do the sorting above, but then look at the part of the list that is below 10000K Mi and shuffle these anyway
-SNAKE_MAX_TRACES_PER_PROBLEM = 3
+SNAKE_SHUFFLE_THE_EASY: Final[bool] = False # do the sorting above, but then look at the part of the list that is below 10000K Mi and shuffle these anyway
+SNAKE_MAX_TRACES_PER_PROBLEM = 1
 # don't even try to look for a solution that originally took longer than this
 SNAKE_MAX_INSTRUCTIONS = 50000
 
@@ -39,6 +40,8 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10119"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
+RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
+# only if RANDOMIZED_STRATEGIES is None does the SATURATION_ALGORITHM below kick in!
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsCNFFOFuns.txt" # newly, we don't want to run on SAT
@@ -50,8 +53,12 @@ NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
 NON_IMIT_EXTRA = " -lpd off"
 
-# Data gathering
-INSTRUCTION_LIMIT = 16000
+# Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
+# typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
+INSTRUCTION_LIMIT_MIN = 16000
+INSTRUCTION_LIMIT_MAX = 16000
+# use the same value, to just have one value
+
 # in elooper:
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
@@ -68,9 +75,12 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
+INITIAL_NUM_PERFORMS = 10
 NUM_PERFORMS = 10
-KEEP_ALL_TRACES = True
+MAX_TRACES_TO_KEEP = 10 # should be at least 1!
+# setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
+USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = [" --decode lrs-1011_7:8_drc=off:bd=preordered:fgj=on_0", # 8404
                     " --decode lrs+10_1:2_tgt=ground:plsq=on:plsqr=1,1:sac=on_0", # 870
@@ -89,8 +99,11 @@ PERFORMS_SPECIAL = [" --decode lrs-1011_7:8_drc=off:bd=preordered:fgj=on_0", # 8
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
+# EVAL_PARALLELISM = 16 # should be TRAINING_PARALLELISM / NUM_GSD_FEATURES, but I think I can afford a bit leeway
 TRAINING_PARALLELISM = 64
 WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
+
+TRAIN_MAX_SIZE_MULTIPLIER = 1.0 # makes the jobs harder (good with MAX_KBSIZE, to actually load all the workers)
 
 # also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
@@ -101,7 +114,6 @@ TEST_IMPROVE_WINDOW = 10
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the first loop (if you don't like it, set it to the same thing as MAX_TEST_IMPROVE_ITER below)
 MAX_TEST_IMPROVE_ITER = 30
-
 
 # Features
 # in the latest lawa vampire, features go in the following order (let's for the time being not experiment with subsets)
@@ -117,25 +129,26 @@ NUM_CLAUSE_FEATURES : Final[int] = 12
 # these two together are the STATIC features for a particular vampire run
 NUM_PROBLEM_FEATURES : Final[int] = 15
 NUM_STRATEGY_FEATURES : Final[int] = 30
+NUM_GSD_FEATURES : Final[int] = 8
 
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-INTERAL_SIZE : Final[int] = 256
+INTERAL_SIZE : Final[int] = 256 # "big" is 384
 
 GNN_SAGE_PROJECT = False # rather experiment with different Convs
 GNN_SAGE_AGGREG = "mean"
 
-GNN_NUM_LAYERS : Final[int] = 5
+GNN_NUM_LAYERS : Final[int] = 5 # "big" is 8
 GNN_MULTIPLIER : Final[int] = 1
-GNN_INTERNAL_SIZE : Final[int] = 32
+GNN_INTERNAL_SIZE : Final[int] = 32 # "big" is 48
 
 GNN_DROPOUT : Final[float] = 0.0
 
 NUM_INFERENCE_RULES : Final[int] = 205
-GAGE_EMBEDDING_SIZE : Final[int] = 32
+GAGE_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 
-GWEIGHT_EMBEDDING_SIZE : Final[int] = 32
+GWEIGHT_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 # GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
 
 TREE_DROPOUT : Final[float] = 0.0 # maybe is good, but also contributes to higher variance (ingore by default)
@@ -147,6 +160,7 @@ USE_GWEIGHT : Final[bool] = True
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
 USE_STRATEGY_FEATURES : Final[bool] = False
 USE_PROBLEM_FEATURES : Final[bool] = False
+USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
 USE_STATIC_FEATURES : Final[bool] = False
@@ -163,7 +177,7 @@ MAX_TRAINS_PER_TRACE = 1000
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
 MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 50000
+MAX_KBSIZE = 50000 # "big" is 100000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
@@ -175,8 +189,21 @@ MAX_KBSIZE = 50000
 # next time I play with the entropy regularization, let me try the normalized one
 # ENTROPY_NORMALIZED = True
 
+# all the GSD hyperparams only make sense with inf_common_GSD.py (parked in lawa-devel for now)
+
+GSD_NEGENTROPY_COEF = 0.0
+
+GSD_TEMP_INIT = 0.1   # maybe the thing to tune could be THIS (so that we lower it and bring the commitment phase closer to the beginning)
+GSD_TEMP_FACT = 0.9   # 0.87055 = (0.5)^(1/5) = halving every five epochs
+GSD_TEMP_MIN = 0.001  # 0.005 reached this temp in ~ 50 iters when starting from 2.0
+
+# relative streght of the gumbel noise towards the logits
+# (this is quite low, because the logits start all zero and never get too far with our default LR)
+GUMBEL_STRENGTH : Final[float] = 0.001 # divided by 2.5 further; divided by two since last time -> earlier commitement
+
+GSD_TWEAK_LEARNING_SPEEDUP = 100
+
 LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
-TWEAKS_LEARNING_RATE : Final[float] = 0.1
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 

@@ -16,7 +16,6 @@ import torch_geometric
 from typing import Dict, List, Tuple, Set, Optional
 
 from multiprocessing import Pool
-import subprocess
 
 import numpy as np
 
@@ -27,58 +26,12 @@ import hyperparams as HP
 from collections import defaultdict
 from itertools import chain
 
-from dataclasses import dataclass
-
 def default_defaultdict_of_list():
   return defaultdict(list)
 
 EVENT_ADD = 0
 EVENT_REM = 1
 EVENT_SEL = 2
-
-@dataclass
-class VampResult:
-  status: str
-  instructions: int
-  activations: int
-  nn_warmup: int
-  nn_gnn: int
-  nn_bulks: int
-
-def vampire_perfrom(prob,opts):
-  to_run = " ".join(["./run_lawa_vampire.sh",HP.VAMPIRE_EXECUTABLE,opts,prob])
-  # print(to_run)
-  output = subprocess.getoutput(to_run)
-
-  status = None
-  instructions = 0
-  activations = 0
-  nn_warmup = 0
-  nn_gnn = 0
-  nn_bulks = 0
-
-  for line in output.split("\n"):
-    # print("  ",line)
-    if line.startswith("%"):
-      if line.startswith("% Activations started:"):
-        activations = int(line.split()[-1])
-      if line.startswith("% Instructions burned:"):
-        instructions = int(line.split()[-2])
-      if line.startswith("% Neural model warmup:"):
-        nn_warmup = int(line.split()[-1])
-      if line.startswith("% Gnn eval:"):
-        nn_gnn = int(line.split()[-1])
-      if line.startswith("% Bulk evals:"):
-        nn_bulks = int(line.split()[-1])
-
-      if line.startswith("% SZS status"):
-        if "Satisfiable" in line or "CounterSatisfiable" in line:
-          status = "sat"
-        elif "Theorem" in line or "Unsatisfiable" in line or "ContradictoryAxioms" in line:
-          status = "uns"
-
-  # print(status,instructions,activations)
-  return VampResult(status,instructions,activations,nn_warmup,nn_gnn,nn_bulks)
 
 def get_conv():
   return torch_geometric.nn.SAGEConv(
@@ -804,9 +757,9 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     torch.save((static_features,clause_simple_features,newjournal,num_good_selections,
                 init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses),trace_file_path)
-    return True, (gage_h,gage_w), (gweight_h,gweight_w)
+    return True, False, (gage_h,gage_w), (gweight_h,gweight_w)
   else:
-    return False, (gage_h,gage_w), (gweight_h,gweight_w)
+    return False, num_good_selections == 0, (gage_h,gage_w), (gweight_h,gweight_w)
 
 
 class LearningModel(torch.nn.Module):
