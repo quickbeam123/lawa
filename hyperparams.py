@@ -55,8 +55,9 @@ NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT_MIN = 16000
-INSTRUCTION_LIMIT_MAX = 16000
+INSTRUCTION_LIMIT = 16000
+INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
+INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
 
 # in elooper:
