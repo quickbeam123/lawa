@@ -55,7 +55,7 @@ NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 16000
+INSTRUCTION_LIMIT = 32000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
@@ -83,19 +83,19 @@ MAX_TRACES_TO_KEEP = 10 # should be at least 1!
 
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = [" --decode lrs-1011_7:8_drc=off:bd=preordered:fgj=on_0", # 8404
-                    " --decode lrs+10_1:2_tgt=ground:plsq=on:plsqr=1,1:sac=on_0", # 870
-                    " --decode ott+10_1:1_drc=ordering:abs=on:urr=on:br=off:cond=on:s2a=on:ss=axioms:sgt=8:gtg=position_0", # 503
-                    " --decode lrs-1011_1:8_to=lpo:sp=unary_frequency:spb=goal:lsd=10:nwc=0.5:s2agt=16:cond=fast:s2a=on:s2at=2.0:bd=all:ins=5:slsq=on:av=off:erd=off_0", # 236
-                    " --decode lrs+1002_1:1_to=lpo:fde=none:sos=on:sac=on:st=2.0:sd=4:ss=included:s2a=on:s2at=2.0_0", # 169
-                    " --decode lrs+1010_1:16_tgt=ground:sp=reverse_frequency:spb=intro:fd=preordered:kws=precedence_0", # 146
-                    " --decode lrs+10_1:1_sp=unary_first:sd=1:bd=all:ss=included:urr=on:s2a=on:s2agt=32_0", # 120
-                    " --decode dis+1011_1:93_tgt=ground:spb=goal_then_units:lsd=100:nwc=1.2:bs=on:av=off:kws=inv_precedence:lftc=20_0", # 102
-                    " --decode lrs+10_1:1_st=4.0:sd=15:ss=axioms:sgt=8:lma=off:sos=all_0", # 87
-                    " --decode lrs+10_1:2_tgt=ground:sp=unary_first:kmz=on:bd=all:gtg=all:gtgl=5_0",] # 74
-# these strategies were obtained by running quickGreedyProduceCASC2025.py and looking at bracket 16
-# they covered (on snake's problemsCNFFOF.txt, which exclude ARI/NAR) a total 10711 problems
-
+PERFORMS_SPECIAL = [" --decode lrs-1011_7:8_drc=off:bd=preordered:fgj=on_0", # 8649
+                    " --decode lrs+10_1:8_tgt=full:bd=preordered_0", # 867
+                    " --decode ott+10_1:1_drc=ordering:abs=on:urr=on:br=off:cond=on:s2a=on:ss=axioms:sgt=8:gtg=position_0", # 485
+                    " --decode lrs-1011_1:8_to=lpo:sp=unary_frequency:spb=goal:lsd=10:nwc=0.5:s2agt=16:cond=fast:s2a=on:s2at=2.0:bd=all:ins=5:slsq=on:av=off:erd=off_0", # 260
+                    " --decode lrs+1010_1:16_tgt=ground:sp=reverse_frequency:spb=intro:fd=preordered:kws=precedence_0", # 171
+                    " --decode lrs+10_1:1_sp=unary_first:sd=1:bd=all:ss=included:urr=on:s2a=on:s2agt=32_0", # 146
+                    " --decode lrs+1002_1:1_to=lpo:fde=none:sos=on:sac=on:st=2.0:sd=4:ss=included:s2a=on:s2at=2.0_0", # 116
+                    " --decode dis+1011_1:93_tgt=ground:spb=goal_then_units:lsd=100:nwc=1.2:bs=on:av=off:kws=inv_precedence:lftc=20_0", # 96
+                    " --decode lrs-1011_1:9_tgt=full:prc=on:foolp=on:st=5.0:cond=fast:kws=frequency:ss=axioms:lma=off:spb=units:flr=on:bd=preordered:afp=1000:afq=2.0_0", # 73
+                    " --decode lrs+10_1:1_st=4.0:sd=15:ss=axioms:sgt=8:lma=off:sos=all_0",] # 55
+# these strategies were obtained by running quickGreedyProduceCASC2025.py and looking at bracket 32 (see ../snake/quickGreedyProduceCASC2025.mtpa16.txt)
+# TODO: for the 128K and 256K brackets, there might be a few strategies more avaialable in mtpa2025C that got generated in the meantime)
+# they covered (on snake's problemsCNFFOF.txt, which exclude ARI/NAR) a total 10918 problems
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
@@ -160,11 +160,11 @@ USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
 USE_STRATEGY_FEATURES : Final[bool] = False
-USE_PROBLEM_FEATURES : Final[bool] = False
+USE_PROBLEM_FEATURES : Final[bool] = True
 USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = False
+USE_STATIC_FEATURES : Final[bool] = True
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
