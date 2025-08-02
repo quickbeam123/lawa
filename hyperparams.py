@@ -55,7 +55,7 @@ NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 128000
+INSTRUCTION_LIMIT = 64000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
@@ -83,19 +83,19 @@ MAX_TRACES_TO_KEEP = 10 # should be at least 1!
 
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = [" --decode lrs+10_1:8_tgt=full:bd=preordered_0 ", # 9350
-                    " --decode lrs+1011_1:1_sp=occurrence:st=6.0:sd=4:ss=included_0", # 880
-                    " --decode lrs+10_1:1_sp=unary_first:sd=1:bd=all:ss=included:urr=on:s2a=on:s2agt=32_0 ", # 421
-                    " --decode dis+1011_1:93_tgt=ground:spb=goal_then_units:lsd=100:nwc=1.2:bs=on:av=off:kws=inv_precedence:lftc=20_0", # 216
-                    " --decode lrs+11_1:5_slsqr=1,8:to=lpo:tgt=ground:lsd=10:slsq=on:av=off:slsql=off:bs=unit_only:sp=const_frequency_0", # 138
-                    " --decode lrs+1002_1:1_to=lpo:fde=none:sos=on:sac=on:st=2.0:sd=4:ss=included:s2a=on:s2at=2.0_0", # 130
-                    " --decode lrs+1010_1:16_tgt=ground:sp=reverse_frequency:spb=intro:fd=preordered:kws=precedence_0", # 97
-                    " --decode ott+10_1:1_drc=ordering:abs=on:urr=on:br=off:cond=on:s2a=on:ss=axioms:sgt=8:gtg=position_0", # 85
-                    " --decode dis+10_1:1_acc=on:s2agt=32:flr=on:s2a=on:slsq=on_0", # 61
-                    " --decode ott-1011_1:64_sfv=off:sp=weighted_frequency:sos=all:erd=off:spb=units:kws=precedence:doe=on:bd=preordered:av=off:gsp=on:ss=axioms:sgt=30:bs=unit_only:uhcvi=off_0",] # 52
-# these strategies were obtained by running quickGreedyProduceCASC2025.py and looking at bracket 64 (see ../snake/quickGreedyProduceCASC2025.mtpa16.txt);
-# newly see: quickGreedyProduceCASC2025.mtpa128K.txt
-# they covered (on snake's problemsCNFFOF.txt, which exclude ARI/NAR) a total 11430 problems
+PERFORMS_SPECIAL = [" --decode lrs+10_1:8_tgt=full:bd=preordered_0 ", # 8963
+                    " --decode lrs+1011_1:1_sp=occurrence:st=6.0:sd=4:ss=included_0", # 993
+                    " --decode lrs+10_1:1_sp=unary_first:sd=1:bd=all:ss=included:urr=on:s2a=on:s2agt=32_0 ", # 449
+                    " --decode lrs+1010_1:16_tgt=ground:sp=reverse_frequency:spb=intro:fd=preordered:kws=precedence_0", # 235
+                    " --decode lrs+11_1:5_slsqr=1,8:to=lpo:tgt=ground:lsd=10:slsq=on:av=off:slsql=off:bs=unit_only:sp=const_frequency_0", # 168
+                    " --decode lrs+1002_1:1_to=lpo:fde=none:sos=on:sac=on:st=2.0:sd=4:ss=included:s2a=on:s2at=2.0_0", # 129
+                    " --decode ott+10_1:1_drc=ordering:abs=on:urr=on:br=off:cond=on:s2a=on:ss=axioms:sgt=8:gtg=position_0", # 97
+                    " --decode dis+1011_1:93_tgt=ground:spb=goal_then_units:lsd=100:nwc=1.2:bs=on:av=off:kws=inv_precedence:lftc=20_0", # 78
+                    " --decode lrs+10_1:5_tgt=full:fde=unused:sp=reverse_frequency:st=5.0:sd=1:fgj=on:bd=all:ss=axioms_0", # 59
+                    " --decode lrs-1011_7:8_drc=off:bd=preordered:fgj=on_0",] # 45
+# these strategies were obtained by running quickGreedyProduceCASC2025.py and looking at bracket 64 (see ../snake/quickGreedyProduceCASC2025.mtpa16.txt)
+# TODO: for the 128K and 256K brackets, there might be a few strategies more avaialable in mtpa2025C that got generated in the meantime)
+# they covered (on snake's problemsCNFFOF.txt, which exclude ARI/NAR) a total 11216 problems
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
@@ -135,21 +135,21 @@ NUM_GSD_FEATURES : Final[int] = 8
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
-INTERAL_SIZE : Final[int] = 384 # "big" is 384
+INTERAL_SIZE : Final[int] = 256 # "big" is 384
 
 GNN_SAGE_PROJECT = False # rather experiment with different Convs
 GNN_SAGE_AGGREG = "mean"
 
-GNN_NUM_LAYERS : Final[int] = 8 # "big" is 8
+GNN_NUM_LAYERS : Final[int] = 5 # "big" is 8
 GNN_MULTIPLIER : Final[int] = 1
-GNN_INTERNAL_SIZE : Final[int] = 48 # "big" is 48
+GNN_INTERNAL_SIZE : Final[int] = 32 # "big" is 48
 
 GNN_DROPOUT : Final[float] = 0.0
 
 NUM_INFERENCE_RULES : Final[int] = 205
-GAGE_EMBEDDING_SIZE : Final[int] = 48 # "big" is 48
+GAGE_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 
-GWEIGHT_EMBEDDING_SIZE : Final[int] = 48 # "big" is 48
+GWEIGHT_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 # GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
 
 TREE_DROPOUT : Final[float] = 0.0 # maybe is good, but also contributes to higher variance (ingore by default)
@@ -159,12 +159,12 @@ USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = False
+USE_STRATEGY_FEATURES : Final[bool] = True
 USE_PROBLEM_FEATURES : Final[bool] = False
 USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = False
+USE_STATIC_FEATURES : Final[bool] = True
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
@@ -175,10 +175,10 @@ FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
 MAX_TRAINS_PER_TRACE = 1000
 
 # traces bigger than these will be considered "failed" (and not learned from)
-MAX_GAGE_HEIGHT = 750     # small was 500
-MAX_GWEIGHT_HEIGHT = 750  # small was 500
+MAX_GAGE_HEIGHT = 500
+MAX_GWEIGHT_HEIGHT = 500
 MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 100000 # "big" is 100000
+MAX_KBSIZE = 50000 # "big" is 100000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
