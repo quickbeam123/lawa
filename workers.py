@@ -49,9 +49,6 @@ def vampire_perfrom(prob,opts,log):
 
   try:
     last_line = None
-    # sometimes, we get a mangled output that messes up with a decoder inside getoutput
-    # "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xf0"
-    output = subprocess.getoutput(to_run)
 
     status = None
     instructions = 0
@@ -60,6 +57,10 @@ def vampire_perfrom(prob,opts,log):
     nn_gnn = 0
     nn_bulks = 0
     strategy = None
+
+    # sometimes, we get a mangled output that messes up with a decoder inside getoutput
+    # "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xf0"
+    output = subprocess.getoutput(to_run)
 
     for line in output.split("\n"):
       last_line = line
