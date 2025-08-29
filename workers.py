@@ -85,8 +85,10 @@ def vampire_perfrom(prob,opts,log):
             status = "sat"
           elif "Theorem" in line or "Unsatisfiable" in line or "ContradictoryAxioms" in line:
             status = "uns"
-  except:
+  except Exception as e:
     print("Error reading vampire output on line",last_line)
+    print("Exception type:", type(e).__name__)
+    print("Exception message:", str(e))
 
   if f and f != sys.stdout:
     f.close()
