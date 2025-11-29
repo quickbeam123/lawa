@@ -55,7 +55,7 @@ NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 64000
+INSTRUCTION_LIMIT = 16000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
@@ -64,7 +64,7 @@ INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
 # - when set to True, elooper will keep traces of problems not solved in the last loop and still try to learn from them (sometimes)
-CUMULATIVE : Final[bool] = True
+CUMULATIVE : Final[bool] = False
 CUM_STALE_AFTER = 5 # if we can't solve a problem for this many loops, let's give up on it
 CUM_MAX_STRENGTH = 2.0
 # - a problem is born (when first solved) with a score=0 and natural strength 1.0 = BASE^(score=0)
@@ -76,26 +76,14 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
-INITIAL_NUM_PERFORMS = 10
-NUM_PERFORMS = 10
-MAX_TRACES_TO_KEEP = 10 # should be at least 1!
+INITIAL_NUM_PERFORMS = 1
+NUM_PERFORMS = 1
+MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = [" --decode lrs+10_1:8_tgt=full:bd=preordered_0 ", # 8963
-                    " --decode lrs+1011_1:1_sp=occurrence:st=6.0:sd=4:ss=included_0", # 993
-                    " --decode lrs+10_1:1_sp=unary_first:sd=1:bd=all:ss=included:urr=on:s2a=on:s2agt=32_0 ", # 449
-                    " --decode lrs+1010_1:16_tgt=ground:sp=reverse_frequency:spb=intro:fd=preordered:kws=precedence_0", # 235
-                    " --decode lrs+11_1:5_slsqr=1,8:to=lpo:tgt=ground:lsd=10:slsq=on:av=off:slsql=off:bs=unit_only:sp=const_frequency_0", # 168
-                    " --decode lrs+1002_1:1_to=lpo:fde=none:sos=on:sac=on:st=2.0:sd=4:ss=included:s2a=on:s2at=2.0_0", # 129
-                    " --decode ott+10_1:1_drc=ordering:abs=on:urr=on:br=off:cond=on:s2a=on:ss=axioms:sgt=8:gtg=position_0", # 97
-                    " --decode dis+1011_1:93_tgt=ground:spb=goal_then_units:lsd=100:nwc=1.2:bs=on:av=off:kws=inv_precedence:lftc=20_0", # 78
-                    " --decode lrs+10_1:5_tgt=full:fde=unused:sp=reverse_frequency:st=5.0:sd=1:fgj=on:bd=all:ss=axioms_0", # 59
-                    " --decode lrs-1011_7:8_drc=off:bd=preordered:fgj=on_0",] # 45
-# these strategies were obtained by running quickGreedyProduceCASC2025.py and looking at bracket 64 (see ../snake/quickGreedyProduceCASC2025.mtpa16.txt)
-# TODO: for the 128K and 256K brackets, there might be a few strategies more avaialable in mtpa2025C that got generated in the meantime)
-# they covered (on snake's problemsCNFFOF.txt, which exclude ARI/NAR) a total 11216 problems
+PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
@@ -110,7 +98,7 @@ TRAIN_MAX_SIZE_MULTIPLIER = 1.0 # makes the jobs harder (good with MAX_KBSIZE, t
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest valid-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 10
+TEST_IMPROVE_WINDOW = 5
 
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the first loop (if you don't like it, set it to the same thing as MAX_TEST_IMPROVE_ITER below)
@@ -146,7 +134,7 @@ GNN_INTERNAL_SIZE : Final[int] = 32 # "big" is 48
 
 GNN_DROPOUT : Final[float] = 0.0
 
-NUM_INFERENCE_RULES : Final[int] = 205
+NUM_INFERENCE_RULES : Final[int] = 202
 GAGE_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
@@ -159,12 +147,12 @@ USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = True
+USE_STRATEGY_FEATURES : Final[bool] = False
 USE_PROBLEM_FEATURES : Final[bool] = False
 USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = True
+USE_STATIC_FEATURES : Final[bool] = False
 FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
