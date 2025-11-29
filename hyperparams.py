@@ -37,15 +37,15 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10119"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10610"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
 # only if RANDOMIZED_STRATEGIES is None does the SATURATION_ALGORITHM below kick in!
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
-PROBLEM_LIST = "problemsCNFFOFuns.txt" # newly, we don't want to run on SAT
-NUM_TRAIN_PROBLEMS = 14907
+PROBLEM_LIST = "problemsCNFFOFTF0noSATnoARI.txt" # newly, we don't want to run on SAT
+NUM_TRAIN_PROBLEMS = 15500 # 15500 is the full set
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
 
