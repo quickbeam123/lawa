@@ -223,28 +223,32 @@ def create_trace_records(trace_problems):
       trace_records.append((os.path.getsize(trace_file),prob,prob_fact/len(prob_traces),trace_file))
   return trace_records
 
-def package_trace_records(trace_records,max_size):
-  # TODO: later maybe pick a different one for EVAL, now it's shared
-  max_size *= HP.TRAIN_MAX_SIZE_MULTIPLIER
+def package_trace_records(trace_records,max_size,training=False):
+  if HP.PACKAGE_FOR_TRAINING or not training:
+    # TODO: later maybe pick a different one for EVAL, now it's shared
+    max_size *= HP.TRAIN_MAX_SIZE_MULTIPLIER
 
-  while trace_records:
-    cur_size = 0
-    package = []
-    while True:
-      # look for an index of the largest that still fits
-      good_idx = None
-      for i,pkg_item in enumerate(trace_records):
-        if cur_size+pkg_item[0] <= max_size:
-          good_idx = i
+    while trace_records:
+      cur_size = 0
+      package = []
+      while True:
+        # look for an index of the largest that still fits
+        good_idx = None
+        for i,pkg_item in enumerate(trace_records):
+          if cur_size+pkg_item[0] <= max_size:
+            good_idx = i
+            break
+        if good_idx is not None:
+          cur_size += trace_records[good_idx][0]
+          package.append(trace_records[good_idx])
+          del trace_records[good_idx]
+        else:
           break
-      if good_idx is not None:
-        cur_size += trace_records[good_idx][0]
-        package.append(trace_records[good_idx])
-        del trace_records[good_idx]
-      else:
-        break
-    assert package
-    yield package
+      assert package
+      yield package
+  else:
+    for record in trace_records:
+      yield [record]
 
 def luby(min,max):
   next = min
@@ -722,10 +726,11 @@ if __name__ == "__main__":
         random.shuffle(trace_records)
         global train_model_version
         max_size = max(pkg_item[0] for pkg_item in trace_records)
-        for package in package_trace_records(trace_records,max_size):
+        for package in package_trace_records(trace_records,max_size,training=True):
           train_model_version += 1
           train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
           torch.save(model.state_dict(), train_model_file_path)
+          # print(f"    {train_model_version:4d} : {len(package)} traces of total kbsize {sum(r[0] for r in package)}")
           yield (W.JK_TRAIN,(package,train_model_file_path))
 
       weighted_train_loss = 0.0
