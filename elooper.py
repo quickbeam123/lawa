@@ -675,6 +675,7 @@ if __name__ == "__main__":
           for package in package_trace_records(trace_records,max_size):
             yield (W.JK_EVAL,(package,eval_model_file_path))
 
+        weighted_eval_loss = 0.0
         def process_results_from_eval(job_kind,input,result):
           global weighted_eval_loss
           assert job_kind == W.JK_EVAL
@@ -682,7 +683,6 @@ if __name__ == "__main__":
           return 1
 
         pre_eval = time.time()
-        weighted_eval_loss = 0.0
         eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
         print("Eval loss on valid",weighted_eval_loss,"in",int(time.time()-pre_eval),"s")
         sys.stdout.flush()

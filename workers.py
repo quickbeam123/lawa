@@ -148,7 +148,8 @@ def job_eval(input):
       learn_model.eval()
       # print("For",temp,"with",tweak_start,tweak_std,"will try")
       # print(tweaks_to_try)
-      loss += local_fact*learn_model.forward()
+      with torch.no_grad():
+        loss += local_fact*learn_model.forward()
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{e} occurred in EVAL\n")
