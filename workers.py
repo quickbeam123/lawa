@@ -107,11 +107,11 @@ JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training tra
   # input:     (mission,prob,counter,opts,eval_opts - just for reporting purposes,gather_log)
   # output:    filename where got saved if got a non-degenerate trace; or None
 JK_EVAL = 2    # construct our network to get the loss of this trace (no training to do)
-  # input:     (package,model_file_path)
+  # input:     (record,model_file_path)
   # output:    the computed loss
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
-  # input:     (package,train_model_file_path)
-  # output:    the computed loss
+  # input:     (record,train_model_file_path)
+  # output:    the computed loss, time it took to compute it
 
 def job_perform(input):
   (res_filename,gatherwish,mission,prob,i,ilim,lrs_trace_file,opts1,opts2,perf_log) = input
@@ -131,7 +131,8 @@ def job_gather(input):
     return False, False, 0, 0
 
 def job_eval(input):
-  (package,model_file_path) = input
+  (record,model_file_path) = input
+  _prob_trace_size_sum,prob,prob_fact,trace_file_paths = record
 
   eval_begin = time.time()
 
@@ -140,8 +141,10 @@ def job_eval(input):
 
   # print("EVAL on",prob,fact,trace_file_paths)
 
+  local_fact = 1/len(trace_file_paths)
+
   loss = torch.zeros(1)
-  for _sz,prob,local_fact,trace_file_path in package:
+  for trace_file_path in trace_file_paths:
     try:
       trace_tuple = torch.load(trace_file_path)
       learn_model = IC.LearningModel(False,local_model,trace_tuple)
@@ -153,18 +156,19 @@ def job_eval(input):
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{e} occurred in EVAL\n")
-        f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {model_file_path})")
+        f.write(f"(prob {prob}, fact {prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {model_file_path})")
       raise
 
   took = time.time()-eval_begin
   if took > HP.WORTH_REPORTING:
-    train_log.write(f"EVAL of {package} took {took}\n")
+    train_log.write(f"EVAL of {record} took {took}\n")
 
   # print("EVAL on",prob,fact,trace_file_paths,loss.item())
-  return loss.item()
+  return prob_fact*loss.item()
 
 def job_train(input):
-  (package,train_model_file_path) = input
+  (record,train_model_file_path) = input
+  _prob_trace_size_sum,prob,prob_fact,trace_file_paths = record
 
   train_begin = time.time()
 
@@ -173,9 +177,11 @@ def job_train(input):
 
   verbose = False # (prob in {'Problems/COM/COM021+4.p'})
 
+  local_fact = 1/len(trace_file_paths)
+
   # print("TRAIN on",prob,fact,trace_file_paths)
   loss = torch.zeros(1)
-  for _sz,prob,local_fact,trace_file_path in package:
+  for trace_file_path in trace_file_paths:
     try:
       trace_tuple = torch.load(trace_file_path)
       learn_model = IC.LearningModel(verbose,local_model,trace_tuple)
@@ -185,7 +191,7 @@ def job_train(input):
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{e} occurred in TRAIN\n")
-        f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {train_model_file_path})")
+        f.write(f"(prob {prob}, fact {prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {train_model_file_path})")
       raise
 
   loss.backward()
@@ -205,9 +211,9 @@ def job_train(input):
 
   took = time.time()-train_begin
   if took > HP.WORTH_REPORTING:
-    train_log.write(f"TRAIN of {package} took {took}\n")
+    train_log.write(f"TRAIN of {record} took {took}\n")
 
-  return loss.item()
+  return prob_fact*loss.item(),took
 
 
 

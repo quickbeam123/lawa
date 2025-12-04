@@ -212,43 +212,15 @@ def ilim2tlim(ilim):
   secs = max(5,ilim // 1000) # it's 2 times more than the instrlimit on a 2GHz machine
   return secs
 
-def create_trace_records(trace_problems):
+def create_prob_records(trace_problems):
   fact = 1/len(trace_problems)
-  # split the traces apart:
-  trace_records = []
+  prob_records = []
   for prob in trace_problems:
     prob_traces = trace_index.prob_traces(prob)
-    prob_fact = trace_index.prob_factor(prob)*fact
-    for trace_file in prob_traces:
-      trace_records.append((os.path.getsize(trace_file),prob,prob_fact/len(prob_traces),trace_file))
-  return trace_records
-
-def package_trace_records(trace_records,max_size,training=False):
-  if HP.PACKAGE_FOR_TRAINING or not training:
-    # TODO: later maybe pick a different one for EVAL, now it's shared
-    max_size *= HP.TRAIN_MAX_SIZE_MULTIPLIER
-
-    while trace_records:
-      cur_size = 0
-      package = []
-      while True:
-        # look for an index of the largest that still fits
-        good_idx = None
-        for i,pkg_item in enumerate(trace_records):
-          if cur_size+pkg_item[0] <= max_size:
-            good_idx = i
-            break
-        if good_idx is not None:
-          cur_size += trace_records[good_idx][0]
-          package.append(trace_records[good_idx])
-          del trace_records[good_idx]
-        else:
-          break
-      assert package
-      yield package
-  else:
-    for record in trace_records:
-      yield [record]
+    prob_fact = trace_index.prob_factor(prob)*fact # TODO: careful, if even if we do CUMUL, this will not affect the loss!
+    prob_trace_size_sum = sum(os.path.getsize(trace_file) for trace_file in prob_traces)
+    prob_records.append((prob_trace_size_sum,prob,prob_fact,prob_traces))
+  return prob_records
 
 def luby(min,max):
   next = min
@@ -669,11 +641,10 @@ if __name__ == "__main__":
         eval_models[stage2iter % TIW] = eval_model_file_path
 
         def get_eval_tasks():
-          trace_records = create_trace_records(valid_trace_problems)
-          trace_records.sort(reverse=True) # descending by the filesize (i.e., the big ones first)
-          max_size = trace_records[0][0] # may the size of the biggest one be also the size of the largest package
-          for package in package_trace_records(trace_records,max_size):
-            yield (W.JK_EVAL,(package,eval_model_file_path))
+          prob_records = create_prob_records(valid_trace_problems)
+          prob_records.sort(reverse=True) # descending by the filesizes (i.e., the big ones first)
+          for record in prob_records:
+            yield (W.JK_EVAL,(record,eval_model_file_path))
 
         weighted_eval_loss = 0.0
         def process_results_from_eval(job_kind,input,result):
@@ -722,16 +693,15 @@ if __name__ == "__main__":
       # TRAIN on train problems
       train_model_version = 0
       def get_train_tasks():
-        trace_records = create_trace_records(train_trace_problems)
-        random.shuffle(trace_records)
+        prob_records = create_prob_records(train_trace_problems)
+        random.shuffle(prob_records)
         global train_model_version
-        max_size = max(pkg_item[0] for pkg_item in trace_records)
-        for package in package_trace_records(trace_records,max_size,training=True):
+        for record in prob_records:
           train_model_version += 1
           train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
           torch.save(model.state_dict(), train_model_file_path)
-          # print(f"    {train_model_version:4d} : {len(package)} traces of total kbsize {sum(r[0] for r in package)}")
-          yield (W.JK_TRAIN,(package,train_model_file_path))
+          # print(f"    THERE: {train_model_version:4d} : {len(package)} traces of total size {sum(r[0] for r in package)}")
+          yield (W.JK_TRAIN,(record,train_model_file_path))
 
       weighted_train_loss = 0.0
 
@@ -740,18 +710,35 @@ if __name__ == "__main__":
 
         assert job_kind == W.JK_TRAIN
         (package,train_model_file_path) = input
-        loss = result
+        loss, took = result
 
-        weighted_train_loss += result # (= the loss) multiplied by fact already in the child
+        weighted_train_loss += loss # (= the loss) multiplied by fact already in the child
         # print(input,result)
+
+        # train_model_version = int(train_model_file_path.split("_")[-1][:-4])
+        # print(f"    BACK: {train_model_version:4d} after {took}s")
+
+        # gnn_norm, gage_norm, gweight_norm, cleval_norm = 0.0, 0.0, 0.0, 0.0
 
         # copy from result parameters to our model's gradients
         grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
         # copy_grads_back_from_param
-        for param, param_copy in zip(model.parameters(),grad_loader_temp.parameters()):
+        for (name, param), param_copy in zip(model.named_parameters(),grad_loader_temp.parameters()):
+          '''
+          if name.startswith("gnn"):
+            gnn_norm += param_copy.data.norm(2) ** 2
+          elif name.startswith("gage"):
+            gage_norm += param_copy.data.norm(2) ** 2
+          elif name.startswith("gweight"):
+            gweight_norm += param_copy.data.norm(2) ** 2
+          else:
+            cleval_norm  += param_copy.data.norm(2) ** 2
+          '''
           param.grad = param_copy
 
         optimizer.step()
+
+        # print("       with norms gnn/gage/gweight/cleval:",gnn_norm ** 0.5, gage_norm ** 0.5, gweight_norm ** 0.5, cleval_norm ** 0.5)
 
         os.remove(train_model_file_path)
         return 1

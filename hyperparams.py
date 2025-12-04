@@ -45,7 +45,7 @@ RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsCNFFOFTF0noSATnoARI.txt" # newly, we don't want to run on SAT
-NUM_TRAIN_PROBLEMS = 3875 # 15500 is the full set
+NUM_TRAIN_PROBLEMS = 15500 # 15500 is the full set
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
 
@@ -93,8 +93,6 @@ TRAINING_PARALLELISM = 64
 WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
 TRAIN_MAX_SIZE_MULTIPLIER = 1.0 # makes the jobs harder (good with MAX_KBSIZE, to actually load all the workers)
-
-PACKAGE_FOR_TRAINING = True
 
 # also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
@@ -194,7 +192,7 @@ GUMBEL_STRENGTH : Final[float] = 0.001 # divided by 2.5 further; divided by two 
 
 GSD_TWEAK_LEARNING_SPEEDUP = 100
 
-LEARNING_RATE : Final[float] = 0.00001
+LEARNING_RATE : Final[float] = 0.0002
 
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
