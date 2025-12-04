@@ -533,6 +533,7 @@ if __name__ == "__main__":
             trace_index.add_prob_trace(loop,prob,trace_file_path)
           else:
             # TODO: consider deleting (if the trace file exists). But since we overwrite each loop, the memory waste is not tremendous
+            # - NOTE that especially the ones which IC.trace_good_for_learning considers too big to learn from could be deleted!
             # os.remove(trace_file_path)
 
             trace_index.report_bad_trace(loop,prob,trace_trivial)
@@ -700,7 +701,6 @@ if __name__ == "__main__":
           train_model_version += 1
           train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
           torch.save(model.state_dict(), train_model_file_path)
-          # print(f"    THERE: {train_model_version:4d} : {len(package)} traces of total size {sum(r[0] for r in package)}")
           yield (W.JK_TRAIN,(record,train_model_file_path))
 
       weighted_train_loss = 0.0
@@ -709,7 +709,7 @@ if __name__ == "__main__":
         global weighted_train_loss
 
         assert job_kind == W.JK_TRAIN
-        (package,train_model_file_path) = input
+        (_record,train_model_file_path) = input
         loss, took = result
 
         weighted_train_loss += loss # (= the loss) multiplied by fact already in the child
