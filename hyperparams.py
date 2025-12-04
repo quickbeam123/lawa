@@ -92,8 +92,6 @@ PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -np
 TRAINING_PARALLELISM = 64
 WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
-TRAIN_MAX_SIZE_MULTIPLIER = 1.0 # makes the jobs harder (good with MAX_KBSIZE, to actually load all the workers)
-
 # also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest valid-eval loss value out of TEST_IMPROVE_WINDOW many
