@@ -196,9 +196,11 @@ GUMBEL_STRENGTH : Final[float] = 0.001 # divided by 2.5 further; divided by two 
 
 GSD_TWEAK_LEARNING_SPEEDUP = 100
 
-LEARNING_RATE : Final[float] = 0.0002
-
+LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
+
+TWEAKS_LEARNING_RATE = 0.1
+TWEAK_SEARCH_MAX_TIME = 30.0 # in seconds
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 
