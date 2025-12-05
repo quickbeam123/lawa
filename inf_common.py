@@ -25,6 +25,7 @@ import hyperparams as HP
 
 from collections import defaultdict
 from itertools import chain
+from sortedcontainers import SortedList
 
 def default_defaultdict_of_list():
   return defaultdict(list)
@@ -44,9 +45,12 @@ def get_conv():
       bias=True)        # and why not add a bias before the relu that's about to come?
 
 class SingleEmbedding(torch.nn.Module):
-    def __init__(self, embedding_dim):
+    def __init__(self, embedding_dim, zero_init = False):
         super().__init__()
-        self.embedding = torch.nn.Parameter(torch.randn(embedding_dim))  # Learnable vector
+        if zero_init:
+          self.embedding = torch.nn.Parameter(torch.zeros(embedding_dim))
+        else:
+          self.embedding = torch.nn.Parameter(torch.randn(embedding_dim))  # Learnable vector
 
     def forward(self,input):
         return self.embedding  # Return the stored embedding directly
@@ -618,6 +622,18 @@ class MonsterNN(torch.nn.Module):
     if HP.USE_GWEIGHT:
       self.gweight_embed_pending()
 
+  def pre_eval_clauses(self, clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
+    feature_parts = []
+    if HP.USE_SIMPLE_FEATURES:
+      feature_parts.append(clause_features)
+    if HP.USE_GAGE:
+      feature_parts.append(gage_embeds)
+    if HP.USE_GWEIGHT:
+      feature_parts.append(gweight_embeds)
+
+    all_features = torch.cat(feature_parts, dim=1) + self.final_static_tweak # broadcasting for every clause
+    return self.clause_valuator_fst(all_features)
+
   @torch.jit.export
   def eval_clauses(self, clause_nums: List[int], clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
     if self.recording:
@@ -625,17 +641,7 @@ class MonsterNN(torch.nn.Module):
         self.clause_simple_features[cl_num] = clause_features[i].clone()
 
     if self.computing:
-      feature_parts = []
-      if HP.USE_SIMPLE_FEATURES:
-        feature_parts.append(clause_features)
-      if HP.USE_GAGE:
-        feature_parts.append(gage_embeds)
-      if HP.USE_GWEIGHT:
-        feature_parts.append(gweight_embeds)
-
-      all_features = torch.cat(feature_parts, dim=1) + self.final_static_tweak # broadcasting for every clause
-
-      just_before_final = self.clause_valuator_fst(all_features)
+      just_before_final = self.pre_eval_clauses(clause_features,gage_embeds,gweight_embeds)
       return self.clause_valuator_snd(just_before_final)
 
     return torch.zeros(0)
@@ -781,8 +787,8 @@ class LearningModel(torch.nn.Module):
     if verbose:
       print("Got verbose")
 
-  def forward(self):
-    (static_features,clause_simple_features,journal,num_good_selections,
+  def pre_forward(self):
+    (static_features,clause_simple_features,_journal,_num_good_selections,
                 init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses) = self.trace_tuple
 
@@ -823,8 +829,15 @@ class LearningModel(torch.nn.Module):
       if HP.USE_GWEIGHT:
         gweight_feature_vecs.append(self.nn.gweight_clause_embeds[cl_num])
 
-    logits = self.nn.eval_clauses([], # clause_nums, ignored when not recording
-        torch.stack(simple_feature_vecs),torch.stack(gage_feature_vecs),torch.stack(gweight_feature_vecs))
+    return self.nn.pre_eval_clauses(torch.stack(simple_feature_vecs),torch.stack(gage_feature_vecs),torch.stack(gweight_feature_vecs)),num2idx
+
+  def forward(self,just_before_final,num2idx):
+    (_static_features,_clause_simple_features,journal,num_good_selections,
+                _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
+                _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
+
+    logits = self.nn.clause_valuator_snd(just_before_final)
+
     logits = logits.squeeze(1) # squeeze-away the second dimension, where the feartures were
 
     # print("logits",logits.shape)
@@ -834,8 +847,14 @@ class LearningModel(torch.nn.Module):
 
     # TODO: couldn't this be one-off compiled to get much more efficient?
 
-    passive = [0]*len(clause_simple_features)
-    passive_good = [0]*len(clause_simple_features)
+    passive = [0]*logits.shape[0]
+    passive_good = [0]*logits.shape[0]
+
+    sorted_passive = SortedList(key=lambda idx : -logits[idx].item())
+
+    num_sels = 0
+    selection_hits = 0
+    dists_to_good = 0.0
 
     learn_for_every = num_good_selections / HP.MAX_TRAINS_PER_TRACE
     learn_for_every_sum = 0.0
@@ -850,11 +869,13 @@ class LearningModel(torch.nn.Module):
         passive[idx] += 1
         if isGood:
           passive_good[idx] += 1
+        sorted_passive.add(idx)
         continue
       if tag == EVENT_REM:
         passive[idx] -= 1
         if isGood:
           passive_good[idx] -= 1
+        sorted_passive.remove(idx)
         continue
 
       assert tag == EVENT_SEL
@@ -865,6 +886,17 @@ class LearningModel(torch.nn.Module):
 
       # don't learn from every selection for traces with many-many of them (but go and learn at least once)
       if sum(passive_good): # can learn
+        # computing the "ML statistics" about how close the good clauses would be to the beginning of our queue here
+        num_sels += 1
+        first_good = 0
+        for first_good,ith_idx in enumerate(sorted_passive):
+          if passive_good[ith_idx] > 0:
+            break
+        if first_good>0:
+          dists_to_good += first_good / (len(sorted_passive)-1) # make it span <0,1>
+        else:
+          selection_hits += 1
+
         if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
           # if learn_for_every_sum <= learn_ord: # a deterministic version of the randomized above
           learn_for_every_sum += learn_for_every
@@ -872,7 +904,7 @@ class LearningModel(torch.nn.Module):
           passive_good_t = torch.tensor(passive_good,dtype=logits.dtype)
           passive_t = torch.tensor(passive,dtype=logits.dtype)
 
-          masked_logits = logits[passive_t > 0.0]           # exactly the logis of passive
+          masked_logits = logits[passive_t > 0.0]           # exactly the logits of passive
           passive_good_t = passive_good_t[passive_t > 0.0]  # same lenght as masked_logits, but only contains 1s if it's a good clause
 
           # manually computing log_softmax with multiplicities
@@ -897,6 +929,7 @@ class LearningModel(torch.nn.Module):
       passive[idx] -= 1
       if isGood:
         passive_good[idx] -= 1
+      sorted_passive.remove(idx)
 
     assert num_good_steps, "The training example was still degenerate!"
-    return good_action_reward_loss/num_good_steps
+    return good_action_reward_loss/num_good_steps, selection_hits/num_sels, dists_to_good/num_sels
