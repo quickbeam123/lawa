@@ -8,6 +8,7 @@ import os, sys, shutil, random, atexit, time, pickle, math
 from collections import defaultdict
 from collections import deque
 from itertools import chain
+from dataclasses import dataclass
 
 import multiprocessing
 import numpy
@@ -64,15 +65,15 @@ def claim_loop_dir(loop):
   os.mkdir(cur_dir)
   return cur_dir
 
-LOOP_MODEL_AND_OPTIMIZER = "loop-model-and-optimizer.tar"
+LOOP_MODEL = "loop-model.tar"
 
-def save_loop_model_and_optimizer(cur_dir,loop,model,optimizer):
-  loop_model_and_optimizer_state_file_path = os.path.join(cur_dir,LOOP_MODEL_AND_OPTIMIZER)
-  torch.save((loop,model.state_dict(),optimizer.state_dict()), loop_model_and_optimizer_state_file_path)
+def save_loop_model(cur_dir,loop,model):
+  loop_model_state_file_path = os.path.join(cur_dir,LOOP_MODEL)
+  torch.save((loop,model.state_dict()), loop_model_state_file_path)
 
-def load_loop_model_and_optimizer(adir):
-  loop_model_and_optimizer_state_file_path = os.path.join(adir,LOOP_MODEL_AND_OPTIMIZER)
-  return torch.load(loop_model_and_optimizer_state_file_path)
+def load_loop_model(adir):
+  loop_model_state_file_path = os.path.join(adir,LOOP_MODEL)
+  return torch.load(loop_model_state_file_path)
 
 def is_sound(trace_file_name):
   if not os.path.isfile(trace_file_name):
@@ -192,20 +193,12 @@ def load_trace_index(adir):
   trace_index_file_path = os.path.join(adir,TRACE_INDEX)
   return torch.load(trace_index_file_path)
 
+def no_dots(name):
+  return name.replace(".","_")
+
 def ilim2tlim(ilim):
   secs = max(5,ilim // 1000) # it's 2 times more than the instrlimit on a 2GHz machine
   return secs
-
-def create_prob_records(trace_problems):
-  fact = 1/len(trace_problems)
-  prob_records = []
-  for prob in trace_problems:
-    prob_traces = trace_index.prob_traces(prob)
-    # prob_fact = trace_index.prob_factor(prob)*fact # TODO: careful, if even if we do CUMUL, this will not affect the loss!
-    prob_fact = fact
-    prob_trace_size_sum = sum(os.path.getsize(trace_file) for trace_file in prob_traces)
-    prob_records.append((prob_trace_size_sum,prob,prob_fact,prob_traces))
-  return prob_records
 
 def luby(min,max):
   next = min
@@ -291,12 +284,12 @@ if __name__ == "__main__":
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
 
-  optimizer = torch.optim.Adam(model.parameters(), lr=HP.LEARNING_RATE, weight_decay=HP.WEIGHT_DECAY)
-
   # temporary model used for the gradient trick
   grad_loader_temp = IC.get_initial_model()
 
   trace_index = TraceIndex()
+
+  tweak_map = torch.nn.ParameterDict()
 
   script_model_to_steal = None
   skip_first_stage = False
@@ -318,10 +311,9 @@ if __name__ == "__main__":
       steal_script_model = "s" in sys.argv[6]
 
     if load_model:
-      aloop,amodel_state_dict,anoptimizer_state_dict = load_loop_model_and_optimizer(load_dir)
+      aloop,amodel_state_dict = load_loop_model(load_dir)
       assert aloop == loop
       model.load_state_dict(amodel_state_dict)
-      optimizer.load_state_dict(anoptimizer_state_dict)
 
     if load_traces_new:
       trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{loop+1}"))
@@ -341,7 +333,7 @@ if __name__ == "__main__":
 
   else:
     cur_dir = claim_loop_dir(loop)
-    save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
+    save_loop_model(cur_dir,loop,model)
 
   print_model_part()
 
@@ -600,14 +592,64 @@ if __name__ == "__main__":
     if loop_count == 0:
       break
 
-    # STAGE 2a: TWEAKIT - i.e., find favorable tweaks to all gathered traces
+    # STAGE 2a: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
 
+    pre_tweaking = time.time()
+    tweaking_model_file_path = os.path.join(HP.SCRATCH,"tweaking-model_{}.tar".format(os.getpid()))
+    torch.save(model.state_dict(), tweaking_model_file_path)
 
+    tweak_file_version = 0
+    def get_tweaking_tasks():
+      global tweak_file_version
+      prob_records = W.create_prob_records(list(trace_index.cur_problems()),trace_index)
+      prob_records.sort(key = lambda rec : -rec.szs) # descending, first by the filesizes (i.e., the big ones first)
+      for record in prob_records:
+        tweak_file_version += 1
+        tweak_file_path = os.path.join(HP.SCRATCH,"tweak_{}_{}.tar".format(os.getpid(),tweak_file_version))
+
+        prob_no_dots = no_dots(record.prob)
+        if record.prob not in tweak_map:
+          tweak_map[prob_no_dots] = IC.get_fresh_tweak()
+
+        torch.save(tweak_map[prob_no_dots], tweak_file_path)
+        yield (W.JK_EVAL_TWEAK,(record,tweaking_model_file_path,tweak_file_path))
+
+    weighted_tweaking_stats = defaultdict(float)
+    def process_results_from_tweaking(job_kind,input,result):
+      global weighted_tweaking_stats
+
+      record,_tweaking_model_file_path,tweak_file_path = input
+
+      assert job_kind == W.JK_EVAL_TWEAK
+      stat_dict = result
+      for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
+        weighted_tweaking_stats[k] += v
+
+      prob_no_dots = no_dots(record.prob)
+      tweak_map[prob_no_dots] = torch.load(tweak_file_path)
+      os.remove(tweak_file_path)
+      return 1
+
+    eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
+    os.remove(tweaking_model_file_path)
+
+    print("Tweaking on all",weighted_tweaking_stats,"in",int(time.time()-pre_tweaking),"s")
+    sys.stdout.flush()
 
     # STAGE 2b: alternate EVAL, TRAIN, EVAL until no longer improving
     print()
     sys.stdout.flush()
     stage_start_time = time.time()
+
+    # compute LR for our loop, taking into account our decay
+    lr_wish = HP.LEARNING_RATE * (HP.LEARNING_RATE_DECAY ** (loop-1))
+    print("Learning rate now at",lr_wish)
+
+    # newly only lives one iter, so no need to save it
+    optimizer = torch.optim.Adam([
+        {"params": model.parameters()},      #, "lr": lr_wish},
+        {"params": tweak_map.parameters()}], # TODO: tweaks could have a different learning rate!
+        lr=lr_wish, weight_decay=HP.WEIGHT_DECAY)
 
     TIW = HP.TEST_IMPROVE_WINDOW
     assert TIW > 0
@@ -636,16 +678,16 @@ if __name__ == "__main__":
         eval_models[stage2iter % TIW] = eval_model_file_path
 
         def get_eval_tasks():
-          prob_records = create_prob_records(valid_trace_problems)
-          prob_records.sort(reverse=True) # descending by the filesizes (i.e., the big ones first)
+          prob_records = W.create_prob_records(valid_trace_problems,trace_index)
+          prob_records.sort(key = lambda rec : -rec.szs) # descending by the filesizes (i.e., the big ones first)
           for record in prob_records:
-            yield (W.JK_EVAL,(record,eval_model_file_path))
+            yield (W.JK_EVAL_TWEAK,(record,eval_model_file_path,None))
 
         weighted_eval_stats = defaultdict(float)
         def process_results_from_eval(job_kind,input,result):
           global weighted_eval_stats
 
-          assert job_kind == W.JK_EVAL
+          assert job_kind == W.JK_EVAL_TWEAK
           stat_dict = result
           for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
             weighted_eval_stats[k] += v
@@ -694,12 +736,14 @@ if __name__ == "__main__":
       # TRAIN on train problems
       train_model_version = 0
       def get_train_tasks():
-        prob_records = create_prob_records(train_trace_problems)
+        prob_records = W.create_prob_records(train_trace_problems,trace_index)
         random.shuffle(prob_records)
         global train_model_version
         for record in prob_records:
           train_model_version += 1
           train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
+          prob_no_dots = no_dots(record.prob)
+          model.tweaks[IC.MAIN_TWEAK_NAME] = tweak_map[prob_no_dots]
           torch.save(model.state_dict(), train_model_file_path)
           yield (W.JK_TRAIN,(record,train_model_file_path))
 
@@ -713,7 +757,7 @@ if __name__ == "__main__":
         global weighted_train_dist_to_good
 
         assert job_kind == W.JK_TRAIN
-        (_record,train_model_file_path) = input
+        (record,train_model_file_path) = input
         loss, selection_hit_rate, dist_to_good, took = result
 
         weighted_train_loss += loss # (= the loss) multiplied by fact already in the child
@@ -725,8 +769,12 @@ if __name__ == "__main__":
 
         # gnn_norm, gage_norm, gweight_norm, cleval_norm = 0.0, 0.0, 0.0, 0.0
 
+        prob_no_dots = no_dots(record.prob)
+        print(f"   Train tweak for {record.prob} before: {tweak_map[prob_no_dots].norm()}")
+
         # copy from result parameters to our model's gradients
         grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
+
         # copy_grads_back_from_param
         for (name, param), param_copy in zip(model.named_parameters(),grad_loader_temp.parameters()):
           '''
@@ -741,10 +789,14 @@ if __name__ == "__main__":
           '''
           param.grad = param_copy
 
+        # what the worker thought was happening for model.tweaks[IC.MAIN_TWEAK_NAME], we now stage (for the optimizer) in tweak_map[prob_no_dots]:
+        tweak_map[prob_no_dots].grad = model.tweaks[IC.MAIN_TWEAK_NAME].grad
+        model.tweaks[IC.MAIN_TWEAK_NAME].grad = None
+
         optimizer.step()
+        print(f"   Train tweak for {record.prob} after: {tweak_map[prob_no_dots].norm()}")
 
         # print("       with norms gnn/gage/gweight/cleval:",gnn_norm ** 0.5, gage_norm ** 0.5, gweight_norm ** 0.5, cleval_norm ** 0.5)
-
         os.remove(train_model_file_path)
         return 1
 
@@ -765,16 +817,8 @@ if __name__ == "__main__":
     print()
     sys.stdout.flush()
 
-    if HP.LEARNING_RATE_DECAY < 1.0:
-      print("Learning rate decrease")
-      for g in optimizer.param_groups:
-        print(" from",g['lr'],end=" ")
-        g['lr'] *= HP.LEARNING_RATE_DECAY
-        print("to",g['lr'])
-      print()
-
     print_model_part()
-    save_loop_model_and_optimizer(cur_dir,loop,model,optimizer)
+    save_loop_model(cur_dir,loop,model)
     print()
     sys.stdout.flush()
 
