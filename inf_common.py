@@ -45,12 +45,9 @@ def get_conv():
       bias=True)        # and why not add a bias before the relu that's about to come?
 
 class SingleEmbedding(torch.nn.Module):
-    def __init__(self, embedding_dim, zero_init = False):
+    def __init__(self, embedding_dim):
         super().__init__()
-        if zero_init:
-          self.embedding = torch.nn.Parameter(torch.zeros(embedding_dim))
-        else:
-          self.embedding = torch.nn.Parameter(torch.randn(embedding_dim))  # Learnable vector
+        self.embedding = torch.nn.Parameter(torch.randn(embedding_dim))  # Learnable vector
 
     def forward(self,input):
         return self.embedding  # Return the stored embedding directly
@@ -72,6 +69,11 @@ def get_clause_valuator_pair():
     layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
 
   return torch.nn.Sequential(*layer_list),torch.nn.Sequential(torch.nn.ReLU(),torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
+
+MAIN_TWEAK_NAME = "tweaky"
+
+def get_fresh_tweak():
+  return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
 
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work
@@ -139,6 +141,8 @@ class MonsterModules(torch.nn.Module):
     # TODO: should the var embed be LayerNormalized, so that it "lives in the same space as the other term embeddings"?
     # first attempt to do this was unstable in training
     # - now we don't do it, but also don't try to add static features to this var embedding (just let it stay weird)
+
+    # TODO: there is no reason for this to be a module; when refectoring, turn this into a parameter (should get fixed on Vampire side too)
     self.gweight_var_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
 
     self.gweight_term_combine = torch.nn.Sequential(
@@ -160,6 +164,9 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(HP.INTERAL_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE)
     )
     self.clause_valuator_fst, self.clause_valuator_snd = get_clause_valuator_pair()
+
+    # by default our MonsterModules carry just one tweak
+    self.tweaks = torch.nn.ParameterDict({MAIN_TWEAK_NAME : get_fresh_tweak()})
 
 
 def get_initial_model():
@@ -237,7 +244,7 @@ class MonsterNN(torch.nn.Module):
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
               gage_rule_embed, gage_combine, gage_static_embedder,
               gweight_var_embed, gweight_term_combine, gweight_static_embedder,
-              final_static_embedder, clause_valuator_fst, clause_valuator_snd):
+              final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaks):
     super().__init__()
 
     self.recording = False
@@ -312,6 +319,8 @@ class MonsterNN(torch.nn.Module):
     self.proof_units = []
     self.final_static_tweak = torch.zeros(CLAUSE_EMBEDDER_INPUT_SIZE) # dummy, overwritten by set_static_features
 
+    # modules/parameters:
+    self.tweaks = tweaks
 
   @torch.jit.export
   def use_problem_features(self) -> bool:
@@ -352,6 +361,13 @@ class MonsterNN(torch.nn.Module):
   @torch.jit.export
   def set_computing(self):
     self.computing = True
+
+  @torch.jit.export
+  def bake_tweak(self, tweak: Tensor):
+    # in cpp, you can get the tweak to bake from our tweaks (ParamaterDict), something like
+    # _model.attr("tweaks").toModule().attr("tweaky")
+    # where the surpring (undocumented?) fact is that the dict that ParamaterDict represents got flattened among it's (pythonesque) attributes
+    self.clause_valuator_fst[-1].bias.add_(tweak)
 
   @torch.jit.export
   def set_static_features(self, features: Tensor):
@@ -668,7 +684,7 @@ def export_model(model_state_dict,name):
   module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                      m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                      m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
-                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd)
+                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaks)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -782,7 +798,7 @@ class LearningModel(torch.nn.Module):
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                     m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                     m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
-                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd)
+                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaks)
     self.verbose = verbose
     if verbose:
       print("Got verbose")
@@ -835,6 +851,8 @@ class LearningModel(torch.nn.Module):
     (_static_features,_clause_simple_features,journal,num_good_selections,
                 _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
+
+    print("just_before_final",just_before_final.shape)
 
     logits = self.nn.clause_valuator_snd(just_before_final)
 
