@@ -644,6 +644,8 @@ if __name__ == "__main__":
     # compute LR for our loop, taking into account our decay
     lr_wish = HP.LEARNING_RATE * (HP.LEARNING_RATE_DECAY ** (loop-1))
     print("Learning rate now at",lr_wish)
+    tw_pref = (loop-1)*0.2
+    print("Tweaked preference at",tw_pref)
 
     # newly only lives one iter, so no need to save it
     optimizer = torch.optim.Adam([
@@ -742,24 +744,21 @@ if __name__ == "__main__":
           prob_no_dots = no_dots(record.prob)
           model.tweaks[IC.MAIN_TWEAK_NAME] = tweak_map[prob_no_dots]
           torch.save(model.state_dict(), train_model_file_path)
-          yield (W.JK_TRAIN,(record,train_model_file_path))
+          yield (W.JK_TRAIN,(record,train_model_file_path,tw_pref))
 
       weighted_train_loss = 0.0
-      weigthed_train_selection_hit_rate = 0.0
-      weighted_train_dist_to_good = 0.0
-
+      weighted_train_stats = defaultdict(float)
       def process_results_from_train(job_kind,input,result):
         global weighted_train_loss
-        global weigthed_train_selection_hit_rate
-        global weighted_train_dist_to_good
+        global weighted_train_stats
 
         assert job_kind == W.JK_TRAIN
-        (record,train_model_file_path) = input
-        loss, selection_hit_rate, dist_to_good, took = result
+        (record,train_model_file_path,tw_pref) = input
+        loss, stat_dict = result
 
         weighted_train_loss += loss # (= the loss) multiplied by fact already in the child
-        weigthed_train_selection_hit_rate += selection_hit_rate
-        weighted_train_dist_to_good += dist_to_good
+        for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
+            weighted_train_stats[k] += v
 
         # train_model_version = int(train_model_file_path.split("_")[-1][:-4])
         # print(f"    BACK: {train_model_version:4d} after {took}s")
@@ -800,7 +799,7 @@ if __name__ == "__main__":
       pre_train = time.time()
       eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
-      print("Weighted train loss",weighted_train_loss,"selection_hit_rate",weigthed_train_selection_hit_rate,"dist_to_good",weighted_train_dist_to_good,"in",int(time.time()-pre_train),"s")
+      print("Weighted train loss",weighted_train_loss,"stats:",weighted_train_stats,"in",int(time.time()-pre_train),"s")
       print()
       sys.stdout.flush()
 
