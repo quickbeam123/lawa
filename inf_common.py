@@ -861,28 +861,31 @@ class LearningModel(torch.nn.Module):
                 _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
 
-    print("just_before_final",just_before_final.shape)
+    # in case of single channel mode
+    if just_before_final.dim() == 2:
+      # prepare (the zero-th) channel for the loss
+      just_before_final = just_before_final.unsqueeze(0)
 
+    # print("just_before_final",just_before_final.shape)
     logits = self.nn.clause_valuator_snd(just_before_final)
+    logits = logits.squeeze(-1) # squeeze-away the last dimension, where the feartures were
 
-    logits = logits.squeeze(1) # squeeze-away the second dimension, where the feartures were
+    assert logits.dim() == 2
+    num_loss_channels = logits.shape[0]
+    # num_clauses = logits.shape[1]
 
-    # print("logits",logits.shape)
-
-    good_action_reward_loss = torch.tensor(0.0)
+    good_action_reward_loss = torch.zeros(num_loss_channels)
     num_good_steps = 0
-
-    # TODO: couldn't this be one-off compiled to get much more efficient?
 
     passive = set()
     passive_good = set()
 
     # to compute our metric (as opposed the loss)
-    sorted_passive = SortedList(key=lambda idx : -logits[idx].item())
+    sorted_passive = [SortedList(key=lambda cl_idx, channel=chan : -logits[channel,cl_idx].item()) for chan in range(num_loss_channels)]
 
     num_sels = 0
-    selection_hits = 0
-    dists_to_good = 0.0
+    selection_hits = [0]*num_loss_channels
+    dists_to_good = [0.0]*num_loss_channels
 
     for tag,cl_num,isGood in journal:
       if cl_num not in num2idx:
@@ -892,7 +895,8 @@ class LearningModel(torch.nn.Module):
       idx = num2idx[cl_num]
       if tag == EVENT_ADD:
         passive.add(idx)
-        sorted_passive.add(idx)
+        for chan in range(num_loss_channels):
+          sorted_passive[chan].add(idx)
         if isGood:
           passive_good.add(idx)
         continue
@@ -904,23 +908,24 @@ class LearningModel(torch.nn.Module):
 
           # computing the "ML statistics" about how close the good clauses would be to the beginning of our queue here
           num_sels += 1
-          first_good = 0
-          for first_good,ith_idx in enumerate(sorted_passive):
-            if ith_idx in passive_good:
-              break
-          if first_good>0:
-            dists_to_good += first_good / (len(sorted_passive)-1) # make it span <0,1>
-          else:
-            selection_hits += 1
+          for chan in range(num_loss_channels):
+            first_good = 0
+            for first_good,ith_idx in enumerate(sorted_passive[chan]):
+              if ith_idx in passive_good:
+                break
+            if first_good>0:
+              dists_to_good[chan] += first_good / (len(sorted_passive[chan])-1) # make it span <0,1>
+            else:
+              selection_hits[chan] += 1
 
           # computing the loss
           passive_l = sorted(passive)
           passive_t = torch.tensor(passive_l, dtype=torch.long)
           c = 1/len(passive_good)
           passive_good_l = [c if idx in passive_good else 0.0 for idx in passive_l]
-          passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype)
+          passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype).unsqueeze(0).expand(num_loss_channels,-1)
 
-          gathered_logits = logits[passive_t]
+          gathered_logits = logits[:,passive_t]
 
           good_action_reward_loss += torch.nn.functional.cross_entropy(
             gathered_logits,
@@ -931,9 +936,17 @@ class LearningModel(torch.nn.Module):
           num_good_steps += 1
 
       passive.remove(idx)
-      sorted_passive.remove(idx)
+      for chan in range(num_loss_channels):
+        sorted_passive[chan].remove(idx)
+
       if isGood:
         passive_good.remove(idx)
 
     assert num_good_steps, "The training example was still degenerate!"
-    return good_action_reward_loss/num_good_steps, selection_hits/num_sels, dists_to_good/num_sels
+    for chan in range(num_loss_channels):
+      selection_hits[chan] /= num_sels
+      dists_to_good[chan] /= num_sels
+
+    if num_loss_channels == 1: # convenience; behave as in the good-old single channel times
+      return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits[0], dists_to_good[0]
+    return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good
