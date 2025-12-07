@@ -45,7 +45,7 @@ RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsCNFFOFTF0noSATnoARI.txt" # newly, we don't want to run on SAT
-NUM_TRAIN_PROBLEMS = 15500 # 15500 is the full set
+NUM_TRAIN_PROBLEMS = 155 # 15500 is the full set
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
 
@@ -55,7 +55,7 @@ NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 16000
+INSTRUCTION_LIMIT = 8000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
@@ -164,7 +164,7 @@ MAX_TRAINS_PER_TRACE = 1000
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
 MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 50000 # "big" is 100000
+MAX_KBSIZE = 5000 # "big" is 100000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)

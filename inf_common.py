@@ -852,27 +852,31 @@ class LearningModel(torch.nn.Module):
                 _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
 
-    print("just_before_final",just_before_final.shape)
+    # in case of single channel mode
+    if just_before_final.dim() == 2:
+      # prepare (the zero-th) channel for the loss
+      just_before_final = just_before_final.unsqueeze(0)
 
+    # print("just_before_final",just_before_final.shape)
     logits = self.nn.clause_valuator_snd(just_before_final)
+    logits = logits.squeeze(-1) # squeeze-away the last dimension, where the feartures were
 
-    logits = logits.squeeze(1) # squeeze-away the second dimension, where the feartures were
+    assert logits.dim() == 2
+    num_loss_channels = logits.shape[0]
+    num_clauses = logits.shape[1]
 
-    # print("logits",logits.shape)
-
-    good_action_reward_loss = torch.tensor(0.0)
+    good_action_reward_loss = torch.zeros(num_loss_channels)
     num_good_steps = 0
 
-    # TODO: couldn't this be one-off compiled to get much more efficient?
+    # TODO: couldn't this be one-off compiled to get much more efficient? A: sparse matrix with the passive/passive_good snapshots!
+    passive = [0]*num_clauses
+    passive_good = [0]*num_clauses
 
-    passive = [0]*logits.shape[0]
-    passive_good = [0]*logits.shape[0]
-
-    sorted_passive = SortedList(key=lambda idx : -logits[idx].item())
+    sorted_passive = [SortedList(key=lambda cl_idx, channel=chan : -logits[channel,cl_idx].item()) for chan in range(num_loss_channels)]
 
     num_sels = 0
-    selection_hits = 0
-    dists_to_good = 0.0
+    selection_hits = [0]*num_loss_channels
+    dists_to_good = [0.0]*num_loss_channels
 
     learn_for_every = num_good_selections / HP.MAX_TRAINS_PER_TRACE
     learn_for_every_sum = 0.0
@@ -887,13 +891,15 @@ class LearningModel(torch.nn.Module):
         passive[idx] += 1
         if isGood:
           passive_good[idx] += 1
-        sorted_passive.add(idx)
+        for chan in range(num_loss_channels):
+          sorted_passive[chan].add(idx)
         continue
       if tag == EVENT_REM:
         passive[idx] -= 1
         if isGood:
           passive_good[idx] -= 1
-        sorted_passive.remove(idx)
+        for chan in range(num_loss_channels):
+          sorted_passive[chan].remove(idx)
         continue
 
       assert tag == EVENT_SEL
@@ -906,14 +912,15 @@ class LearningModel(torch.nn.Module):
       if sum(passive_good): # can learn
         # computing the "ML statistics" about how close the good clauses would be to the beginning of our queue here
         num_sels += 1
-        first_good = 0
-        for first_good,ith_idx in enumerate(sorted_passive):
-          if passive_good[ith_idx] > 0:
-            break
-        if first_good>0:
-          dists_to_good += first_good / (len(sorted_passive)-1) # make it span <0,1>
-        else:
-          selection_hits += 1
+        for chan in range(num_loss_channels):
+          first_good = 0
+          for first_good,ith_idx in enumerate(sorted_passive[chan]):
+            if passive_good[ith_idx] > 0:
+              break
+          if first_good>0:
+            dists_to_good[chan] += first_good / (len(sorted_passive[chan])-1) # make it span <0,1>
+          else:
+            selection_hits[chan] += 1
 
         if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
           # if learn_for_every_sum <= learn_ord: # a deterministic version of the randomized above
@@ -922,22 +929,23 @@ class LearningModel(torch.nn.Module):
           passive_good_t = torch.tensor(passive_good,dtype=logits.dtype)
           passive_t = torch.tensor(passive,dtype=logits.dtype)
 
-          masked_logits = logits[passive_t > 0.0]           # exactly the logits of passive
+          masked_logits = logits[...,passive_t > 0.0]       # exactly the logits of passive
           passive_good_t = passive_good_t[passive_t > 0.0]  # same lenght as masked_logits, but only contains 1s if it's a good clause
-
           # manually computing log_softmax with multiplicities
           c = torch.max(masked_logits,dim=-1)[0] # the second part, which we ignore, is the argmax' idx
-          exp_logits = torch.exp(masked_logits - c)
+          # print("c",c.size())
+          exp_logits = torch.exp(masked_logits - c.unsqueeze(-1)) # unsqueeze, because the max above "ate" the last dimension
           # print("exp_logits.shape",exp_logits.shape)
           logsumexp = torch.log(torch.sum(exp_logits))
 
           if HP.GOOD_LOGIT_MAX:
-            good_logit_max = torch.max(masked_logits[passive_good_t > 0.0],dim=-1)[0]
+            good_logit_max = torch.max(masked_logits[...,passive_good_t > 0.0],dim=-1)[0]
             good_lsm = good_logit_max-c-logsumexp
           else:
-            good_logit_avg = torch.sum(masked_logits[passive_good_t > 0.0])/sum(passive_good)
+            good_logit_avg = torch.sum(masked_logits[...,passive_good_t > 0.0])/sum(passive_good)
             good_lsm = good_logit_avg-c-logsumexp
 
+          # print("good_lsm.shape",good_lsm.shape)
           good_action_reward_loss += -good_lsm
 
           num_good_steps += 1
@@ -947,7 +955,14 @@ class LearningModel(torch.nn.Module):
       passive[idx] -= 1
       if isGood:
         passive_good[idx] -= 1
-      sorted_passive.remove(idx)
+      for chan in range(num_loss_channels):
+        sorted_passive[chan].remove(idx)
 
     assert num_good_steps, "The training example was still degenerate!"
-    return good_action_reward_loss/num_good_steps, selection_hits/num_sels, dists_to_good/num_sels
+    for chan in range(num_loss_channels):
+      selection_hits[chan] /= num_sels
+      dists_to_good[chan] /= num_sels
+
+    if num_loss_channels == 1: # convenience; behave as in the good-old single channel times
+      return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits[0], dists_to_good[0]
+    return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good

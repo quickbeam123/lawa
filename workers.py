@@ -132,8 +132,8 @@ JK_EVAL_TWEAK = 2  # construct our network to get the loss of this trace (no tra
   #        - dist_to_good: average (over time moments) distance to a future proof clauase (in the logit-sorted order)
   #        (selection_hit_rate == 1.0 => dist_to_good == 0.0)
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
-  # input:     (record: ProbRecord,train_model_file_path)
-  # output:    the computed loss, selection_hit_rate, dist_to_good, time it took to compute it
+  # input:     (record: ProbRecord,train_model_file_path,tw_pref)
+  # output:    stat_dict
 
 def job_perform(input):
   (res_filename,gatherwish,mission,prob,i,ilim,lrs_trace_file,opts1,opts2,perf_log) = input
@@ -254,7 +254,7 @@ def job_eval_tweak(input):
 
 
 def job_train(input):
-  (record,train_model_file_path) = input
+  (record,train_model_file_path,tw_pref) = input
 
   train_begin = time.time()
 
@@ -266,7 +266,10 @@ def job_train(input):
   local_fact = 1/len(record.prob_traces)
 
   # print("TRAIN on",prob,fact,trace_file_paths)
-  loss = torch.zeros(1)
+
+  stat_dict = defaultdict(float)
+
+  loss = torch.zeros(0)
   selection_hit_rate = 0.0
   dist_to_good = 0.0
   for trace_file_path in record.prob_traces:
@@ -279,20 +282,35 @@ def job_train(input):
 
       mytweak = local_model.tweaks[IC.MAIN_TWEAK_NAME]
       notweak = torch.zeros_like(mytweak)
-      both_tweaks = torch.stack([notweak,mytweak],dim=1)
+      both_tweaks = torch.stack([notweak,mytweak])
 
-      # TODO: start from here! NB, the loss will have size two and the ML stats need to be promoted inside learn_model.forward!
-      a_loss,a_selection_hit_rate,a_dist_to_good = learn_model.forward(just_before_final.unsqueeze(-1) + both_tweaks, num2idx)
+      # print("just_before_final",just_before_final.shape)
+      # just_before_final_ext = just_before_final[None, :, :] + both_tweaks[:, None, :] # learning new notation; instead of unsqueezes
+      just_before_final_ext = just_before_final + both_tweaks.unsqueeze(1) # should be the same as above
+      # [loss channels, clauses, clause features == HP.INTERNAL_SIZE]
+      # print("just_before_final_ext",just_before_final_ext.shape)
 
-      loss += local_fact*a_loss
-      selection_hit_rate += local_fact*a_selection_hit_rate
-      dist_to_good += local_fact*a_dist_to_good
+      losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final_ext, num2idx)
+
+      loss += local_fact*((1-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
+
+      # the generalist's stats
+      stat_dict["loss"] += local_fact*losses[0].item()
+      stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
+      stat_dict["dist_to_good"] += local_fact*dists_to_good[0]
+      # the tweaked stats
+      stat_dict["tweaked_loss"] += local_fact*losses[1].item()
+      stat_dict["tweaked_selection_hit_rate"] += local_fact*selection_hit_rates[1]
+      stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
+
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{e} occurred in TRAIN\n")
         f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {train_model_file_path})")
       raise
 
+  print(loss)
+  print(loss.shape)
   loss.backward()
 
   # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
@@ -312,7 +330,10 @@ def job_train(input):
   if took > HP.WORTH_REPORTING:
     train_log.write(f"TRAIN of {record} took {took}\n")
 
-  return record.prob_fact*loss.item(), record.prob_fact*selection_hit_rate, record.prob_fact*dist_to_good, took
+  for k in stat_dict.keys():
+    stat_dict[k] *= record.prob_fact
+
+  return record.prob_fact*loss.item(), stat_dict
 
 
 
