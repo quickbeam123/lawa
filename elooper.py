@@ -660,7 +660,7 @@ if __name__ == "__main__":
     # compute LR for our loop, taking into account our decay
     lr_wish = HP.LEARNING_RATE * (HP.LEARNING_RATE_DECAY ** (loop-1))
     print("Learning rate now at",lr_wish)
-    tw_pref = (loop-1)*0.2
+    tw_pref = (loop-1)*0.1 if loop < 6 else 0.5
     print("Tweaked preference at",tw_pref)
 
     # newly only lives one iter, so no need to save it
