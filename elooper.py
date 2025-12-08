@@ -303,12 +303,14 @@ if __name__ == "__main__":
     load_traces_new = False
     load_traces_old = False
     steal_script_model = False
+    load_tweak_map = False
 
     if len(sys.argv) > 6:
       load_model = "m" in sys.argv[6]
       load_traces_new = "t" in sys.argv[6]
       load_traces_old = "T" in sys.argv[6]
       steal_script_model = "s" in sys.argv[6]
+      load_tweak_map = "w" in sys.argv[6]
 
     if load_model:
       aloop,amodel_state_dict = load_loop_model(load_dir)
@@ -330,6 +332,11 @@ if __name__ == "__main__":
 
     if steal_script_model:
       script_model_to_steal = os.path.join(load_dir,"script-model.pt")
+
+    if load_tweak_map:
+      tweak_map_file_path = os.path.join(folder_with_prev_exper,f"loop{loop}","tweak-map.tar")
+      tweak_map = torch.load(tweak_map_file_path)
+      print(f"Loaded tweak map with {len(tweak_map)} problem tweaks")
 
   else:
     cur_dir = claim_loop_dir(loop)
