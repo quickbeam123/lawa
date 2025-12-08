@@ -644,7 +644,12 @@ if __name__ == "__main__":
     eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
     os.remove(tweaking_model_file_path)
 
-    print("Tweaking on all",weighted_tweaking_stats,"in",int(time.time()-pre_tweaking),"s")
+    tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-tweaking.tar")
+    torch.save(tweak_map,tweak_map_file_path)
+
+    print("Tweaking on all in",int(time.time()-pre_tweaking),"s")
+    for k,v in weighted_tweaking_stats.items():
+          print("    ",k,v)
     sys.stdout.flush()
 
     # STAGE 2b: alternate EVAL, TRAIN, EVAL until no longer improving
@@ -708,7 +713,9 @@ if __name__ == "__main__":
 
         pre_eval = time.time()
         eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
-        print("Eval on valid",weighted_eval_stats,"in",int(time.time()-pre_eval),"s")
+        print("Eval on",len(valid_trace_problems),"valid probs in",int(time.time()-pre_eval),"s")
+        for k,v in weighted_eval_stats.items():
+          print(f"    e_{k}",v)
         sys.stdout.flush()
 
         eval_losses[stage2iter % TIW] = weighted_eval_stats["loss"]
@@ -753,7 +760,8 @@ if __name__ == "__main__":
           train_model_version += 1
           train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
           prob_no_dots = no_dots(record.prob)
-          model.tweaks[IC.MAIN_TWEAK_NAME] = tweak_map[prob_no_dots]
+          with torch.no_grad(): # inside worker, main tweak used for this problems tweak
+            model.tweaky.copy_(tweak_map[prob_no_dots].detach())
           torch.save(model.state_dict(), train_model_file_path)
           yield (W.JK_TRAIN,(record,train_model_file_path,tw_pref))
 
@@ -764,7 +772,7 @@ if __name__ == "__main__":
         global weighted_train_stats
 
         assert job_kind == W.JK_TRAIN
-        (record,train_model_file_path,tw_pref) = input
+        (record,train_model_file_path,_tw_pref) = input
         loss, stat_dict = result
 
         weighted_train_loss += loss # (= the loss) multiplied by fact already in the child
@@ -777,7 +785,7 @@ if __name__ == "__main__":
         # gnn_norm, gage_norm, gweight_norm, cleval_norm = 0.0, 0.0, 0.0, 0.0
 
         prob_no_dots = no_dots(record.prob)
-        print(f"   Train tweak for {record.prob} before: {tweak_map[prob_no_dots].norm()}")
+        # print(f"   Train tweak for {record.prob} before: {tweak_map[prob_no_dots].norm()}")
 
         # copy from result parameters to our model's gradients
         grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
@@ -796,12 +804,12 @@ if __name__ == "__main__":
           '''
           param.grad = param_copy
 
-        # what the worker thought was happening for model.tweaks[IC.MAIN_TWEAK_NAME], we now stage (for the optimizer) in tweak_map[prob_no_dots]:
-        tweak_map[prob_no_dots].grad = model.tweaks[IC.MAIN_TWEAK_NAME].grad
-        model.tweaks[IC.MAIN_TWEAK_NAME].grad = None
+        # what the worker thought was happening for model.tweaky, we now stage (for the optimizer) in tweak_map[prob_no_dots]:
+        tweak_map[prob_no_dots].grad = model.tweaky.grad
+        model.tweaky.grad = None
 
         optimizer.step()
-        print(f"   Train tweak for {record.prob} after: {tweak_map[prob_no_dots].norm()}")
+        # print(f"   Train tweak for {record.prob} after: {tweak_map[prob_no_dots].norm()}")
 
         # print("       with norms gnn/gage/gweight/cleval:",gnn_norm ** 0.5, gage_norm ** 0.5, gweight_norm ** 0.5, cleval_norm ** 0.5)
         os.remove(train_model_file_path)
@@ -810,7 +818,9 @@ if __name__ == "__main__":
       pre_train = time.time()
       eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
-      print("Weighted train loss",weighted_train_loss,"stats:",weighted_train_stats,"in",int(time.time()-pre_train),"s")
+      print("Weighted train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
+      for k,v in weighted_train_stats.items():
+        print(f"    t_{k}",v)
       print()
       sys.stdout.flush()
 
@@ -826,6 +836,10 @@ if __name__ == "__main__":
 
     print_model_part()
     save_loop_model(cur_dir,loop,model)
+
+    tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-training.tar")
+    torch.save(tweak_map,tweak_map_file_path)
+
     print()
     sys.stdout.flush()
 

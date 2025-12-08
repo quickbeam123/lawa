@@ -269,7 +269,7 @@ def job_train(input):
 
   stat_dict = defaultdict(float)
 
-  loss = torch.zeros(0)
+  loss = torch.tensor(0.0, requires_grad=True)
   selection_hit_rate = 0.0
   dist_to_good = 0.0
   for trace_file_path in record.prob_traces:
@@ -280,7 +280,7 @@ def job_train(input):
 
       just_before_final,num2idx = learn_model.pre_forward()
 
-      mytweak = local_model.tweaks[IC.MAIN_TWEAK_NAME]
+      mytweak = local_model.tweaky
       notweak = torch.zeros_like(mytweak)
       both_tweaks = torch.stack([notweak,mytweak])
 
@@ -288,11 +288,26 @@ def job_train(input):
       # just_before_final_ext = just_before_final[None, :, :] + both_tweaks[:, None, :] # learning new notation; instead of unsqueezes
       just_before_final_ext = just_before_final + both_tweaks.unsqueeze(1) # should be the same as above
       # [loss channels, clauses, clause features == HP.INTERNAL_SIZE]
-      # print("just_before_final_ext",just_before_final_ext.shape)
 
       losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final_ext, num2idx)
 
-      loss += local_fact*((1-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
+      # print("losses",losses,losses.shape)
+      # print("loss - before",loss,loss.shape)
+      loss = loss + local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
+      # print("loss - after",loss,loss.shape)
+
+      """
+      sep0 = learn_model.forward(just_before_final, num2idx)[0].item()
+      sep1 = learn_model.forward(just_before_final+mytweak, num2idx)[0].item()
+
+      err0 = losses[0].item()-sep0
+      err1 = losses[1].item()-sep1
+      print("on",record.prob,"err0",err0,"err1",err1)
+      print("just_before_final",just_before_final.shape)
+      print("just_before_final_ext[0]",just_before_final_ext[0].shape)
+      print("zero check",torch.norm(just_before_final_ext[0]-just_before_final).item())
+      print("one check",torch.norm(just_before_final_ext[1]-just_before_final).item(),torch.norm(mytweak))
+      """
 
       # the generalist's stats
       stat_dict["loss"] += local_fact*losses[0].item()
@@ -309,8 +324,6 @@ def job_train(input):
         f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {train_model_file_path})")
       raise
 
-  print(loss)
-  print(loss.shape)
   loss.backward()
 
   # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
