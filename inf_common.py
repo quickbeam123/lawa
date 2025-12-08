@@ -74,8 +74,6 @@ def get_clause_valuator_pair():
     torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT) if HP.FINAL_LAYER_DROPOUT > 0.0 else torch.nn.Identity(),
     torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
 
-MAIN_TWEAK_NAME = "tweaky"
-
 def get_fresh_tweak():
   return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
 
@@ -170,7 +168,7 @@ class MonsterModules(torch.nn.Module):
     self.clause_valuator_fst, self.clause_valuator_snd = get_clause_valuator_pair()
 
     # by default our MonsterModules carry just one tweak
-    self.tweaks = torch.nn.ParameterDict({MAIN_TWEAK_NAME : get_fresh_tweak()})
+    self.tweaky = get_fresh_tweak()
 
 
 def get_initial_model():
@@ -248,7 +246,7 @@ class MonsterNN(torch.nn.Module):
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
               gage_rule_embed, gage_combine, gage_static_embedder,
               gweight_var_embed, gweight_term_combine, gweight_static_embedder,
-              final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaks):
+              final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaky):
     super().__init__()
 
     self.recording = False
@@ -324,7 +322,7 @@ class MonsterNN(torch.nn.Module):
     self.final_static_tweak = torch.zeros(CLAUSE_EMBEDDER_INPUT_SIZE) # dummy, overwritten by set_static_features
 
     # modules/parameters:
-    self.tweaks = tweaks
+    self.tweaky = tweaky
 
   @torch.jit.export
   def use_problem_features(self) -> bool:
@@ -688,7 +686,7 @@ def export_model(model_state_dict,name):
   module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                      m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                      m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
-                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaks)
+                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -807,7 +805,7 @@ class LearningModel(torch.nn.Module):
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                     m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                     m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
-                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaks)
+                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky)
     self.verbose = verbose
     if verbose:
       print("Got verbose")
@@ -861,14 +859,15 @@ class LearningModel(torch.nn.Module):
                 _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
 
-    # in case of single channel mode
     if just_before_final.dim() == 2:
+      wants_channels = False
       # prepare (the zero-th) channel for the loss
       just_before_final = just_before_final.unsqueeze(0)
+    else:
+      wants_channels = True
 
     # print("just_before_final",just_before_final.shape)
-    logits = self.nn.clause_valuator_snd(just_before_final)
-    logits = logits.squeeze(-1) # squeeze-away the last dimension, where the feartures were
+    logits = self.nn.clause_valuator_snd(just_before_final).squeeze(-1) # squeeze-away the last dimension, where the feartures were
 
     assert logits.dim() == 2
     num_loss_channels = logits.shape[0]
@@ -947,6 +946,6 @@ class LearningModel(torch.nn.Module):
       selection_hits[chan] /= num_sels
       dists_to_good[chan] /= num_sels
 
-    if num_loss_channels == 1: # convenience; behave as in the good-old single channel times
+    if not wants_channels:
       return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits[0], dists_to_good[0]
     return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good
