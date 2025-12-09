@@ -166,7 +166,9 @@ def look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in):
     numiter += 1
 
     local_optimizer.zero_grad()
-    loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final+tweak_in,num2idx)
+    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final,num2idx,tweak_in)
+
+    loss = losses[0]
     loss.backward()
     local_optimizer.step()
 
@@ -175,12 +177,12 @@ def look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in):
       break
 
     last_loss = now_loss
-    last_shr = selection_hit_rate
-    last_dtg = dist_to_good
+    last_shr = selection_hit_rates[0]
+    last_dtg = dists_to_good[0]
     last_norm = torch.norm(tweak_in).item()
     tweak_out = tweak_in.clone()
 
-    if dist_to_good < 0.000001:
+    if dists_to_good[0] < 0.000001:
       to_perfection = 1.0
       break
 
@@ -284,12 +286,7 @@ def job_train(input):
       notweak = torch.zeros_like(mytweak)
       both_tweaks = torch.stack([notweak,mytweak])
 
-      # print("just_before_final",just_before_final.shape)
-      # just_before_final_ext = just_before_final[None, :, :] + both_tweaks[:, None, :] # learning new notation; instead of unsqueezes
-      just_before_final_ext = just_before_final + both_tweaks.unsqueeze(1) # should be the same as above
-      # [loss channels, clauses, clause features == HP.INTERNAL_SIZE]
-
-      losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final_ext, num2idx)
+      losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
 
       # print("losses",losses,losses.shape)
       # print("loss - before",loss,loss.shape)
