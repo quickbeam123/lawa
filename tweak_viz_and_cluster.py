@@ -4,13 +4,12 @@ from collections import Counter
 import torch,sys
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-import hdbscan
 import umap
 import matplotlib.pyplot as plt
 import numpy as np
 
 if __name__ == "__main__":
-  tweak_map_file_name = "tweak-map-after-tweaking-fix16000quarter-6.tar" # sys.argv[1]
+  tweak_map_file_name = "tweak-map.tar" # sys.argv[1]
 
   tweak_map = torch.load(tweak_map_file_name,weights_only=False)
 
@@ -18,7 +17,7 @@ if __name__ == "__main__":
   tweaks = []
 
   for name,tweak in tweak_map.items():
-    names.append(name)
+    names.append(name[13:-2])
     tweaks.append(tweak)
 
   names = np.array(names)
@@ -41,6 +40,7 @@ if __name__ == "__main__":
 
     print(cluster_labels)
   else:
+    import hdbscan
     # --- HDBSCAN clustering ---
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=3,   # tune: number of points to form a cluster
@@ -59,7 +59,7 @@ if __name__ == "__main__":
   for i, size in enumerate(cluster_sizes):
     print(f"Cluster {i}: {size} points")
 
-  if False:
+  if True:
     # Step 2: 2D PCA projection
     pca = PCA(n_components=2, random_state=42)
     pca_embedding = pca.fit_transform(data_np)
