@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# PRETEND THERE IS NO CUDA HERE
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 import inf_common as IC
 import hyperparams as HP
 import workers as W
@@ -334,7 +338,7 @@ if __name__ == "__main__":
       script_model_to_steal = os.path.join(load_dir,"script-model.pt")
 
     if load_tweak_map:
-      tweak_map_file_path = os.path.join(folder_with_prev_exper,f"loop{loop}","tweak-map.tar")
+      tweak_map_file_path = os.path.join(folder_with_prev_exper,f"loop{loop}","tweak-map-after-training.tar")
       tweak_map = torch.load(tweak_map_file_path)
       print(f"Loaded tweak map with {len(tweak_map)} problem tweaks")
 
