@@ -60,6 +60,26 @@ CLAUSE_EMBEDDER_INPUT_SIZE : Final[int] = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIM
                             + (HP.GAGE_EMBEDDING_SIZE if HP.USE_GAGE else 0)
                             + (HP.GWEIGHT_EMBEDDING_SIZE if HP.USE_GWEIGHT else 0))
 
+class MyLinear(torch.nn.Module):
+    def __init__(self, size):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.empty(size))
+        # a Linear would
+        torch.nn.init.kaiming_uniform_(self.weight.unsqueeze(0),a=math.sqrt(5))
+
+    def forward(self, x : Tensor, tweaks : Optional[Tensor] = None):
+      if tweaks is not None:
+        if tweaks.dim() == 1:
+          tweaks = tweaks.unsqueeze(0)  # [1, size]
+        # w + tweaks: [k, size]
+        w_plus = self.weight.unsqueeze(0) + tweaks  # broadcast
+
+        # x: [1, N, size], w_plus: [k, 1, size]
+        # => [k, N, 1] -> [k, N]
+        return (x.unsqueeze(0) @ w_plus.unsqueeze(2)).squeeze(-1)
+      else:
+        return torch.matmul(x, self.weight)
+
 def get_clause_valuator_pair():
   layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
 
@@ -68,7 +88,9 @@ def get_clause_valuator_pair():
     layer_list.append(torch.nn.ReLU())
     layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
 
-  return torch.nn.Sequential(*layer_list),torch.nn.Sequential(torch.nn.ReLU(),torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
+  layer_list.append(torch.nn.ReLU())
+
+  return torch.nn.Sequential(*layer_list),MyLinear(HP.INTERAL_SIZE)
 
 def get_fresh_tweak():
   return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
@@ -360,12 +382,14 @@ class MonsterNN(torch.nn.Module):
   def set_computing(self):
     self.computing = True
 
+  """
   @torch.jit.export
   def bake_tweak(self, tweak: Tensor):
     # in cpp, you can get the tweak to bake from our tweaks (ParamaterDict), something like
     # _model.attr("tweaks").toModule().attr("tweaky")
     # where the surpring (undocumented?) fact is that the dict that ParamaterDict represents got flattened among it's (pythonesque) attributes
     self.clause_valuator_fst[-1].bias.add_(tweak)
+  """
 
   @torch.jit.export
   def set_static_features(self, features: Tensor):
@@ -846,22 +870,19 @@ class LearningModel(torch.nn.Module):
 
     return self.nn.pre_eval_clauses(torch.stack(simple_feature_vecs),torch.stack(gage_feature_vecs),torch.stack(gweight_feature_vecs)),num2idx
 
-  def forward(self,just_before_final,num2idx):
+  def forward(self,just_before_final,num2idx,tweaks=None):
     (_static_features,_clause_simple_features,journal,num_good_selections,
                 _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
 
-    if just_before_final.dim() == 2:
-      wants_channels = False
-      # prepare (the zero-th) channel for the loss
-      just_before_final = just_before_final.unsqueeze(0)
-    else:
-      wants_channels = True
-
     # print("just_before_final",just_before_final.shape)
-    logits = self.nn.clause_valuator_snd(just_before_final).squeeze(-1) # squeeze-away the last dimension, where the feartures were
+    logits = self.nn.clause_valuator_snd(just_before_final,tweaks)
 
-    assert logits.dim() == 2
+    squeeze_back = False
+    if logits.dim() == 1:
+      logits = logits.unsqueeze(0)
+      squeeze_back = True
+
     num_loss_channels = logits.shape[0]
     num_clauses = logits.shape[1]
 
@@ -963,6 +984,6 @@ class LearningModel(torch.nn.Module):
       selection_hits[chan] /= num_sels
       dists_to_good[chan] /= num_sels
 
-    if not wants_channels:
+    if squeeze_back:
       return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits[0], dists_to_good[0]
     return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good
