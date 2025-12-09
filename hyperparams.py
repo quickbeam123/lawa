@@ -164,7 +164,7 @@ MAX_TRAINS_PER_TRACE = 1000
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
 MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 5000 # "big" is 100000
+MAX_KBSIZE = 50000 # "big" is 100000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
