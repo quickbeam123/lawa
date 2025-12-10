@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 if __name__ == "__main__":
-  tweak_map_file_name = "tweak-map.tar" # sys.argv[1]
+  tweak_map_file_name = sys.argv[1]
 
   tweak_map = torch.load(tweak_map_file_name,weights_only=False)
 
