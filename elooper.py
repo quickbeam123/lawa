@@ -304,15 +304,14 @@ if __name__ == "__main__":
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
 
-  # temporary model used for the gradient trick
-  grad_loader_temp = IC.get_initial_model()
-
   trace_index = TraceIndex()
 
   tweak_map = torch.nn.ParameterDict()
 
   script_model_to_steal = None
   skip_first_stage = False
+
+  mini_tweak_dict_file_path = None
 
   loop = 0
   if len(sys.argv) > 5: # we already know the folder, but which loop to copy from there?
@@ -358,11 +357,24 @@ if __name__ == "__main__":
       tweak_map = torch.load(tweak_map_file_path)
       print(f"Loaded tweak map with {len(tweak_map)} problem tweaks")
 
+    if len(sys.argv) > 7:
+      mini_tweak_dict_file_path = sys.argv[7]
+      print(f"Will update main model's tweaks from {mini_tweak_dict_file_path}")
+      mini_tweak_dict = torch.load(mini_tweak_dict_file_path,weights_only=False)
+      for name,tweak in mini_tweak_dict.items():
+        print("  for",name)
+        model.tweaks.append(tweak)
+
+      num_tweaks = len(mini_tweak_dict)
+      IC.set_num_tweaks(num_tweaks)
   else:
     cur_dir = claim_loop_dir(loop)
     save_loop_model(cur_dir,loop,model)
 
   print_model_part()
+
+  # temporary model used for the gradient trick
+  grad_loader_temp = IC.get_initial_model()
 
   assert loop_count > 0
 
@@ -471,6 +483,9 @@ if __name__ == "__main__":
 
             if HP.USE_SPECIAL:
               opts2_base += HP.PERFORMS_SPECIAL[i]
+
+            if HP.USE_TWEAKING:
+              opts2_base += f" -ncem_gsd {i}"
 
             for prob in prob_lists:
               if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
@@ -615,7 +630,7 @@ if __name__ == "__main__":
       break
 
     # STAGE 2a: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
-
+    '''
     pre_tweaking = time.time()
     tweaking_model_file_path = os.path.join(HP.SCRATCH,"tweaking-model_{}.tar".format(os.getpid()))
     torch.save(model.state_dict(), tweaking_model_file_path)
@@ -662,6 +677,7 @@ if __name__ == "__main__":
     for k,v in weighted_tweaking_stats.items():
           print("    ",k,v)
     sys.stdout.flush()
+    '''
 
     # STAGE 2b: alternate EVAL, TRAIN, EVAL until no longer improving
     print()
@@ -712,24 +728,31 @@ if __name__ == "__main__":
           for record in prob_records:
             yield (W.JK_EVAL_TWEAK,(record,eval_model_file_path,None))
 
+        eval_winner_hist = defaultdict(int)
         weighted_eval_stats = defaultdict(float)
         def process_results_from_eval(job_kind,input,result):
+          global eval_winner_hist
           global weighted_eval_stats
 
           assert job_kind == W.JK_EVAL_TWEAK
-          stat_dict = result
+          stat_dict, winner = result
           for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
             weighted_eval_stats[k] += v
+          eval_winner_hist[winner] += 1
           return 1
 
         pre_eval = time.time()
         eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
-        print("Eval on",len(valid_trace_problems),"valid probs in",int(time.time()-pre_eval),"s")
+        print("Eval winner loss",weighted_eval_stats["winner_loss"],"on",len(valid_trace_problems),"valid probs in",int(time.time()-pre_eval),"s")
         for k,v in weighted_eval_stats.items():
           print(f"    e_{k}",v)
+        print("    e_winner_hist",end=" ")
+        for winner,cnt in sorted(eval_winner_hist.items()):
+          print(f"{winner}:{cnt},",end=" ")
+        print()
         sys.stdout.flush()
 
-        eval_losses[stage2iter % TIW] = weighted_eval_stats["loss"]
+        eval_losses[stage2iter % TIW] = weighted_eval_stats["winner_loss"]
 
         stage2iter += 1
         if stage2iter >= TIW: # we have written everywhere (no None there anymore)
@@ -770,25 +793,27 @@ if __name__ == "__main__":
         for record in prob_records:
           train_model_version += 1
           train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
-          prob_no_dots = no_dots(record.prob)
-          with torch.no_grad(): # inside worker, main tweak used for this problems tweak
-            model.tweaky.copy_(tweak_map[prob_no_dots].detach())
+          """
+            prob_no_dots = no_dots(record.prob)
+            with torch.no_grad(): # inside worker, main tweak used for this problems tweak
+              model.tweaky.copy_(tweak_map[prob_no_dots].detach())
+          """
           torch.save(model.state_dict(), train_model_file_path)
           yield (W.JK_TRAIN,(record,train_model_file_path,tw_pref))
 
-      weighted_train_loss = 0.0
+      train_winner_hist = defaultdict(int)
       weighted_train_stats = defaultdict(float)
       def process_results_from_train(job_kind,input,result):
-        global weighted_train_loss
+        global train_winner_hist
         global weighted_train_stats
 
         assert job_kind == W.JK_TRAIN
         (record,train_model_file_path,_tw_pref) = input
-        loss, stat_dict = result
+        stat_dict, winner = result
 
-        weighted_train_loss += loss # (= the loss) multiplied by fact already in the child
         for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
             weighted_train_stats[k] += v
+        train_winner_hist[winner] += 1
 
         # train_model_version = int(train_model_file_path.split("_")[-1][:-4])
         # print(f"    BACK: {train_model_version:4d} after {took}s")
@@ -816,8 +841,10 @@ if __name__ == "__main__":
           param.grad = param_copy
 
         # what the worker thought was happening for model.tweaky, we now stage (for the optimizer) in tweak_map[prob_no_dots]:
+        """
         tweak_map[prob_no_dots].grad = model.tweaky.grad
         model.tweaky.grad = None
+        """
 
         optimizer.step()
         # print(f"   Train tweak for {record.prob} after: {tweak_map[prob_no_dots].norm()}")
@@ -829,9 +856,13 @@ if __name__ == "__main__":
       pre_train = time.time()
       eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
-      print("Weighted train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
+      print("Weighted train winner loss",weighted_train_stats["winner_loss"],"in",int(time.time()-pre_train),"s")
       for k,v in weighted_train_stats.items():
         print(f"    t_{k}",v)
+      print("    t_winner_hist",end=" ")
+      for winner,cnt in sorted(train_winner_hist.items()):
+        print(f"{winner}:{cnt},",end=" ")
+      print()
       print()
       sys.stdout.flush()
 

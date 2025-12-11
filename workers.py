@@ -125,7 +125,7 @@ JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training tra
 JK_EVAL_TWEAK = 2  # construct our network to get the loss of this trace (no training to do);
   # if tweak_file_path specified, go load the tweak from there an also find a good tweak for the given record by local gradient descent; extend the stat_dict further and save the resulting tweak back to the file
   # input:     (record: ProbRecord,model_file_path,tweak_file_path or None)
-  # output:    stat_dict
+  # output:    stat_dict, winner
   #   contains the computed loss - for the
   #   further ML statistics - for each trace separately, a) for the initial tweak, b) for the final tweak
   #        - selection_hit_rate: percentage of time moments, in which a proof clause has minimial logit
@@ -133,7 +133,7 @@ JK_EVAL_TWEAK = 2  # construct our network to get the loss of this trace (no tra
   #        (selection_hit_rate == 1.0 => dist_to_good == 0.0)
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
   # input:     (record: ProbRecord,train_model_file_path,tw_pref)
-  # output:    stat_dict
+  # output:    stat_dict, winner
 
 def job_perform(input):
   (res_filename,gatherwish,mission,prob,i,ilim,lrs_trace_file,opts1,opts2,perf_log) = input
@@ -213,6 +213,7 @@ def job_eval_tweak(input):
   local_fact = 1/len(record.prob_traces)
 
   stat_dict = defaultdict(float)
+  winner = None
 
   for trace_file_path in record.prob_traces:
     try:
@@ -223,12 +224,21 @@ def job_eval_tweak(input):
       with torch.no_grad():
         just_before_final,num2idx = learn_model.pre_forward()
 
-      with torch.no_grad():
-        loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final,num2idx)
+        notweak = IC.get_fresh_tweak()
+        all_tweaks = [notweak]
+        for tweak in local_model.tweaks:
+          all_tweaks.append(tweak)
 
-      stat_dict["loss"] += local_fact*loss.item()
-      stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
-      stat_dict["dist_to_good"] += local_fact*dist_to_good
+        losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,torch.stack(all_tweaks))
+        winner = torch.argmin(losses).item()
+
+      stat_dict["generalist_loss"] += local_fact*losses[0].item()
+      stat_dict["generalist_selection_hit_rate"] += local_fact*selection_hit_rates[0]
+      stat_dict["generalist_dist_to_good"] += local_fact*dist_to_goods[0]
+
+      stat_dict["winner_loss"] += local_fact*losses[winner].item()
+      stat_dict["winner_selection_hit_rate"] += local_fact*selection_hit_rates[winner]
+      stat_dict["winner_dist_to_good"] += local_fact*dist_to_goods[winner]
 
       # CAREFUL: this gets a bit weird if there is more than one trace for a problem
       if tweak_file_path is not None:
@@ -252,11 +262,11 @@ def job_eval_tweak(input):
   for k in stat_dict.keys():
     stat_dict[k] *= record.prob_fact
 
-  return stat_dict
+  return stat_dict, winner
 
 
 def job_train(input):
-  (record,train_model_file_path,tw_pref) = input
+  (record,train_model_file_path,_tw_pref) = input
 
   train_begin = time.time()
 
@@ -272,8 +282,6 @@ def job_train(input):
   stat_dict = defaultdict(float)
 
   loss = torch.tensor(0.0, requires_grad=True)
-  selection_hit_rate = 0.0
-  dist_to_good = 0.0
   for trace_file_path in record.prob_traces:
     try:
       trace_tuple = torch.load(trace_file_path)
@@ -282,39 +290,30 @@ def job_train(input):
 
       just_before_final,num2idx = learn_model.pre_forward()
 
+      """
       mytweak = local_model.tweaky
       notweak = torch.zeros_like(mytweak)
       both_tweaks = torch.stack([notweak,mytweak])
-
-      losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
-
-      # print("losses",losses,losses.shape)
-      # print("loss - before",loss,loss.shape)
-      loss = loss + local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
-      # print("loss - after",loss,loss.shape)
-
       """
-      sep0 = learn_model.forward(just_before_final, num2idx)[0].item()
-      sep1 = learn_model.forward(just_before_final+mytweak, num2idx)[0].item()
+      notweak = IC.get_fresh_tweak()
+      all_tweaks = [notweak]
+      for tweak in local_model.tweaks:
+        all_tweaks.append(tweak)
 
-      err0 = losses[0].item()-sep0
-      err1 = losses[1].item()-sep1
-      print("on",record.prob,"err0",err0,"err1",err1)
-      print("just_before_final",just_before_final.shape)
-      print("just_before_final_ext[0]",just_before_final_ext[0].shape)
-      print("zero check",torch.norm(just_before_final_ext[0]-just_before_final).item())
-      print("one check",torch.norm(just_before_final_ext[1]-just_before_final).item(),torch.norm(mytweak))
-      """
+      losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, torch.stack(all_tweaks))
 
-      # the generalist's stats
-      stat_dict["loss"] += local_fact*losses[0].item()
-      stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-      stat_dict["dist_to_good"] += local_fact*dists_to_good[0]
-      # the tweaked stats
-      stat_dict["tweaked_loss"] += local_fact*losses[1].item()
-      stat_dict["tweaked_selection_hit_rate"] += local_fact*selection_hit_rates[1]
-      stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
+      winner = torch.argmin(losses).item()
 
+      stat_dict["generalist_loss"] += local_fact*losses[0].item()
+      stat_dict["generalist_selection_hit_rate"] += local_fact*selection_hit_rates[0]
+      stat_dict["generalist_dist_to_good"] += local_fact*dists_to_good[0]
+
+      stat_dict["winner_loss"] += local_fact*losses[winner].item()
+      stat_dict["winner_selection_hit_rate"] += local_fact*selection_hit_rates[winner]
+      stat_dict["winner_dist_to_good"] += local_fact*dists_to_good[winner]
+
+      # loss = loss + local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
+      loss = loss + local_fact*losses[winner]
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{e} occurred in TRAIN\n")
@@ -343,7 +342,7 @@ def job_train(input):
   for k in stat_dict.keys():
     stat_dict[k] *= record.prob_fact
 
-  return record.prob_fact*loss.item(), stat_dict
+  return stat_dict, winner
 
 
 

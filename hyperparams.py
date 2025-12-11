@@ -37,7 +37,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10610"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10611"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
@@ -77,13 +77,15 @@ CUM_MAX_STRENGTH = 2.0
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
 INITIAL_NUM_PERFORMS = 1
-NUM_PERFORMS = 1
+NUM_PERFORMS = 9
 MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
-USE_SPECIAL = True
+USE_SPECIAL = False
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
+
+USE_TWEAKING = True # instead of looking things up in PERFORMS_SPECIAL, we just keep increasing an argument to ncem_gsd
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
