@@ -458,7 +458,7 @@ if __name__ == "__main__":
           result_metas.append((res_filename,mission))
 
           for i,ilim in enumerate(luby(HP.INSTRUCTION_LIMIT_MIN,HP.INSTRUCTION_LIMIT_MAX)):
-            if i >= HP.NUM_PERFORMS and loop > 1 or i >= HP.INITIAL_NUM_PERFORMS:
+            if i >= HP.NUM_PERFORMS and loop > 1 or loop == 1 and i >= HP.INITIAL_NUM_PERFORMS:
               break
             seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
@@ -746,9 +746,9 @@ if __name__ == "__main__":
         print("Eval winner loss",weighted_eval_stats["winner_loss"],"on",len(valid_trace_problems),"valid probs in",int(time.time()-pre_eval),"s")
         for k,v in weighted_eval_stats.items():
           print(f"    e_{k}",v)
-        print("    e_winner_hist",end=" ")
+        print("    e_winner_hist",end="")
         for winner,cnt in sorted(eval_winner_hist.items()):
-          print(f"{winner}:{cnt},",end=" ")
+          print(f" {winner}:{cnt},",end="")
         print()
         sys.stdout.flush()
 
@@ -859,9 +859,9 @@ if __name__ == "__main__":
       print("Weighted train winner loss",weighted_train_stats["winner_loss"],"in",int(time.time()-pre_train),"s")
       for k,v in weighted_train_stats.items():
         print(f"    t_{k}",v)
-      print("    t_winner_hist",end=" ")
+      print("    t_winner_hist",end="")
       for winner,cnt in sorted(train_winner_hist.items()):
-        print(f"{winner}:{cnt},",end=" ")
+        print(f" {winner}:{cnt},",end="")
       print()
       print()
       sys.stdout.flush()
