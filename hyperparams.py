@@ -77,7 +77,7 @@ CUM_MAX_STRENGTH = 2.0
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
 INITIAL_NUM_PERFORMS = 1
-NUM_PERFORMS = 9
+NUM_PERFORMS = 5
 MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
@@ -192,7 +192,7 @@ GUMBEL_STRENGTH : Final[float] = 0.001 # divided by 2.5 further; divided by two 
 
 GSD_TWEAK_LEARNING_SPEEDUP = 100
 
-LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
+LEARNING_RATE : Final[float] = 0.0004 # making it 2 * the established defaul as I want to go back to a bit stronger LR, while the nominal loop is already going to be 10
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
 TWEAKS_LEARNING_RATE = 0.1
