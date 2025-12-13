@@ -603,56 +603,7 @@ if __name__ == "__main__":
     if loop_count == 0:
       break
 
-    # STAGE 2a: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
-
-    pre_tweaking = time.time()
-    tweaking_model_file_path = os.path.join(HP.SCRATCH,"tweaking-model_{}.tar".format(os.getpid()))
-    torch.save(model.state_dict(), tweaking_model_file_path)
-
-    tweak_file_version = 0
-    def get_tweaking_tasks():
-      global tweak_file_version
-      prob_records = W.create_prob_records(list(trace_index.cur_problems()),trace_index)
-      prob_records.sort(key = lambda rec : -rec.szs) # descending, first by the filesizes (i.e., the big ones first)
-      for record in prob_records:
-        tweak_file_version += 1
-        tweak_file_path = os.path.join(HP.SCRATCH,"tweak_{}_{}.tar".format(os.getpid(),tweak_file_version))
-
-        prob_no_dots = no_dots(record.prob)
-        if record.prob not in tweak_map:
-          tweak_map[prob_no_dots] = IC.get_fresh_tweak()
-
-        torch.save(tweak_map[prob_no_dots], tweak_file_path)
-        yield (W.JK_EVAL_TWEAK,(record,tweaking_model_file_path,tweak_file_path))
-
-    weighted_tweaking_stats = defaultdict(float)
-    def process_results_from_tweaking(job_kind,input,result):
-      global weighted_tweaking_stats
-
-      record,_tweaking_model_file_path,tweak_file_path = input
-
-      assert job_kind == W.JK_EVAL_TWEAK
-      stat_dict = result
-      for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
-        weighted_tweaking_stats[k] += v
-
-      prob_no_dots = no_dots(record.prob)
-      tweak_map[prob_no_dots] = torch.load(tweak_file_path)
-      os.remove(tweak_file_path)
-      return 1
-
-    eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
-    os.remove(tweaking_model_file_path)
-
-    tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-tweaking.tar")
-    torch.save(tweak_map,tweak_map_file_path)
-
-    print("Tweaking on all in",int(time.time()-pre_tweaking),"s")
-    for k,v in weighted_tweaking_stats.items():
-          print("    ",k,v)
-    sys.stdout.flush()
-
-    # STAGE 2b: alternate EVAL, TRAIN, EVAL until no longer improving
+    # STAGE 2a: alternate EVAL, TRAIN, EVAL until no longer improving
     print()
     sys.stdout.flush()
     stage_start_time = time.time()
@@ -662,6 +613,13 @@ if __name__ == "__main__":
     print("Learning rate now at",lr_wish)
     tw_pref = (loop-1)*0.1 if loop < 6 else 0.5
     print("Tweaked preference at",tw_pref)
+
+    # NB: tweaks for just solved problems have not been initialized yet!
+    # but at least make sure they exists so that we can correctly update the tweakmap for them
+    for prob in trace_index.cur_problems():
+      prob_no_dots = no_dots(prob)
+      if prob_no_dots not in tweak_map:
+        tweak_map[prob_no_dots] = IC.get_fresh_tweak()
 
     # newly only lives one iter, so no need to save it
     optimizer = torch.optim.Adam([
@@ -833,15 +791,63 @@ if __name__ == "__main__":
 
     # stage 2
     print()
-    print(f"  Stage 2 - took {time.time()-stage_start_time} seconds and {stage2iter-0.5} eval/train iterations")
+    print(f"  Stage 2a - took {time.time()-stage_start_time} seconds and {stage2iter-0.5} eval/train iterations")
     print()
     sys.stdout.flush()
 
     print_model_part()
     save_loop_model(cur_dir,loop,model)
 
-    tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-training.tar")
+    # STAGE 2b: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
+    pre_tweaking = time.time()
+    tweaking_model_file_path = os.path.join(HP.SCRATCH,"tweaking-model_{}.tar".format(os.getpid()))
+    torch.save(model.state_dict(), tweaking_model_file_path)
+
+    tweak_file_version = 0
+    def get_tweaking_tasks():
+      global tweak_file_version
+      prob_records = W.create_prob_records(list(trace_index.cur_problems()),trace_index)
+      prob_records.sort(key = lambda rec : -rec.szs) # descending, first by the filesizes (i.e., the big ones first)
+      for record in prob_records:
+        tweak_file_version += 1
+        tweak_file_path = os.path.join(HP.SCRATCH,"tweak_{}_{}.tar".format(os.getpid(),tweak_file_version))
+
+        # is now being done ealier, actually, before we set up the optimizer
+        """
+        prob_no_dots = no_dots(record.prob)
+        if prob_no_dots not in tweak_map:
+          tweak_map[prob_no_dots] = IC.get_fresh_tweak()
+        """
+
+        torch.save(tweak_map[prob_no_dots], tweak_file_path)
+        yield (W.JK_EVAL_TWEAK,(record,tweaking_model_file_path,tweak_file_path))
+
+    weighted_tweaking_stats = defaultdict(float)
+    def process_results_from_tweaking(job_kind,input,result):
+      global weighted_tweaking_stats
+
+      record,_tweaking_model_file_path,tweak_file_path = input
+
+      assert job_kind == W.JK_EVAL_TWEAK
+      stat_dict = result
+      for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
+        weighted_tweaking_stats[k] += v
+
+      prob_no_dots = no_dots(record.prob)
+      tweak_map[prob_no_dots] = torch.load(tweak_file_path)
+      os.remove(tweak_file_path)
+      return 1
+
+    eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
+    os.remove(tweaking_model_file_path)
+
+    tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-tweaking.tar")
     torch.save(tweak_map,tweak_map_file_path)
+
+    print("Stage 2b, i.e. tweaking, on all in",int(time.time()-pre_tweaking),"s")
+    for k,v in weighted_tweaking_stats.items():
+          print("    ",k,v)
+    sys.stdout.flush()
 
     print()
     sys.stdout.flush()
