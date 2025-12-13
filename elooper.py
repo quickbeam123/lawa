@@ -841,10 +841,23 @@ if __name__ == "__main__":
     tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-tweaking.tar")
     torch.save(tweak_map,tweak_map_file_path)
 
-    print("Stage 2b, i.e. tweaking, on all in",int(time.time()-pre_tweaking),"s")
+    print("Tweaking, on all in",int(time.time()-pre_tweaking),"s")
     for k,v in weighted_tweaking_stats.items():
           print("    ",k,v)
     sys.stdout.flush()
+
+    # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
+    active_tweaks = [tweak_map[no_dots(prob)] for prob in trace_index.cur_problems()]
+    active_tweak_selection = random.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
+    print("Randomly picked",len(active_tweak_selection),"from",len(active_tweaks),"active tweaks")
+    active_tweak_selection_file_path = os.path.join(cur_dir,"active_tweak_selection.tar")
+    torch.save(active_tweak_selection, active_tweak_selection_file_path)
+    sys.stdout.flush()
+
+    # TODO: cont from here
+    exit(0)
+
+
 
     print()
     sys.stdout.flush()

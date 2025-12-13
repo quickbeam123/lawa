@@ -76,7 +76,7 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
-INITIAL_NUM_PERFORMS = 5
+INITIAL_NUM_PERFORMS = 1
 NUM_PERFORMS = 5
 MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
@@ -84,6 +84,8 @@ MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
+
+TWEAK_MATRIX_SIZE = 1024
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
