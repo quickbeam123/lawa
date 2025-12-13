@@ -68,18 +68,18 @@ class MyLinear(torch.nn.Module):
         # a Linear would
         torch.nn.init.kaiming_uniform_(self.weight.unsqueeze(0),a=math.sqrt(5))
 
-    def forward(self, x : Tensor, tweaks : Optional[Tensor] = None):
-      if tweaks is not None:
-        if tweaks.dim() == 1:
-          tweaks = tweaks.unsqueeze(0)  # [1, size]
-        # w + tweaks: [k, size]
-        w_plus = self.weight.unsqueeze(0) + tweaks  # broadcast
+    def forward(self, x : Tensor):
+      return torch.matmul(x, self.weight)
 
-        # x: [1, N, size], w_plus: [k, 1, size]
-        # => [k, N, 1] -> [k, N]
-        return (x.unsqueeze(0) @ w_plus.unsqueeze(2)).squeeze(-1)
-      else:
-        return torch.matmul(x, self.weight)
+    def forward_with_tweaks(self, x : Tensor, tweaks : Tensor):
+      if tweaks.dim() == 1:
+        tweaks = tweaks.unsqueeze(0)  # [1, size]
+      # w + tweaks: [k, size]
+      w_plus = self.weight.unsqueeze(0) + tweaks  # broadcast
+
+      # x: [1, N, size], w_plus: [k, 1, size]
+      # => [k, N, 1] -> [k, N]
+      return (x.unsqueeze(0) @ w_plus.unsqueeze(2)).squeeze(-1)
 
 def get_clause_valuator_pair():
   layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
@@ -882,11 +882,11 @@ class LearningModel(torch.nn.Module):
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
 
     # print("just_before_final",just_before_final.shape)
-    logits = self.nn.clause_valuator_snd(just_before_final,tweaks)
-
-    squeeze_back = False
-    if logits.dim() == 1:
-      logits = logits.unsqueeze(0)
+    if tweaks is not None:
+      logits = self.nn.clause_valuator_snd.forward_with_tweaks(just_before_final,tweaks)
+      squeeze_back = False
+    else:
+      logits = self.nn.clause_valuator_snd.forward(just_before_final).unsqueeze(0)
       squeeze_back = True
 
     num_loss_channels = logits.shape[0]
