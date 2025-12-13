@@ -92,7 +92,6 @@ class TraceIndex:
   def __init__(self):
     self.traces = {} # problem -> [trace_file_name]  # a list to support more than one sample per problem per loop (c.f. HP.NUM_PERFORMS)
     self.last_solved = {}
-    self.num_cur_loop_trivials = defaultdict(int)
     self.prob_scores = {}
 
     if HP.CUMULATIVE:
@@ -102,26 +101,12 @@ class TraceIndex:
   def loop_finished(self):
     if not HP.CUMULATIVE:
       self.traces = {}
-    self.num_cur_loop_trivials = defaultdict(int)
 
   def cur_problems(self):
     return self.traces.keys()
 
   def prob_traces(self,prob):
     return self.traces[prob]
-
-  def num_contemporary_traces(self,loop,prob):
-    res = self.num_cur_loop_trivials[prob]
-    if (prob in self.traces and
-       (not HP.CUMULATIVE or # if CUMMULATIVE, old traces don't count as contemporary
-          (prob in self.last_solved and self.last_solved == loop)
-       )
-    ):
-      res += len(self.traces[prob])
-
-    # print(prob,"contemp",res,"triv:",self.num_cur_loop_trivials[prob])
-
-    return res
 
   def prob_factor(self,prob):
     if not HP.CUMULATIVE:
@@ -138,13 +123,12 @@ class TraceIndex:
 
     self.last_solved[prob] = loop
 
-  def report_bad_trace(self,loop,prob,trivial):
+  def report_bad_trace(self,loop,prob):
     if (HP.CUMULATIVE and prob in self.last_solved and self.last_solved[prob] < loop):
       # we didn't solve it this loop yet
-      self.traces[prob] = []
+      if prob in self.traces:
+        del self.traces[prob]
 
-    if trivial:
-      self.num_cur_loop_trivials[prob] += 1
     self.last_solved[prob] = loop
 
   def update_scores(self,loop):
@@ -217,7 +201,8 @@ def create_prob_records(trace_problems):
   prob_records = []
   for prob in trace_problems:
     prob_traces = trace_index.prob_traces(prob)
-    prob_fact = trace_index.prob_factor(prob)*fact # TODO: careful, if even if we do CUMUL, this will not affect the loss!
+    # prob_fact = trace_index.prob_factor(prob)*fact # TODO: careful, if even if we do CUMUL, this will not affect the loss!
+    prob_fact = fact
     prob_trace_size_sum = sum(os.path.getsize(trace_file) for trace_file in prob_traces)
     prob_records.append((prob_trace_size_sum,prob,prob_fact,prob_traces))
   return prob_records
@@ -527,16 +512,21 @@ if __name__ == "__main__":
               os.remove(lrs_trace_file)
         elif job_kind == W.JK_GATHER:
           (mission,prob,lrs_trace_file,trace_file_path,opts,eval_opts,gather_log) = input
-          trace_kept, trace_trivial, gage_stats, gweight_stats = result
+          non_trivial, passes_limits, gage_stats, gweight_stats = result
           stats[prob].append((gage_stats, gweight_stats))
-          if trace_kept:
+          if non_trivial and passes_limits:
             trace_index.add_prob_trace(loop,prob,trace_file_path)
           else:
-            # TODO: consider deleting (if the trace file exists). But since we overwrite each loop, the memory waste is not tremendous
-            # - NOTE that especially the ones which IC.trace_good_for_learning considers too big to learn from could be deleted!
-            # os.remove(trace_file_path)
-
-            trace_index.report_bad_trace(loop,prob,trace_trivial)
+            # TODO: in a future version, we shouldn't first overwrite the old trace file with the new raw one
+            # not until trace_good_for_learning decides what the new one looks like
+            #
+            # but now that the old is overwritten and the new one cannot be learned from for one of the reasons, let's just delete the file
+            try:
+              os.remove(trace_file_path)
+            except FileNotFoundError:
+              # TODO: think; how could it be that the file does not exists? (It happened though)
+              pass
+            trace_index.report_bad_trace(loop,prob)
 
           workers_freed = 1
           if lrs_trace_file and os.path.isfile(lrs_trace_file):

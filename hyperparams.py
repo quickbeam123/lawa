@@ -64,7 +64,7 @@ INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # This is a reminder that it might make sense to learn from traces we currently (in this loop, with this model) cannot solve
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
 # - when set to True, elooper will keep traces of problems not solved in the last loop and still try to learn from them (sometimes)
-CUMULATIVE : Final[bool] = False
+CUMULATIVE : Final[bool] = True
 CUM_STALE_AFTER = 5 # if we can't solve a problem for this many loops, let's give up on it
 CUM_MAX_STRENGTH = 2.0
 # - a problem is born (when first solved) with a score=0 and natural strength 1.0 = BASE^(score=0)
@@ -76,8 +76,8 @@ CUM_MAX_STRENGTH = 2.0
 # How many times do we try to solve the same problem (and thus to collect a trace for training problems)?
 # - this makes a difference, because we use different seeds (so might get lucky with some and unlucky with others)
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
-INITIAL_NUM_PERFORMS = 1
-NUM_PERFORMS = 1
+INITIAL_NUM_PERFORMS = 5
+NUM_PERFORMS = 5
 MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 

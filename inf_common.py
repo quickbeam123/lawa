@@ -750,17 +750,18 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     if kbSize > HP.MAX_KBSIZE:
       logfile.write(f"Dropping {trace_file_path} - exceeded MAX_KBSIZE with its {kbSize}\n")
 
-  if (num_good_selections
-      and (not HP.USE_GAGE or gage_h <= HP.MAX_GAGE_HEIGHT)
-      and (not HP.USE_GWEIGHT or gweight_h <= HP.MAX_GWEIGHT_HEIGHT)
-      and (len(clause_simple_features) <= HP.MAX_BOX_SIZE)
-      and kbSize <= HP.MAX_KBSIZE):
+  non_trivial = num_good_selections
+  passes_limits = ((not HP.USE_GAGE or gage_h <= HP.MAX_GAGE_HEIGHT)
+                    and (not HP.USE_GWEIGHT or gweight_h <= HP.MAX_GWEIGHT_HEIGHT)
+                    and (len(clause_simple_features) <= HP.MAX_BOX_SIZE)
+                    and kbSize <= HP.MAX_KBSIZE)
+
+  if (non_trivial and passes_limits):
     torch.save((static_features,clause_simple_features,newjournal,num_good_selections,
                 init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses),trace_file_path)
-    return True, False, (gage_h,gage_w), (gweight_h,gweight_w)
-  else:
-    return False, num_good_selections == 0, (gage_h,gage_w), (gweight_h,gweight_w)
+
+  return non_trivial, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w)
 
 
 class LearningModel(torch.nn.Module):
