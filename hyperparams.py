@@ -37,7 +37,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10610"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10611"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
@@ -81,9 +81,11 @@ NUM_PERFORMS = 5
 MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
-USE_SPECIAL = True
+USE_SPECIAL = False
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
+
+USE_TWEAKING = True # instead of looking things up in PERFORMS_SPECIAL, we just keep increasing an argument to ncem_gsd
 
 TWEAK_MATRIX_SIZE = 1024
 TWEAKS_TO_PICK = 4
@@ -202,7 +204,7 @@ GSD_TWEAK_LEARNING_SPEEDUP = 100
 LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
-TWEAKS_LEARNING_RATE = 0.1
+TWEAKS_LEARNING_RATE = 0.05
 TWEAK_SEARCH_MAX_TIME = 30.0 # in seconds
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
