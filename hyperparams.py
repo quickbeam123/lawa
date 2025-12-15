@@ -86,6 +86,7 @@ USE_SPECIAL = True
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
 TWEAK_MATRIX_SIZE = 1024
+TWEAKS_TO_PICK = 4
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)

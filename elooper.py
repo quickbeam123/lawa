@@ -15,7 +15,7 @@ from itertools import chain
 from dataclasses import dataclass
 
 import multiprocessing
-import numpy
+import numpy as np
 
 # first environ, then load torch, also later we set_num_treads (in "main")
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -657,13 +657,13 @@ if __name__ == "__main__":
           prob_records = W.create_prob_records(valid_trace_problems,trace_index)
           prob_records.sort(key = lambda rec : -rec.szs) # descending by the filesizes (i.e., the big ones first)
           for record in prob_records:
-            yield (W.JK_EVAL_TWEAK,(record,eval_model_file_path,None))
+            yield (W.JK_EVAL_TWEAK_MATRIX,(record,eval_model_file_path,None,False))
 
         weighted_eval_stats = defaultdict(float)
         def process_results_from_eval(job_kind,input,result):
           global weighted_eval_stats
 
-          assert job_kind == W.JK_EVAL_TWEAK
+          assert job_kind == W.JK_EVAL_TWEAK_MATRIX
           stat_dict = result
           for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
             weighted_eval_stats[k] += v
@@ -803,7 +803,7 @@ if __name__ == "__main__":
     tweak_file_version = 0
     def get_tweaking_tasks():
       global tweak_file_version
-      prob_records = W.create_prob_records(list(trace_index.cur_problems()),trace_index)
+      prob_records = W.create_prob_records(trace_problems,trace_index)
       prob_records.sort(key = lambda rec : -rec.szs) # descending, first by the filesizes (i.e., the big ones first)
       for record in prob_records:
         tweak_file_version += 1
@@ -817,15 +817,16 @@ if __name__ == "__main__":
         """
 
         torch.save(tweak_map[prob_no_dots], tweak_file_path)
-        yield (W.JK_EVAL_TWEAK,(record,tweaking_model_file_path,tweak_file_path))
+        yield (W.JK_EVAL_TWEAK_MATRIX,(record,tweaking_model_file_path,tweak_file_path,False))
 
     weighted_tweaking_stats = defaultdict(float)
     def process_results_from_tweaking(job_kind,input,result):
       global weighted_tweaking_stats
 
-      record,_tweaking_model_file_path,tweak_file_path = input
+      record,_tweaking_model_file_path,tweak_file_path,compute_matrix = input
 
-      assert job_kind == W.JK_EVAL_TWEAK
+      assert not compute_matrix
+      assert job_kind == W.JK_EVAL_TWEAK_MATRIX
       stat_dict = result
       for k,v in stat_dict.items(): # includes the loss; all multiplied by fact already in the child
         weighted_tweaking_stats[k] += v
@@ -849,12 +850,63 @@ if __name__ == "__main__":
     # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
     active_tweaks = [tweak_map[no_dots(prob)] for prob in trace_index.cur_problems()]
     active_tweak_selection = random.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
-    print("Randomly picked",len(active_tweak_selection),"from",len(active_tweaks),"active tweaks")
+    print("Randomly picked",len(active_tweak_selection),"from",len(active_tweaks),"active tweaks and added the generalist to the front")
+    active_tweak_selection = [IC.get_fresh_tweak()] + active_tweak_selection
     active_tweak_selection_file_path = os.path.join(cur_dir,"active_tweak_selection.tar")
     torch.save(active_tweak_selection, active_tweak_selection_file_path)
     sys.stdout.flush()
 
-    # TODO: cont from here
+    # NOW THIS LOOKS A BIT LIKE TWEAKING CODE, BUT IT'S ACTUALLY THE (SUB)MATRIC COLLECTION
+
+    pre_tweaking = time.time()
+    tweaking_model_file_path = os.path.join(HP.SCRATCH,"tweaking-model_{}.tar".format(os.getpid()))
+    torch.save(model.state_dict(), tweaking_model_file_path)
+
+    def get_tweaking_tasks():
+      global tweak_file_version
+      prob_records = W.create_prob_records(trace_problems,trace_index)
+      prob_records.sort(key = lambda rec : -rec.szs) # descending, first by the filesizes (i.e., the big ones first)
+      for record in prob_records:
+        yield (W.JK_EVAL_TWEAK_MATRIX,(record,tweaking_model_file_path,active_tweak_selection_file_path,True))
+
+    loss_matrix_dict = {}  # from probs to whatever the worker computed for it
+    def process_results_from_tweaking(job_kind,input,result):
+      global loss_matrix
+
+      record,_tweaking_model_file_path,_active_tweak_selection_file_path,compute_matrix = input
+
+      assert compute_matrix
+      assert job_kind == W.JK_EVAL_TWEAK_MATRIX
+      loss_vec, took = result
+
+      loss_matrix_dict[record.prob] = loss_vec
+
+      # print("Got back loss_vec of len",len(loss_vec),"for",record.prob,"in",took)
+      sys.stdout.flush()
+      return 1
+
+    eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
+    os.remove(tweaking_model_file_path)
+
+    # NOW ANALYZE THE TWEAK MATRIX
+    loss_matrix = []
+    for prob in trace_problems:
+      loss_matrix.append(loss_matrix_dict[prob])
+    loss_matrix = np.array(loss_matrix)
+
+    print("Generalists loss",np.mean(loss_matrix[:,0]))
+    current_min = loss_matrix[:, 0].copy()
+    selected = []
+    for _ in range(HP.TWEAKS_TO_PICK):
+      new_mins = np.minimum(current_min[:, None], loss_matrix)
+      gains = new_mins.mean(axis=0)
+      best_idx = np.argmin(gains)
+      selected.append(best_idx)
+      current_min = new_mins[:, best_idx]
+      print("Chosen", best_idx, "new mean of minima:", gains[best_idx])
+
+    print(selected)
+
     exit(0)
 
 
