@@ -611,7 +611,7 @@ def stage_eval_train_eval():
 
 # --------------------------------------------------------------------------------------------------------
 
-def stage_tweaking():
+def stage_tweaking(before_or_after):
   pre_tweaking = time.time()
   tweaking_model_file_path = os.path.join(HP.SCRATCH,"tweaking-model_{}.tar".format(os.getpid()))
   torch.save(model.state_dict(), tweaking_model_file_path)
@@ -654,7 +654,7 @@ def stage_tweaking():
   eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
   os.remove(tweaking_model_file_path)
 
-  tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-tweaking.tar")
+  tweak_map_file_path = os.path.join(cur_dir,f"tweaked-tweak-map-{before_or_after}-training.tar")
   torch.save(tweak_map,tweak_map_file_path)
 
   print("Tweaking on all in",int(time.time()-pre_tweaking),"s")
@@ -945,7 +945,7 @@ if __name__ == "__main__":
         tweak_map[prob_no_dots] = IC.get_fresh_tweak()
 
     # we new traces for both new and old problems; so let's tweak them all
-    stage_tweaking()
+    stage_tweaking("before")
 
     stage_eval_train_eval()
 
@@ -953,7 +953,7 @@ if __name__ == "__main__":
     save_loop_model(cur_dir,loop,model)
 
     # STAGE 2b: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
-    stage_tweaking()
+    stage_tweaking("after")
 
     print("Will build loss_submatrix and pick the best tweaks to bake into the model for the next trace collection")
     active_tweaks = [tweak_map[no_dots(prob)] for prob in trace_index.cur_problems()]
