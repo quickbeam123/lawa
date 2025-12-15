@@ -188,6 +188,10 @@ class MonsterModules(torch.nn.Module):
     # by default our MonsterModules carry just one tweak
     self.tweaky = get_fresh_tweak()
 
+    # while tweaky was for training individual tweaks per problem to go for a nice spread,
+    # tweaks are a small set that should stay in and define the generalize search directions to use in strategies by vampire
+    self.tweaks = torch.nn.ParameterList([get_fresh_tweak() for _ in range(HP.TWEAKS_TO_PICK)])
+
 
 def get_initial_model():
   return MonsterModules()
@@ -264,7 +268,7 @@ class MonsterNN(torch.nn.Module):
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
               gage_rule_embed, gage_combine, gage_static_embedder,
               gweight_var_embed, gweight_term_combine, gweight_static_embedder,
-              final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaky):
+              final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaky, tweaks):
     super().__init__()
 
     self.recording = False
@@ -341,6 +345,7 @@ class MonsterNN(torch.nn.Module):
 
     # modules/parameters:
     self.tweaky = tweaky
+    self.tweaks = tweaks
 
   @torch.jit.export
   def use_problem_features(self) -> bool:
@@ -382,14 +387,10 @@ class MonsterNN(torch.nn.Module):
   def set_computing(self):
     self.computing = True
 
-  """
   @torch.jit.export
-  def bake_tweak(self, tweak: Tensor):
-    # in cpp, you can get the tweak to bake from our tweaks (ParamaterDict), something like
-    # _model.attr("tweaks").toModule().attr("tweaky")
-    # where the surpring (undocumented?) fact is that the dict that ParamaterDict represents got flattened among it's (pythonesque) attributes
-    self.clause_valuator_fst[-1].bias.add_(tweak)
-  """
+  def bake_tweak(self, tweak): # because it actually adds, it only makes sense to call this once!
+    with torch.no_grad():
+      self.clause_valuator_snd.weight.add_(tweak)
 
   @torch.jit.export
   def set_static_features(self, features: Tensor):
@@ -706,7 +707,7 @@ def export_model(model_state_dict,name):
   module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                      m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                      m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
-                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky)
+                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -821,7 +822,7 @@ class LearningModel(torch.nn.Module):
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                     m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                     m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
-                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky)
+                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
     self.verbose = verbose
     if verbose:
       print("Got verbose")

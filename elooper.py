@@ -288,9 +288,6 @@ if __name__ == "__main__":
   # Initializing a model and an optimizer (might still get better one below from load_dir if given)
   model = IC.get_initial_model()
 
-  # temporary model used for the gradient trick
-  grad_loader_temp = IC.get_initial_model()
-
   trace_index = TraceIndex()
 
   tweak_map = torch.nn.ParameterDict()
@@ -347,6 +344,9 @@ if __name__ == "__main__":
     save_loop_model(cur_dir,loop,model)
 
   print_model_part()
+
+  # temporary model used for the gradient trick
+  grad_loader_temp = IC.get_initial_model()
 
   assert loop_count > 0
 
@@ -430,7 +430,7 @@ if __name__ == "__main__":
           result_metas.append((res_filename,mission))
 
           for i,ilim in enumerate(luby(HP.INSTRUCTION_LIMIT_MIN,HP.INSTRUCTION_LIMIT_MAX)):
-            if i >= HP.NUM_PERFORMS and loop > 1 or i >= HP.INITIAL_NUM_PERFORMS:
+            if i >= HP.NUM_PERFORMS and loop > 1 or loop == 1 and i >= HP.INITIAL_NUM_PERFORMS:
               break
             seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
@@ -455,6 +455,9 @@ if __name__ == "__main__":
 
             if HP.USE_SPECIAL:
               opts2_base += HP.PERFORMS_SPECIAL[i]
+
+            if HP.USE_TWEAKING:
+              opts2_base += f" -ncem_gsd {i}"
 
             for prob in prob_lists:
               if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
@@ -580,8 +583,15 @@ if __name__ == "__main__":
           covered = covered | by_performs_solved[i]
 
         for i in range(max_i+1):
-          print("   {:>3} {:>6} {:6.4f} = {:>5} / {:>5} {:>5} {}".format(
-                  i,ilims[i],len(by_performs_solved[i])/len(by_performs_attempted[i]),len(by_performs_solved[i]),len(by_performs_attempted[i]),adds[i],HP.PERFORMS_SPECIAL[i] if i < len(HP.PERFORMS_SPECIAL) else None))
+          what_ran = ""
+          # For now assumes USE_SPECIAL and USE_TWEAKING are mutually exclusive
+          if HP.USE_SPECIAL:
+            what_ran = HP.PERFORMS_SPECIAL[i] if i < len(HP.PERFORMS_SPECIAL) else None
+          elif HP.USE_TWEAKING:
+            what_ran = f" -ncem_gsd {i}"
+
+          print("   {:>3} {:>6} {:6.4f} = {:>5} / {:>5} {:>5}{}".format(
+                  i,ilims[i],len(by_performs_solved[i])/len(by_performs_attempted[i]),len(by_performs_solved[i]),len(by_performs_attempted[i]),adds[i],what_ran))
 
       print()
       print("  Stage 1 took",time.time()-stage_start_time)
@@ -685,11 +695,14 @@ if __name__ == "__main__":
           if all((el >= oldest_val for el in eval_losses)):
             print("Eval loss didn't improve for",TIW-1,"iterations now")
             if stage2iter == TIW:
+              actual_idx = 1
               # TODO: halve the LR when this happens?
               print("Actually, it never improved! Will apply one training step anyway!")
-              model.load_state_dict(torch.load(eval_models[1]))
+              model.load_state_dict(torch.load(eval_models[actual_idx]))
             else:
+              actual_idx = oldest_idx
               model.load_state_dict(torch.load(eval_models[oldest_idx]))
+            print("  took model with eval loss",eval_losses[actual_idx])
 
             for eval_model_file_path in eval_models:
               os.remove(eval_model_file_path)
@@ -777,8 +790,10 @@ if __name__ == "__main__":
       eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
       print("Weighted train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
-      for k,v in weighted_train_stats.items():
+      for i,(k,v) in enumerate(weighted_train_stats.items()):
         print(f"    t_{k}",v)
+        if i == 2: # just some hardcoded pretty-printing
+          print()
       print()
       sys.stdout.flush()
 
@@ -842,15 +857,19 @@ if __name__ == "__main__":
     tweak_map_file_path = os.path.join(cur_dir,f"tweak-map-after-tweaking.tar")
     torch.save(tweak_map,tweak_map_file_path)
 
-    print("Tweaking, on all in",int(time.time()-pre_tweaking),"s")
-    for k,v in weighted_tweaking_stats.items():
-          print("    ",k,v)
+    print("Tweaking on all in",int(time.time()-pre_tweaking),"s")
+    for i,(k,v) in enumerate(weighted_tweaking_stats.items()):
+      print("    ",k,v)
+      if i in [2,5]: # just some hard-coded pretty-printing
+        print()
+    print()
     sys.stdout.flush()
 
     # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
+    print("Will build loss_submatrix and pick the best tweaks to bake into the model for the next trace collection")
     active_tweaks = [tweak_map[no_dots(prob)] for prob in trace_index.cur_problems()]
     active_tweak_selection = random.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
-    print("Randomly picked",len(active_tweak_selection),"from",len(active_tweaks),"active tweaks and added the generalist to the front")
+    print("  randomly picked",len(active_tweak_selection),"from",len(active_tweaks),"active tweaks and added the generalist to the front")
     active_tweak_selection = [IC.get_fresh_tweak()] + active_tweak_selection
     active_tweak_selection_file_path = os.path.join(cur_dir,"active_tweak_selection.tar")
     torch.save(active_tweak_selection, active_tweak_selection_file_path)
@@ -887,6 +906,9 @@ if __name__ == "__main__":
 
     eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
     os.remove(tweaking_model_file_path)
+    os.remove(active_tweak_selection_file_path)
+    print("loss_submatrix collected in",int(time.time()-pre_tweaking),"s")
+    sys.stdout.flush()
 
     # NOW ANALYZE THE TWEAK MATRIX
     loss_matrix = []
@@ -894,22 +916,16 @@ if __name__ == "__main__":
       loss_matrix.append(loss_matrix_dict[prob])
     loss_matrix = np.array(loss_matrix)
 
-    print("Generalists loss",np.mean(loss_matrix[:,0]))
+    print("Choosing tweaks; generalist's loss",np.mean(loss_matrix[:,0]))
     current_min = loss_matrix[:, 0].copy()
-    selected = []
-    for _ in range(HP.TWEAKS_TO_PICK):
+
+    for i in range(HP.TWEAKS_TO_PICK):
       new_mins = np.minimum(current_min[:, None], loss_matrix)
       gains = new_mins.mean(axis=0)
       best_idx = np.argmin(gains)
-      selected.append(best_idx)
       current_min = new_mins[:, best_idx]
-      print("Chosen", best_idx, "new mean of minima:", gains[best_idx])
-
-    print(selected)
-
-    exit(0)
-
-
+      print("     adding", best_idx, "new mean of minima:", gains[best_idx])
+      model.tweaks[i] = torch.nn.Parameter(active_tweak_selection[best_idx].detach().clone()) # a proper copy
 
     print()
     sys.stdout.flush()
