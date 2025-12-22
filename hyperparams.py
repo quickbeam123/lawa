@@ -98,6 +98,8 @@ WORTH_REPORTING = 120 # more than this many seconds and a new line goes into det
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
 TEST_IMPROVE_WINDOW = 5
 
+ANYWAY_STEP_ALL = False # True seems to be better, False ( = "take just one") was the long standing default
+
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part
 MAX_TEST_IMPROVE_FIRST_ITER = 100 # this is for the first loop (if you don't like it, set it to the same thing as MAX_TEST_IMPROVE_ITER below)
 MAX_TEST_IMPROVE_ITER = 30

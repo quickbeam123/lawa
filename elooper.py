@@ -658,9 +658,12 @@ if __name__ == "__main__":
           if all((el >= oldest_val for el in eval_losses)):
             print("Eval loss didn't improve for",TIW-1,"iterations now")
             if stage2iter == TIW:
-              # TODO: halve the LR when this happens?
-              print("Actually, it never improved! Will apply one training step anyway!")
-              model.load_state_dict(torch.load(eval_models[1]))
+              if HP.ANYWAY_STEP_ALL:
+                print("Actually, it never improved! Will apply ALL training steps anyway!")
+                model.load_state_dict(torch.load(eval_models[TIW-1]))
+              else:
+                print("Actually, it never improved! Will apply one training step anyway!")
+                model.load_state_dict(torch.load(eval_models[1]))
             else:
               model.load_state_dict(torch.load(eval_models[oldest_idx]))
 
