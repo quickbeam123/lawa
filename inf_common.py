@@ -26,6 +26,7 @@ import hyperparams as HP
 from collections import defaultdict
 from itertools import chain
 
+
 def default_defaultdict_of_list():
   return defaultdict(list)
 
@@ -67,7 +68,10 @@ def get_clause_valuator_pair():
     layer_list.append(torch.nn.ReLU())
     layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
 
-  return torch.nn.Sequential(*layer_list),torch.nn.Sequential(torch.nn.ReLU(),torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
+  return torch.nn.Sequential(*layer_list),torch.nn.Sequential(
+    torch.nn.ReLU(),
+    torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT) if HP.FINAL_LAYER_DROPOUT > 0.0 else torch.nn.Identity(),
+    torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
 
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work

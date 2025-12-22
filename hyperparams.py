@@ -144,6 +144,8 @@ USE_SIMPLE_FEATURES : Final[bool] = True
 USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True
 
+FINAL_LAYER_DROPOUT : Final[float] = 0.0
+
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
 USE_STRATEGY_FEATURES : Final[bool] = False
 USE_PROBLEM_FEATURES : Final[bool] = False
