@@ -710,7 +710,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
    init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
    gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path)
 
-  # scan the journal an check if there are any selections with a good clause in passive at that time
+  # scan the journal and check if there are any selections with a good clause in passive at that time
   # also, bake proof_units into the journal, so that we don't need the lookups anymore
   newjournal = []
   passive = set() # just for consistency checking in the loop below
@@ -726,11 +726,15 @@ def trace_good_for_learning(trace_file_path,logfile=None):
       assert(tag == EVENT_REM or tag == EVENT_SEL)
       assert cl_num in passive
       passive.remove(cl_num)
+
+      if tag == EVENT_SEL:
+        if good_in_passive > 0:
+          num_good_selections += 1
+
+      # it's only getting removed as part of this selection step!
       if cl_num in proof_units:
         good_in_passive -= 1
-    if tag == EVENT_SEL:
-      if good_in_passive > 0: # there is a COM021+4 which gets solved using 30+ selection none of which happens while there is a single proof clause in passive (it's a lrs thing)
-        num_good_selections += 1
+
     newjournal.append((tag,cl_num,cl_num in proof_units))
 
   gage_h,gage_w = gage_stats(gnn_init_clause_nums,gage_infers)
