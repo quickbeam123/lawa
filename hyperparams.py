@@ -164,6 +164,8 @@ FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
 # only learn from maximum this many clause selection moments along a single trace
 MAX_TRAINS_PER_TRACE = 1000
 
+LABEL_SMOOTHING = 0.0
+
 # traces bigger than these will be considered "failed" (and not learned from)
 MAX_GAGE_HEIGHT = 500
 MAX_GWEIGHT_HEIGHT = 500
@@ -199,10 +201,6 @@ LEARNING_RATE : Final[float] = 0.0002
 LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
-
-# should be use AVG (False) or the MAX (True) for picking, at each time moment, which good action to reinforce?
-GOOD_LOGIT_MAX : Final[bool] = False # GOOD_LOGIT_MAX (nor MIN for that matter) seemed better than the default AVG (so we preach complete democracy in this regard in the paper)
-# also sticking with democracy in what regards the time stamp of the experience along the trace. But early and late decisions matter (similarly); at least so it seemed in one abandoned experiment
 
 # TODO: To be experimented with later
 DISCOUNT_FACTOR = 1.0

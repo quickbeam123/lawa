@@ -884,20 +884,11 @@ class LearningModel(torch.nn.Module):
           masked_logits = logits[passive_t > 0.0]           # exactly the logis of passive
           passive_good_t = passive_good_t[passive_t > 0.0]  # same lenght as masked_logits, but only contains 1s if it's a good clause
 
-          # manually computing log_softmax with multiplicities
-          c = torch.max(masked_logits,dim=-1)[0] # the second part, which we ignore, is the argmax' idx
-          exp_logits = torch.exp(masked_logits - c)
-          # print("exp_logits.shape",exp_logits.shape)
-          logsumexp = torch.log(torch.sum(exp_logits))
-
-          if HP.GOOD_LOGIT_MAX:
-            good_logit_max = torch.max(masked_logits[passive_good_t > 0.0],dim=-1)[0]
-            good_lsm = good_logit_max-c-logsumexp
-          else:
-            good_logit_avg = torch.sum(masked_logits[passive_good_t > 0.0])/sum(passive_good)
-            good_lsm = good_logit_avg-c-logsumexp
-
-          good_action_reward_loss += -good_lsm
+          good_action_reward_loss += torch.nn.functional.cross_entropy(
+            masked_logits,
+            passive_good_t/sum(passive_good),
+            reduction="none",
+            label_smoothing=HP.LABEL_SMOOTHING)
 
           num_good_steps += 1
 
