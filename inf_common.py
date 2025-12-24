@@ -843,12 +843,11 @@ class LearningModel(torch.nn.Module):
 
     # TODO: couldn't this be one-off compiled to get much more efficient?
 
-    passive = [0]*len(clause_simple_features)
-    passive_good = [0]*len(clause_simple_features)
+    passive = set()
+    passive_good = set()
 
     learn_for_every = num_good_selections / HP.MAX_TRAINS_PER_TRACE
-    learn_for_every_sum = 0.0
-    learn_ord = 0
+
     for tag,cl_num,isGood in journal:
       if cl_num not in num2idx:
         # ignoring clauses we never even had to evaluate in the run
@@ -856,47 +855,34 @@ class LearningModel(torch.nn.Module):
 
       idx = num2idx[cl_num]
       if tag == EVENT_ADD:
-        passive[idx] += 1
+        passive.add(idx)
         if isGood:
-          passive_good[idx] += 1
-        continue
-      if tag == EVENT_REM:
-        passive[idx] -= 1
-        if isGood:
-          passive_good[idx] -= 1
+          passive_good.add(idx)
         continue
 
-      assert tag == EVENT_SEL
-
-      # newly, we don't merge clauses based on common abstractions, so these arrays are just 0-1
-      assert max(passive) <= 1
-      assert max(passive_good) <= 1
-
-      # don't learn from every selection for traces with many-many of them (but go and learn at least once)
-      if sum(passive_good): # can learn
+      if tag == EVENT_SEL and len(passive_good): # can learn
+        # don't learn from every selection for traces with many-many of them (but go and learn at least once)
         if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
-          # if learn_for_every_sum <= learn_ord: # a deterministic version of the randomized above
-          learn_for_every_sum += learn_for_every
 
-          passive_good_t = torch.tensor(passive_good,dtype=logits.dtype)
-          passive_t = torch.tensor(passive,dtype=logits.dtype)
+          passive_l = sorted(passive)
+          passive_t = torch.tensor(passive_l, dtype=torch.long)
+          c = 1/len(passive_good)
+          passive_good_l = [c if idx in passive_good else 0.0 for idx in passive_l]
+          passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype)
 
-          masked_logits = logits[passive_t > 0.0]           # exactly the logis of passive
-          passive_good_t = passive_good_t[passive_t > 0.0]  # same lenght as masked_logits, but only contains 1s if it's a good clause
+          gathered_logits = logits[passive_t]
 
           good_action_reward_loss += torch.nn.functional.cross_entropy(
-            masked_logits,
-            passive_good_t/sum(passive_good),
+            gathered_logits,
+            passive_good_t,
             reduction="none",
             label_smoothing=HP.LABEL_SMOOTHING)
 
           num_good_steps += 1
 
-        learn_ord += 1
-
-      passive[idx] -= 1
+      passive.remove(idx)
       if isGood:
-        passive_good[idx] -= 1
+        passive_good.remove(idx)
 
     assert num_good_steps, "The training example was still degenerate!"
     return good_action_reward_loss/num_good_steps
