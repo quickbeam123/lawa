@@ -37,7 +37,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10611"
+VAMPIRE_EXECUTABLE = "/nfs/sudamar2/lawa-temp/vampire_rel_mtpa-gnn_10611"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
@@ -88,7 +88,7 @@ PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -np
 USE_TWEAKING = True # instead of looking things up in PERFORMS_SPECIAL, we just keep increasing an argument to ncem_gsd
 
 TWEAK_MATRIX_SIZE = 1024
-TWEAKS_TO_PICK = 4
+TWEAKS_TO_PICK = 0
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
