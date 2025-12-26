@@ -434,7 +434,7 @@ def stage_perf_gather(ctx):
 
 # ============================================================================================
 
-def stage_tweaking(ctx,trace_problems):
+def stage_tweaking(ctx,trace_problems,before_or_after):
   # i.e., look for favorable tweaks to all gathered traces
 
   pre_tweaking = time.time()
@@ -480,7 +480,7 @@ def stage_tweaking(ctx,trace_problems):
   eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
   os.remove(tweaking_model_file_path)
 
-  tweak_map_file_path = os.path.join(ctx.cur_dir,f"tweak-map-after-tweaking.tar")
+  tweak_map_file_path = os.path.join(ctx.cur_dir,f"tweaked-tweak-map-{before_or_after}-training.tar")
   torch.save(ctx.tweak_map,tweak_map_file_path)
 
   print("Tweaking on all in",int(time.time()-pre_tweaking),"s")
@@ -934,12 +934,12 @@ if __name__ == "__main__":
         ctx.tweak_map[prob_no_dots] = IC.get_fresh_tweak()
 
     # we know traces for both new and old problems; so let's tweak them all
-    stage_tweaking(ctx,trace_problems)
+    stage_tweaking(ctx,trace_problems,"before")
 
     stage_eval_train_eval(ctx,trace_problems)
 
     # STAGE 2b: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
-    stage_tweaking(ctx,trace_problems)
+    stage_tweaking(ctx,trace_problems,"after")
 
     # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
     print("Will build loss_submatrix and pick the best tweaks to bake into the model for the next trace collection")
