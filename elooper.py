@@ -503,7 +503,7 @@ def stage_eval_train_eval(ctx,trace_problems):
   TIW = HP.TEST_IMPROVE_WINDOW
   assert TIW > 0
   eval_models = [None]*TIW
-  eval_losses = [None]*TIW
+  eval_criters = [None]*TIW
   stage2iter = 0
 
   if TIW > 1: # we will need to single out the validation traces!
@@ -543,20 +543,20 @@ def stage_eval_train_eval(ctx,trace_problems):
 
       pre_eval = time.time()
       eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
-      weighted_eval_loss = weighted_eval_stats["loss"]
-      print(f"Eval loss {weighted_eval_loss} in",int(time.time()-pre_eval),"s")
+      weighted_eval_criter = weighted_eval_stats[HP.EARLY_STOP_ON]
+      print(f"Eval {HP.EARLY_STOP_ON} {weighted_eval_criter} in",int(time.time()-pre_eval),"s")
       for k,v in weighted_eval_stats.items():
         print(f"    e_{k}",v)
       sys.stdout.flush()
 
-      eval_losses[stage2iter % TIW] = weighted_eval_stats["loss"]
+      eval_criters[stage2iter % TIW] = weighted_eval_criter
 
       stage2iter += 1
       if stage2iter >= TIW: # we have written everywhere (no None there anymore)
         oldest_idx = stage2iter % TIW
-        oldest_val = eval_losses[oldest_idx]
-        if all((el >= oldest_val for el in eval_losses)):
-          print("Eval loss didn't improve for",TIW-1,"iterations now")
+        oldest_val = eval_criters[oldest_idx]
+        if all((el >= oldest_val for el in eval_criters)):
+          print(f"Eval {HP.EARLY_STOP_ON} didn't improve for",TIW-1,"iterations now")
           if stage2iter == TIW:
             if HP.ANYWAY_STEP_ALL:
               actual_idx = TIW-1
@@ -568,7 +568,7 @@ def stage_eval_train_eval(ctx,trace_problems):
           else:
             actual_idx = oldest_idx
             ctx.model.load_state_dict(torch.load(eval_models[oldest_idx]))
-          print("  took model with eval loss",eval_losses[actual_idx])
+          print(f"  took model with eval {HP.EARLY_STOP_ON}",eval_criters[actual_idx])
 
           for eval_model_file_path in eval_models:
             os.remove(eval_model_file_path)
@@ -577,10 +577,10 @@ def stage_eval_train_eval(ctx,trace_problems):
         if stage2iter > ITER_LIMIT:
           print("Taking too long to converge (stage2iter > HP.MAX_TEST_IMPROVE_ITER), will take the best from the last HP.TEST_IMPROVE_WINDOW observed.")
           best_idx = 0
-          best_idx_val = eval_losses[0]
-          for i,eloss in enumerate(eval_losses):
-            if eloss < best_idx_val:
-              best_idx_val = eloss
+          best_idx_val = eval_criters[0]
+          for i,ecrit in enumerate(eval_criters):
+            if ecrit < best_idx_val:
+              best_idx_val = ecrit
               best_idx = i
           ctx.model.load_state_dict(torch.load(eval_models[best_idx]))
           for eval_model_file_path in eval_models:
