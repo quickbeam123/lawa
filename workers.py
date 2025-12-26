@@ -69,15 +69,15 @@ def vampire_perfrom(prob,opts,log):
       if line.startswith("%"):
         if line.startswith("% Random strategy:"):
           strategy = line.split()[-1]
-        if line.startswith("% Activations started:"):
+        if line.startswith("% Activations started"):
           activations = int(line.split()[-1])
         if line.startswith("% Instructions burned:"):
           instructions = int(line.split()[-2])
-        if line.startswith("% Neural model warmup:"):
+        if line.startswith("% Neural model warmup"):
           nn_warmup = int(line.split()[-1])
-        if line.startswith("% Gnn eval:"):
+        if line.startswith("% Gnn eval"):
           nn_gnn = int(line.split()[-1])
-        if line.startswith("% Bulk evals:"):
+        if line.startswith("% Bulk evals"):
           nn_bulks = int(line.split()[-1])
 
         if line.startswith("% SZS status"):
