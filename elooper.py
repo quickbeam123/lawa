@@ -543,7 +543,8 @@ def stage_eval_train_eval(ctx,trace_problems):
 
       pre_eval = time.time()
       eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
-      print("Eval on",len(valid_trace_problems),"valid probs in",int(time.time()-pre_eval),"s")
+      weighted_eval_loss = weighted_eval_stats["loss"]
+      print(f"Eval loss {weighted_eval_loss} in",int(time.time()-pre_eval),"s")
       for k,v in weighted_eval_stats.items():
         print(f"    e_{k}",v)
       sys.stdout.flush()
@@ -654,7 +655,7 @@ def stage_eval_train_eval(ctx,trace_problems):
     pre_train = time.time()
     eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
-    print("Weighted train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
+    print("Train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
     for i,(k,v) in enumerate(weighted_train_stats.items()):
       print(f"    t_{k}",v)
       if i == 2: # just some hardcoded pretty-printing
@@ -920,7 +921,8 @@ if __name__ == "__main__":
     # compute LR for our loop, taking into account our decay
     lr_wish = HP.LEARNING_RATE * (HP.LEARNING_RATE_DECAY ** (ctx.loop-1))
     print("Learning rate now at",lr_wish)
-    tw_pref = (ctx.loop-1)*0.1 if ctx.loop < 6 else 0.5
+    # tw_pref = (ctx.loop-1)*0.1 if ctx.loop < 6 else 0.5
+    tw_pref = 0.0
     print("Tweaked preference at",tw_pref)
     print()
 
@@ -934,21 +936,22 @@ if __name__ == "__main__":
         ctx.tweak_map[prob_no_dots] = IC.get_fresh_tweak()
 
     # we know traces for both new and old problems; so let's tweak them all
-    stage_tweaking(ctx,trace_problems,"before")
+    # stage_tweaking(ctx,trace_problems,"before")
 
     stage_eval_train_eval(ctx,trace_problems)
 
     # STAGE 2b: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
-    stage_tweaking(ctx,trace_problems,"after")
+    # stage_tweaking(ctx,trace_problems,"after")
 
-    # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
-    print("Will build loss_submatrix and pick the best tweaks to bake into the model for the next trace collection")
-    active_tweaks = [ctx.tweak_map[no_dots(prob)] for prob in ctx.trace_index.cur_problems()]
-    active_tweak_selection = random.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
+    if HP.TWEAKS_TO_PICK > 0:
+      # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
+      print("Will build loss_submatrix and pick the best tweaks to bake into the model for the next trace collection")
+      active_tweaks = [ctx.tweak_map[no_dots(prob)] for prob in ctx.trace_index.cur_problems()]
+      active_tweak_selection = random.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
 
-    loss_matrix = stage_build_loss_matrix(ctx,active_tweak_selection)
+      loss_matrix = stage_build_loss_matrix(ctx,active_tweak_selection)
 
-    stage_select_tweaks(ctx,loss_matrix)
+      stage_select_tweaks(ctx,loss_matrix)
 
     print()
     sys.stdout.flush()

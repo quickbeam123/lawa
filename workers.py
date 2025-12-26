@@ -286,8 +286,7 @@ def job_train(input):
   stat_dict = defaultdict(float)
 
   loss = torch.tensor(0.0, requires_grad=True)
-  selection_hit_rate = 0.0
-  dist_to_good = 0.0
+
   for trace_file_path in record.prob_traces:
     try:
       trace_tuple = torch.load(trace_file_path)
@@ -296,22 +295,31 @@ def job_train(input):
 
       just_before_final,num2idx = learn_model.pre_forward()
 
-      mytweak = local_model.tweaky
-      notweak = torch.zeros_like(mytweak)
-      both_tweaks = torch.stack([notweak,mytweak])
+      if tw_pref > 0.0:
+        mytweak = local_model.tweaky
+        notweak = torch.zeros_like(mytweak)
+        both_tweaks = torch.stack([notweak,mytweak])
 
-      losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
+        losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
 
-      loss = loss + local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
+        loss = loss + local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
 
-      # the generalist's stats
-      stat_dict["loss"] += local_fact*losses[0].item()
-      stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-      stat_dict["dist_to_good"] += local_fact*dists_to_good[0]
-      # the tweaked stats
-      stat_dict["tweaked_loss"] += local_fact*losses[1].item()
-      stat_dict["tweaked_selection_hit_rate"] += local_fact*selection_hit_rates[1]
-      stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
+        # the generalist's stats
+        stat_dict["loss"] += local_fact*losses[0].item()
+        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
+        stat_dict["dist_to_good"] += local_fact*dists_to_good[0]
+        # the tweaked stats
+        stat_dict["tweaked_loss"] += local_fact*losses[1].item()
+        stat_dict["tweaked_selection_hit_rate"] += local_fact*selection_hit_rates[1]
+        stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
+
+      else:
+        loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final, num2idx)
+
+        # the generalist's stats
+        stat_dict["loss"] += local_fact*loss.item()
+        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
+        stat_dict["dist_to_good"] += local_fact*dist_to_good
 
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
