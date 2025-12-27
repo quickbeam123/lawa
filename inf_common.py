@@ -61,25 +61,45 @@ CLAUSE_EMBEDDER_INPUT_SIZE : Final[int] = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIM
                             + (HP.GAGE_EMBEDDING_SIZE if HP.USE_GAGE else 0)
                             + (HP.GWEIGHT_EMBEDDING_SIZE if HP.USE_GWEIGHT else 0))
 
-class MyLinear(torch.nn.Module):
+class MyFinal(torch.nn.Module):
     def __init__(self, size):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.empty(size))
-        # a Linear would
         torch.nn.init.kaiming_uniform_(self.weight.unsqueeze(0),a=math.sqrt(5))
+        self.maybe_dropout = torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT) if HP.FINAL_LAYER_DROPOUT > 0.0 else torch.nn.Identity()
 
     def forward(self, x : Tensor):
-      return torch.matmul(x, self.weight)
+      x = torch.nn.functional.relu(x)
+      x = self.maybe_dropout(x)
+      if self.training:
+        w_hat = self.weight / (self.weight.norm() + 1e-8)
+      else: # saves some cycles for Vampire, but eval loss will be a bit weird?
+        w_hat = self.weight
+
+      return torch.matmul(x, w_hat)
 
     def forward_with_tweaks(self, x : Tensor, tweaks : Tensor):
-      if tweaks.dim() == 1:
-        tweaks = tweaks.unsqueeze(0)  # [1, size]
+      if HP.TWEAKS_AS_BIAS:
+        x = x + tweaks.unsqueeze(1)
+
+      x = torch.nn.functional.relu(x)
+      x = self.maybe_dropout(x)
+
+      if self.training:
+        w_hat = self.weight / (self.weight.norm() + 1e-8)
+      else: # saves some cycles for Vampire, but eval loss will be a bit weird?
+        w_hat = self.weight
+
+      return torch.matmul(x, w_hat)
+
+      """
       # w + tweaks: [k, size]
       w_plus = self.weight.unsqueeze(0) + tweaks  # broadcast
 
       # x: [1, N, size], w_plus: [k, 1, size]
       # => [k, N, 1] -> [k, N]
       return (x.unsqueeze(0) @ w_plus.unsqueeze(2)).squeeze(-1)
+      """
 
 def get_clause_valuator_pair():
   layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
@@ -89,13 +109,11 @@ def get_clause_valuator_pair():
     layer_list.append(torch.nn.ReLU())
     layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
 
-  layer_list.append(torch.nn.ReLU())
-  layer_list.append(torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT) if HP.FINAL_LAYER_DROPOUT > 0.0 else torch.nn.Identity())
-
-  return torch.nn.Sequential(*layer_list),MyLinear(HP.INTERAL_SIZE)
+  return torch.nn.Sequential(*layer_list),MyFinal(HP.INTERAL_SIZE)
 
 def get_fresh_tweak():
-  return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
+  if HP.TWEAKS_AS_BIAS:
+    return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
 
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work

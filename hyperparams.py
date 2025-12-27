@@ -85,6 +85,8 @@ USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
+TWEAKS_AS_BIAS = True
+
 USE_TWEAKING = False # instead of looking things up in PERFORMS_SPECIAL, we just keep increasing an argument to ncem_gsd
 
 TWEAK_MATRIX_SIZE = 1024

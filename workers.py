@@ -167,7 +167,8 @@ def look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in):
     numiter += 1
 
     local_optimizer.zero_grad()
-    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final,num2idx,tweak_in)
+    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final,num2idx,
+                                                                   tweak_in.unsqueeze(0))
 
     loss = losses[0]
     loss.backward()
