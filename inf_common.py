@@ -755,7 +755,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
 
   (static_features,clause_simple_features,journal,proof_units,
    init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
-   gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path)
+   gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path,weights_only=False)
 
   # scan the journal and check if there are any selections with a good clause in passive at that time
   # also, bake proof_units into the journal, so that we don't need the lookups anymore
