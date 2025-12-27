@@ -495,9 +495,9 @@ def stage_tweaking(ctx,trace_problems,before_or_after):
 
 def stage_eval_train_eval(ctx,trace_problems):
   # newly only lives one iter, so no need to save it
-  optimizer = torch.optim.Adam([
-      {"params": ctx.model.parameters()},      #, "lr": lr_wish},
-      {"params": ctx.tweak_map.parameters()}], # TODO: tweaks could have a different learning rate!
+  optimizer = torch.optim.Adam(ctx.model.parameters(),
+      # [{"params": ctx.model.parameters()},      #, "lr": lr_wish},
+      # {"params": ctx.tweak_map.parameters()}], # TODO: tweaks could have a different learning rate!
       lr=lr_wish, weight_decay=HP.WEIGHT_DECAY)
 
   TIW = HP.TEST_IMPROVE_WINDOW
