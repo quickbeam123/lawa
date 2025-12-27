@@ -493,9 +493,10 @@ def stage_tweaking(ctx,trace_problems,before_or_after):
 
 # ============================================================================================
 
-def stage_eval_train_eval(ctx,trace_problems):
+def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
   # newly only lives one iter, so no need to save it
   optimizer = torch.optim.Adam(ctx.model.parameters(),
+      # TODO: could depend on "with_tweaks"; but the old way was anyway slow?
       # [{"params": ctx.model.parameters()},      #, "lr": lr_wish},
       # {"params": ctx.tweak_map.parameters()}], # TODO: tweaks could have a different learning rate!
       lr=lr_wish, weight_decay=HP.WEIGHT_DECAY)
@@ -596,9 +597,10 @@ def stage_eval_train_eval(ctx,trace_problems):
       for record in prob_records:
         train_model_version += 1
         train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
-        prob_no_dots = no_dots(record.prob)
-        with torch.no_grad(): # inside worker, main tweak used for this problems tweak
-          ctx.model.tweaky.copy_(ctx.tweak_map[prob_no_dots].detach())
+        if with_tweaks:
+          prob_no_dots = no_dots(record.prob)
+          with torch.no_grad(): # inside worker, main tweak used for this problems tweak
+            ctx.model.tweaky.copy_(ctx.tweak_map[prob_no_dots].detach())
         torch.save(ctx.model.state_dict(), train_model_file_path)
         yield (W.JK_TRAIN,(record,train_model_file_path,tw_pref))
 
@@ -641,12 +643,16 @@ def stage_eval_train_eval(ctx,trace_problems):
         '''
         param.grad = param_copy
 
-      # what the worker thought was happening for model.tweaky, we now stage (for the optimizer) in tweak_map[prob_no_dots]:
-      ctx.tweak_map[prob_no_dots].grad = ctx.model.tweaky.grad
-      ctx.model.tweaky.grad = None
+      if with_tweaks:
+        # what the worker thought was happening for model.tweaky, we now stage (for the optimizer) in tweak_map[prob_no_dots]:
+        ctx.tweak_map[prob_no_dots].grad = ctx.model.tweaky.grad
+        ctx.model.tweaky.grad = None
 
       optimizer.step()
       # print(f"   Train tweak for {record.prob} after: {tweak_map[prob_no_dots].norm()}")
+
+      if with_tweaks:
+        pass # TODO: think of zero-ing the ctx.tweak_map[prob_no_dots].grad ???
 
       # print("       with norms gnn/gage/gweight/cleval:",gnn_norm ** 0.5, gage_norm ** 0.5, gweight_norm ** 0.5, cleval_norm ** 0.5)
       os.remove(train_model_file_path)
@@ -938,7 +944,7 @@ if __name__ == "__main__":
     # we know traces for both new and old problems; so let's tweak them all
     # stage_tweaking(ctx,trace_problems,"before")
 
-    stage_eval_train_eval(ctx,trace_problems)
+    stage_eval_train_eval(ctx,trace_problems,with_tweaks=False)
 
     # STAGE 2b: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
     # stage_tweaking(ctx,trace_problems,"after")
