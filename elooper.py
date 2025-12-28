@@ -231,6 +231,20 @@ class Context:
     assert aloop == self.loop
     self.model.load_state_dict(amodel_state_dict)
 
+  def load_loop_model_old(self,adir):
+    loop_model_state_file_path = os.path.join(adir,"loop-model-and-optimizer.tar")
+    aloop,amodel_state_dict,_an_optim_dict = torch.load(loop_model_state_file_path)
+    assert aloop == self.loop
+    remapped_state_dict = {}
+    for name,val in amodel_state_dict.items():
+      if name == "clause_valuator_snd.2.weight":
+        remapped_state_dict["clause_valuator_snd.weight"] = val.squeeze(0)
+      else:
+        remapped_state_dict[name] = val
+
+    self.model.load_state_dict(remapped_state_dict,strict=False)
+
+
 # ============================================================================================
 
 def stage_perf_gather(ctx):
@@ -814,6 +828,7 @@ if __name__ == "__main__":
     load_dir = os.path.join(folder_with_prev_exper,f"loop{ctx.loop}")
 
     load_model = True
+    load_model_old = False
     load_traces_new = False
     load_traces_old = False
     steal_script_model = False
@@ -821,12 +836,16 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 6:
       load_model = "m" in sys.argv[6]
+      load_model_old = "M" in sys.argv[6]
       load_traces_new = "t" in sys.argv[6]
       load_traces_old = "T" in sys.argv[6]
       load_tweak_map = "w" in sys.argv[6]
 
     if load_model:
       ctx.load_loop_model(load_dir)
+
+    if load_model_old:
+      ctx.load_loop_model_old(load_dir)
 
     if load_traces_new:
       ctx.trace_index = load_trace_index(os.path.join(folder_with_prev_exper,f"loop{ctx.loop+1}"))
