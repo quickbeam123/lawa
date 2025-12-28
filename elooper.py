@@ -950,7 +950,7 @@ if __name__ == "__main__":
     for prob in trace_problems:
       prob_no_dots = no_dots(prob)
       if prob_no_dots not in ctx.tweak_map:
-        ctx.tweak_map[prob_no_dots] = IC.get_fresh_tweak()
+        ctx.tweak_map[prob_no_dots] = IC.get_neutral_tweak(ctx.model.clause_valuator_snd, detached=True)
 
     # we know traces for both new and old problems; so let's tweak them all
     # stage_tweaking(ctx,trace_problems,"before")
