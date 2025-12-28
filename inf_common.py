@@ -85,21 +85,22 @@ class MyFinal(torch.nn.Module):
       x = torch.nn.functional.relu(x)
       x = self.maybe_dropout(x)
 
-      if self.training:
-        w_hat = self.weight / (self.weight.norm() + 1e-8)
-      else: # saves some cycles for Vampire, but eval loss will be a bit weird?
-        w_hat = self.weight
+      if HP.TWEAKS_AS_BIAS:
+        if self.training:
+          w_hat = self.weight / (torch.linalg.vector_norm(self.weight) + 1e-8)
+        else: # saves some cycles for Vampire, but eval loss will be a bit weird?
+          w_hat = self.weight
 
-      return torch.matmul(x, w_hat)
+        return torch.matmul(x, w_hat)
+      else:
+        # we completely ignore self.weight here; assuming it comes as one of the tweaks
 
-      """
-      # w + tweaks: [k, size]
-      w_plus = self.weight.unsqueeze(0) + tweaks  # broadcast
+        if self.training:
+          ws_hat = tweaks / (torch.linalg.vector_norm(tweaks,dim=1,keepdim=True) + 1e-8)
+        else:
+          ws_hat = tweaks
 
-      # x: [1, N, size], w_plus: [k, 1, size]
-      # => [k, N, 1] -> [k, N]
-      return (x.unsqueeze(0) @ w_plus.unsqueeze(2)).squeeze(-1)
-      """
+        return torch.matmul(ws_hat, x.T)
 
 def get_clause_valuator_pair():
   layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
@@ -111,9 +112,17 @@ def get_clause_valuator_pair():
 
   return torch.nn.Sequential(*layer_list),MyFinal(HP.INTERAL_SIZE)
 
-def get_fresh_tweak():
+def get_new_tweak():
+  return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
+
+def get_neutral_tweak(myFinalToStealFrom: MyFinal, detached):
   if HP.TWEAKS_AS_BIAS:
     return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
+  else: # tweaks as the final dotter (init from "model")
+    if detached:
+      return torch.nn.Parameter(myFinalToStealFrom.weight.detach().clone())
+    else:
+      return myFinalToStealFrom.weight
 
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work
@@ -206,11 +215,11 @@ class MonsterModules(torch.nn.Module):
     self.clause_valuator_fst, self.clause_valuator_snd = get_clause_valuator_pair()
 
     # by default our MonsterModules carry just one tweak
-    self.tweaky = get_fresh_tweak()
+    self.tweaky = get_new_tweak()
 
     # while tweaky was for training individual tweaks per problem to go for a nice spread,
     # tweaks are a small set that should stay in and define the generalize search directions to use in strategies by vampire
-    self.tweaks = torch.nn.ParameterList([get_fresh_tweak() for _ in range(HP.TWEAKS_TO_PICK)])
+    self.tweaks = torch.nn.ParameterList([get_new_tweak() for _ in range(HP.TWEAKS_TO_PICK)])
 
 
 def get_initial_model():
@@ -409,9 +418,11 @@ class MonsterNN(torch.nn.Module):
 
   @torch.jit.export
   def bake_tweak(self, tweak): # because it actually adds, it only makes sense to call this once!
-    if HP.TWEAKS_AS_BIAS:
-      with torch.no_grad():
+    with torch.no_grad():
+      if HP.TWEAKS_AS_BIAS:
         self.clause_valuator_fst[-1].bias.add_(tweak)
+      else:
+        self.clause_valuator_snd.weight.copy_(tweak)
 
   @torch.jit.export
   def set_static_features(self, features: Tensor):

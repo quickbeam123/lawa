@@ -463,14 +463,6 @@ def stage_tweaking(ctx,trace_problems,before_or_after):
     for record in prob_records:
       tweak_file_version += 1
       tweak_file_path = os.path.join(HP.SCRATCH,"tweak_{}_{}.tar".format(os.getpid(),tweak_file_version))
-
-      # is now being done ealier, actually, before we set up the optimizer
-      """
-      prob_no_dots = no_dots(record.prob)
-      if prob_no_dots not in tweak_map:
-        tweak_map[prob_no_dots] = IC.get_fresh_tweak()
-      """
-
       torch.save(ctx.tweak_map[prob_no_dots], tweak_file_path)
       yield (W.JK_EVAL_TWEAK_MATRIX,(record,tweaking_model_file_path,tweak_file_path,False))
 
@@ -699,7 +691,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
 
 def stage_build_loss_matrix(ctx,active_tweak_selection):
   print("  randomly picked",len(active_tweak_selection),"from",len(active_tweaks),"active tweaks and added the generalist to the front")
-  active_tweak_selection = [IC.get_fresh_tweak()] + active_tweak_selection
+  active_tweak_selection = [IC.get_neutral_tweak(ctx.model.clause_valuator_snd, detached=True)] + active_tweak_selection
   active_tweak_selection_file_path = os.path.join(ctx.cur_dir,"active_tweak_selection.tar")
   torch.save(active_tweak_selection, active_tweak_selection_file_path)
   sys.stdout.flush()

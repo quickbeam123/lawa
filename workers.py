@@ -298,7 +298,7 @@ def job_train(input):
 
       if tw_pref > 0.0:
         mytweak = local_model.tweaky
-        notweak = torch.zeros_like(mytweak)
+        notweak = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False)
         both_tweaks = torch.stack([notweak,mytweak])
 
         losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
