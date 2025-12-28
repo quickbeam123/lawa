@@ -409,8 +409,9 @@ class MonsterNN(torch.nn.Module):
 
   @torch.jit.export
   def bake_tweak(self, tweak): # because it actually adds, it only makes sense to call this once!
-    with torch.no_grad():
-      self.clause_valuator_snd.weight.add_(tweak)
+    if HP.TWEAKS_AS_BIAS:
+      with torch.no_grad():
+        self.clause_valuator_fst[-1].bias.add_(tweak)
 
   @torch.jit.export
   def set_static_features(self, features: Tensor):
