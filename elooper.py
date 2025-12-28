@@ -689,14 +689,14 @@ def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
 
 # ============================================================================================
 
-def stage_build_loss_matrix(ctx,active_tweak_selection):
+def stage_build_crit_matrix(ctx,active_tweak_selection):
   print("  randomly picked",len(active_tweak_selection),"from",len(active_tweaks),"active tweaks and added the generalist to the front")
   active_tweak_selection = [IC.get_neutral_tweak(ctx.model.clause_valuator_snd, detached=True)] + active_tweak_selection
   active_tweak_selection_file_path = os.path.join(ctx.cur_dir,"active_tweak_selection.tar")
   torch.save(active_tweak_selection, active_tweak_selection_file_path)
   sys.stdout.flush()
 
-  # NOW THIS LOOKS A BIT LIKE TWEAKING CODE, BUT IT'S ACTUALLY THE (SUB)MATRIC COLLECTION
+  # NOW THIS LOOKS A BIT LIKE TWEAKING CODE, BUT IT'S ACTUALLY THE (SUB)MATRIX COLLECTION
 
   pre_tweaking = time.time()
   tweaking_model_file_path = os.path.join(HP.SCRATCH,"tweaking-model_{}.tar".format(os.getpid()))
@@ -709,17 +709,17 @@ def stage_build_loss_matrix(ctx,active_tweak_selection):
     for record in prob_records:
       yield (W.JK_EVAL_TWEAK_MATRIX,(record,tweaking_model_file_path,active_tweak_selection_file_path,True))
 
-  loss_matrix_dict = {}  # from probs to whatever the worker computed for it
+  crit_matrix_dict = {}  # from probs to whatever the worker computed for it
   def process_results_from_tweaking(job_kind,input,result):
-    global loss_matrix
+    nonlocal crit_matrix_dict
 
     record,_tweaking_model_file_path,_active_tweak_selection_file_path,compute_matrix = input
 
     assert compute_matrix
     assert job_kind == W.JK_EVAL_TWEAK_MATRIX
-    loss_vec, took = result
+    losses, selection_hit_rates, dist_to_goods, took = result
 
-    loss_matrix_dict[record.prob] = loss_vec
+    crit_matrix_dict[record.prob] = dist_to_goods # could use "losses" instead
 
     # print("Got back loss_vec of len",len(loss_vec),"for",record.prob,"in",took)
     sys.stdout.flush()
@@ -728,23 +728,24 @@ def stage_build_loss_matrix(ctx,active_tweak_selection):
   eval_and_train_in_parallel(get_tweaking_tasks(),process_results_from_tweaking)
   os.remove(tweaking_model_file_path)
   os.remove(active_tweak_selection_file_path)
-  print("loss_submatrix collected in",int(time.time()-pre_tweaking),"s")
+  print("crit_submatrix collected in",int(time.time()-pre_tweaking),"s")
   sys.stdout.flush()
 
   # NOW ANALYZE THE TWEAK MATRIX
-  loss_matrix = []
+  crit_matrix = []
   for prob in trace_problems:
-    loss_matrix.append(loss_matrix_dict[prob])
-  return np.array(loss_matrix)
+    crit_matrix.append(crit_matrix_dict[prob])
+  return np.array(crit_matrix)
 
 # ============================================================================================
 
-def stage_select_tweaks(ctx,loss_matrix):
-  print("Choosing tweaks; generalist's loss",np.mean(loss_matrix[:,0]))
-  current_min = loss_matrix[:, 0].copy()
+def stage_select_tweaks(ctx,crit_matrix):
+  print("Choosing tweaks; generalist's crit",np.mean(crit_matrix[:,0]))
+  current_min = crit_matrix[:, 0].copy()
 
   for i in range(HP.TWEAKS_TO_PICK):
-    new_mins = np.minimum(current_min[:, None], loss_matrix)
+    new_mins = np.minimum(current_min[:, None], crit_matrix)
+    # TODO: here will the TPTP-rating-weighting go
     gains = new_mins.mean(axis=0)
     best_idx = np.argmin(gains)
     current_min = new_mins[:, best_idx]
@@ -962,13 +963,13 @@ if __name__ == "__main__":
 
     if HP.TWEAKS_TO_PICK > 0:
       # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
-      print("Will build loss_submatrix and pick the best tweaks to bake into the model for the next trace collection")
+      print("Will build crit_submatrix and pick the best tweaks to bake into the model for the next trace collection")
       active_tweaks = [ctx.tweak_map[no_dots(prob)] for prob in ctx.trace_index.cur_problems()]
       active_tweak_selection = random.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
 
-      loss_matrix = stage_build_loss_matrix(ctx,active_tweak_selection)
+      crit_matrix = stage_build_crit_matrix(ctx,active_tweak_selection)
 
-      stage_select_tweaks(ctx,loss_matrix)
+      stage_select_tweaks(ctx,crit_matrix)
 
     print()
     sys.stdout.flush()

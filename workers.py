@@ -261,7 +261,7 @@ def job_eval_tweak_matrix(input):
     train_log.write(f"EVAL/TWEAK of {record} took {took}\n")
 
   if compute_matrix:
-    return [loss.item() for loss in losses], took
+    return [loss.item() for loss in losses], selection_hit_rates, dist_to_goods, took
   else:
     # print("EVAL on",prob,fact,trace_file_paths,loss.item())
     for k in stat_dict.keys():
