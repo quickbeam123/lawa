@@ -319,6 +319,8 @@ def job_train(input):
         notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
         losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final, num2idx, notweaks)
 
+        loss = loss + local_fact*losses[0]
+
         # the generalist's stats
         stat_dict["loss"] += local_fact*losses[0].item()
         stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
