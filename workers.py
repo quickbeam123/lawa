@@ -236,11 +236,12 @@ def job_eval_tweak_matrix(input):
           losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,torch.stack(active_tweak_selection))
       else:
         with torch.no_grad():
-          loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final,num2idx)
+          notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
+          losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,notweaks)
 
-        stat_dict["loss"] += local_fact*loss.item()
-        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
-        stat_dict["dist_to_good"] += local_fact*dist_to_good
+        stat_dict["loss"] += local_fact*losses[0].item()
+        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
+        stat_dict["dist_to_good"] += local_fact*dist_to_goods[0]
 
         # CAREFUL: this gets a bit weird if there is more than one trace for a problem
         if tweak_file_path is not None and not compute_matrix:
@@ -315,12 +316,13 @@ def job_train(input):
         stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
 
       else:
-        loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final, num2idx)
+        notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
+        losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final, num2idx, notweaks)
 
         # the generalist's stats
-        stat_dict["loss"] += local_fact*loss.item()
-        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
-        stat_dict["dist_to_good"] += local_fact*dist_to_good
+        stat_dict["loss"] += local_fact*losses[0].item()
+        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
+        stat_dict["dist_to_good"] += local_fact*dist_to_goods[0]
 
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:

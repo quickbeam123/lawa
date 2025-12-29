@@ -71,10 +71,15 @@ class MyFinal(torch.nn.Module):
     def forward(self, x : Tensor):
       x = torch.nn.functional.relu(x)
       x = self.maybe_dropout(x)
+
+      # Actually, newly, let's try a setup in which this is never called from python directly
+      """
+      # TODO: maybe save some cycles for Vampire by making this conditional on training?
       if self.training:
         w_hat = self.weight / (self.weight.norm() + 1e-8)
       else: # saves some cycles for Vampire, but eval loss will be a bit weird?
-        w_hat = self.weight
+      """
+      w_hat = self.weight
 
       return torch.matmul(x, w_hat)
 
@@ -907,7 +912,7 @@ class LearningModel(torch.nn.Module):
 
     return self.nn.pre_eval_clauses(torch.stack(simple_feature_vecs),torch.stack(gage_feature_vecs),torch.stack(gweight_feature_vecs)),num2idx
 
-  def forward(self,just_before_final,num2idx,tweaks=None):
+  def forward(self,just_before_final,num2idx,tweaks):
     (_static_features,_clause_simple_features,journal,num_good_selections,
                 _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
