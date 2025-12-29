@@ -160,7 +160,7 @@ if __name__ == "__main__":
   plt.ylabel(f"percentage problems proven")
 
   plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
-  plt.savefig("{}_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
+  plt.savefig("current_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
   plt.close(fig)
 
 
