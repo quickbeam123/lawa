@@ -91,19 +91,12 @@ class MyFinal(torch.nn.Module):
       x = self.maybe_dropout(x)
 
       if HP.TWEAKS_AS_BIAS:
-        if self.training:
-          w_hat = self.weight / (torch.linalg.vector_norm(self.weight) + 1e-8)
-        else: # saves some cycles for Vampire, but eval loss will be a bit weird?
-          w_hat = self.weight
+        w_hat = self.weight / (torch.linalg.vector_norm(self.weight) + 1e-8)
 
         return torch.matmul(x, w_hat)
       else:
         # we completely ignore self.weight here; assuming it comes as one of the tweaks
-
-        if self.training:
-          ws_hat = tweaks / (torch.linalg.vector_norm(tweaks,dim=1,keepdim=True) + 1e-8)
-        else:
-          ws_hat = tweaks
+        ws_hat = tweaks / (torch.linalg.vector_norm(tweaks,dim=1,keepdim=True) + 1e-8)
 
         return torch.matmul(ws_hat, x.T)
 
