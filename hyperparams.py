@@ -85,11 +85,11 @@ USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
-TWEAKS_AS_BIAS = True
+TWEAKS_AS_BIAS = False
 
 USE_TWEAKING = False # instead of looking things up in PERFORMS_SPECIAL, we just keep increasing an argument to ncem_gsd
 
-TWEAK_MATRIX_SIZE = 1024
+TWEAK_MATRIX_SIZE = 256
 TWEAKS_TO_PICK = 0
 
 # in elooper, maybe we don't want to parallelize too much
@@ -206,7 +206,7 @@ GUMBEL_STRENGTH : Final[float] = 0.001 # divided by 2.5 further; divided by two 
 GSD_TWEAK_LEARNING_SPEEDUP = 100
 
 LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
-LEARNING_RATE_DECAY = 0.87055 # (0.5)^(1/5) = halving every five epochs
+LEARNING_RATE_DECAY = 0.933 # 0.87055 = (0.5)^(1/5) = halving every five epochs
 
 TWEAKS_LEARNING_RATE = 0.05
 TWEAK_SEARCH_MAX_TIME = 30.0 # in seconds
