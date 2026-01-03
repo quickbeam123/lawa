@@ -220,6 +220,70 @@ def tensor_unpack(tensor_pack):
   array = np.frombuffer(data_bytes, dtype=np.dtype(dtype_str)).reshape(shape)
   return torch.from_numpy(array).requires_grad_()
 
+
+
+
+
+
+
+
+def job_perform(input):
+  (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
+  return IC.vampire_perfrom(prob,opts1+opts2)
+
+def job_gather(input):
+  (mission,prob,lrs_trace_file,trace_file_path,opts) = input
+  vamp_res = IC.vampire_perfrom(prob,opts)
+
+  assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res}"
+  assert os.path.isfile(trace_file_path)
+
+  return IC.trace_good_for_learning(trace_file_path,train_log)
+
+def job_eval(input):
+  (package,model_file_path) = input
+
+  # print("EVAL",fact,trace_file_paths,model_file_path)
+  # sys.stdout.flush()
+
+  eval_begin = time.time()
+
+  local_model = IC.get_initial_model()
+  local_model.load_state_dict(torch.load(model_file_path))
+
+  # print("EVAL on",fact,trace_file_paths)
+
+  arg_mins = []
+
+  loss = torch.zeros(1)
+  max_loss = torch.zeros(1)
+  for _sz,prob,local_fact,trace_file_path in package:
+    try:
+      trace_tuple = torch.load(trace_file_path)
+      learn_model = IC.LearningModel(False,local_model,trace_tuple,torch.eye(HP.NUM_GSD_FEATURES))
+      learn_model.eval()
+      losses = learn_model.forward()
+      loss_min,arg_min = torch.min(losses,dim=0)
+      loss_max = torch.max(losses)
+
+      arg_mins.append((trace_file_path,arg_min.item()))
+
+      loss += local_fact*loss_min
+      max_loss += local_fact*loss_max
+    except Exception as e:
+      with open(f"exception{os.getpid()}.log", "w") as f:
+        f.write(f"{e} occurred in EVAL\n")
+        f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {model_file_path})")
+      raise
+
+  took = time.time()-eval_begin
+  if took > HP.WORTH_REPORTING:
+    train_log.write(f"EVAL of {package} took {took}\n")
+
+  # print("EVAL on",prob,fact,trace_file_paths,loss.item())
+  return (loss.item(),max_loss.item(),arg_mins)
+
+
 def sample_gumbel(size, eps=1e-10):
     U = torch.rand(size)
     return -torch.log(-torch.log(U + eps) + eps)
@@ -233,6 +297,77 @@ def negative_entropy(logits):
     log_q_y = torch.nn.functional.log_softmax(logits, dim=-1)
     return torch.sum(q_y * log_q_y, dim=-1) + math.log(HP.NUM_GSD_FEATURES)
 
+
+def job_train(input):
+  (package,gumbel_temp,train_model_file_path) = input
+
+  # print("TRAIN",prob,fact,trace_file_paths,train_model_file_path)
+  # sys.stdout.flush()
+
+  train_begin = time.time()
+
+  local_model = IC.get_initial_model()
+  local_model.load_state_dict(torch.load(train_model_file_path))
+
+  verbose = False # (prob in {'Problems/COM/COM021+4.p'})
+
+  maxes = 0.0
+  arg_maxes = []
+
+  loss = torch.zeros(1)
+  raw_span = 0.0
+  for _sz,prob,local_fact,trace_file_path in package:
+    try:
+      his_tweak = local_model.tweak_map[trace_name_no_dots(trace_file_path)]
+
+      span = torch.max(his_tweak) - torch.min(his_tweak)
+      raw_span += local_fact*span.item()
+
+      his_soft_gsd = gumbel_softmax_sample(his_tweak,gumbel_temp)
+
+      his_max,arg_max = torch.max(his_soft_gsd,dim=0)
+
+      maxes += local_fact*his_max.item()
+      arg_maxes.append((trace_file_path,arg_max.item()))
+
+      # the straight-through trick
+      gsg_hard = torch.zeros_like(his_soft_gsd)
+      gsg_hard[arg_max] = 1.0
+      gsd = (gsg_hard - his_soft_gsd).detach() + his_soft_gsd
+
+      trace_tuple = torch.load(trace_file_path)
+      learn_model = IC.LearningModel(verbose,local_model,trace_tuple,gsd)
+      learn_model.train()
+
+      loss += local_fact*learn_model.forward()
+
+    except Exception as e:
+      with open(f"exception{os.getpid()}.log", "w") as f:
+        f.write(f"{e} occurred in TRAIN\n")
+        f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {train_model_file_path})")
+      raise
+
+  loss.backward()
+
+  # print("TRAIN on",fact,trace_file_paths,loss.item())
+
+  for param in local_model.parameters():
+    grad = param.grad
+    param.requires_grad = False # to allow the in-place operation just below
+    if grad is not None:
+      param.copy_(grad)
+    else:
+      param.zero_()
+
+  # use the same file also for the journey back (which brings the gradients inside the actual params)
+  torch.save(local_model.state_dict(), train_model_file_path)
+
+  took = time.time()-train_begin
+  if took > HP.WORTH_REPORTING:
+    train_log.write(f"TRAIN of {package} took {took}\n")
+
+  return (loss.item(),raw_span,maxes,arg_maxes)
+
 # Kinds of jobs a worker can be asked to do
 JK_PERFORM = 0 # runs vampire in "real-time" mode to assess its performance
   # input:     (res_filename,gatherwish,mission,prob,opts1,opts2)
@@ -245,7 +380,12 @@ JK_EVAL = 2    # construct our network to get the loss of this trace (no trainin
   # output:    (loss, i.e. the min loss,max_loss,loss_arg_mins)
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
   # input:     (package,gumbel_temp,train_model_file_path)
-  # output:    (loss,entropy_loss,maxes - summed weigthedly,arg_maxes)
+  # output:    (loss,avg_span,maxes - summed weigthedly,arg_maxes)
+
+JOB_DISPATCH = {JK_PERFORM : job_perform,
+                JK_GATHER: job_gather,
+                JK_EVAL: job_eval,
+                JK_TRAIN: job_train}
 
 def worker(q_in, q_out):
   # tell each worker we don't want any extra threads
@@ -254,147 +394,8 @@ def worker(q_in, q_out):
 
   while True:
     (job_kind,input) = q_in.get()
-
-    if job_kind == JK_PERFORM:
-      (res_filename,gatherwish,mission,prob,i,lrs_trace_file,opts1,opts2) = input
-      result = IC.vampire_perfrom(prob,opts1+opts2)
-      q_out.put((job_kind,input,result))
-    elif job_kind == JK_GATHER:
-      (mission,prob,lrs_trace_file,trace_file_path,opts) = input
-      vamp_res = IC.vampire_perfrom(prob,opts)
-
-      assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res}"
-      assert os.path.isfile(trace_file_path)
-      trace_kept, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path,train_log)
-
-      q_out.put((job_kind,input,(trace_kept, gage_stats, gweight_stats)))
-
-    elif job_kind == JK_EVAL:
-      (package,model_file_path) = input
-
-      # print("EVAL",fact,trace_file_paths,model_file_path)
-      # sys.stdout.flush()
-
-      eval_begin = time.time()
-
-      local_model = IC.get_initial_model()
-      local_model.load_state_dict(torch.load(model_file_path))
-
-      # print("EVAL on",fact,trace_file_paths)
-
-      arg_mins = []
-
-      loss = torch.zeros(1)
-      max_loss = torch.zeros(1)
-      for _sz,prob,local_fact,trace_file_path in package:
-        try:
-          trace_tuple = torch.load(trace_file_path)
-          learn_model = IC.LearningModel(False,local_model,trace_tuple,torch.eye(HP.NUM_GSD_FEATURES))
-          learn_model.eval()
-          losses = learn_model.forward()
-          loss_min,arg_min = torch.min(losses,dim=0)
-          loss_max = torch.max(losses)
-
-          arg_mins.append((trace_file_path,arg_min.item()))
-
-          loss += local_fact*loss_min
-          max_loss += local_fact*loss_max
-        except Exception as e:
-          with open(f"exception{os.getpid()}.log", "w") as f:
-            f.write(f"{e} occurred in EVAL\n")
-            f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {model_file_path})")
-          raise
-
-      took = time.time()-eval_begin
-      if took > HP.WORTH_REPORTING:
-        train_log.write(f"EVAL of {package} took {took}\n")
-
-      # print("EVAL on",prob,fact,trace_file_paths,loss.item())
-
-      q_out.put((job_kind,input,(loss.item(),max_loss.item(),arg_mins)))
-
-      del loss
-      del learn_model
-      del local_model
-      gc.collect()  # Force garbage collection
-
-    elif job_kind == JK_TRAIN:
-      (package,gumbel_temp,train_model_file_path) = input
-
-      # print("TRAIN",prob,fact,trace_file_paths,train_model_file_path)
-      # sys.stdout.flush()
-
-      train_begin = time.time()
-
-      local_model = IC.get_initial_model()
-      local_model.load_state_dict(torch.load(train_model_file_path))
-
-      verbose = False # (prob in {'Problems/COM/COM021+4.p'})
-
-      maxes = 0.0
-      arg_maxes = []
-
-      loss = torch.zeros(1)
-      entropy_loss = torch.zeros(1)
-      for _sz,prob,local_fact,trace_file_path in package:
-        try:
-          his_tweak = local_model.tweak_map[trace_name_no_dots(trace_file_path)]
-          his_soft_gsd = gumbel_softmax_sample(his_tweak,gumbel_temp)
-
-          his_max,arg_max = torch.max(his_soft_gsd,dim=0)
-
-          maxes += local_fact*his_max.item()
-          arg_maxes.append((trace_file_path,arg_max.item()))
-
-          trace_tuple = torch.load(trace_file_path)
-          learn_model = IC.LearningModel(verbose,local_model,trace_tuple,his_soft_gsd)
-          learn_model.train()
-
-          loss += local_fact*learn_model.forward()
-          entropy_loss += local_fact*negative_entropy(his_tweak)
-        except Exception as e:
-          with open(f"exception{os.getpid()}.log", "w") as f:
-            f.write(f"{e} occurred in TRAIN\n")
-            f.write(f"(prob {prob}, fact {local_fact},trace_file_path {trace_file_path},model_file_path {train_model_file_path})")
-          raise
-
-      (loss + HP.GSD_NEGENTROPY_COEF*entropy_loss).backward()
-
-      # print("TRAIN on",fact,trace_file_paths,loss.item())
-
-      for param in local_model.parameters():
-        grad = param.grad
-        param.requires_grad = False # to allow the in-place operation just below
-        if grad is not None:
-          param.copy_(grad)
-        else:
-          param.zero_()
-
-      # use the same file also for the journey back (which brings the gradients inside the actual params)
-      torch.save(local_model.state_dict(), train_model_file_path)
-
-      took = time.time()-train_begin
-      if took > HP.WORTH_REPORTING:
-        train_log.write(f"TRAIN of {package} took {took}\n")
-
-      q_out.put((job_kind,input,(loss.item(),entropy_loss.item(),maxes,arg_maxes)))
-
-      del loss
-      del learn_model
-      del local_model
-      gc.collect()  # Force garbage collection
-
-
-
-
-
-
-
-
-
-
-
-
+    q_out.put((job_kind,input,JOB_DISPATCH[job_kind](input)))
+    gc.collect()  # Force garbage collection
 
 
 
@@ -762,20 +763,22 @@ if __name__ == "__main__":
   # the parallel business set up here:
 
   # create our worker processes and register a cleanup
-  eval_in = multiprocessing.Queue()
-  eval_out = multiprocessing.Queue()
+  # eval_in = multiprocessing.Queue()
+  # eval_out = multiprocessing.Queue()
   train_in = multiprocessing.Queue()
   train_out = multiprocessing.Queue()
 
   my_processes = []
 
-  eval_parallelism = min(parallelism,HP.EVAL_PARALLELISM)
+  # eval_parallelism = min(parallelism,HP.EVAL_PARALLELISM)
   train_parallelism = min(parallelism,HP.TRAINING_PARALLELISM)
 
+  '''
   for i in range(eval_parallelism):
     p = multiprocessing.Process(target=worker, args=(eval_in,eval_out))
     p.start()
     my_processes.append(p)
+  '''
 
   for i in range(train_parallelism):
     p = multiprocessing.Process(target=worker, args=(train_in,train_out))
@@ -813,7 +816,7 @@ if __name__ == "__main__":
       num_active_tasks -= process_results_callback(job_kind,input,result)
 
   def eval_in_parallel(tasks,process_results_callback):
-    do_in_parallel(eval_in,eval_out,tasks,eval_parallelism,process_results_callback)
+    do_in_parallel(train_in,train_out,tasks,train_parallelism,process_results_callback)
 
   def train_in_parallel(tasks,process_results_callback):
     do_in_parallel(train_in,train_out,tasks,train_parallelism,process_results_callback)
@@ -985,6 +988,9 @@ if __name__ == "__main__":
 
       global train_model_version
       max_size = max(pkg_item[0] for pkg_item in traces)
+
+      max_size *= HP.TRAIN_MAX_SIZE_MULTIPLIER
+
       while traces:
         cur_size = 0
         package = []
@@ -1008,22 +1014,22 @@ if __name__ == "__main__":
         yield (JK_TRAIN,(package,gumbel_temp,train_model_file_path))
 
     weighted_train_loss = 0.0
-    weighted_train_entropy_loss = 0.0
+    weighted_raw_span_loss = 0.0
     weighted_train_max_sum = 0.0
 
 
     def process_results_from_train(job_kind,input,result):
       global weighted_train_loss
-      global weighted_train_entropy_loss
+      global weighted_raw_span_loss
       global weighted_train_max_sum
       global train_trace_commitment_infos
 
       assert job_kind == JK_TRAIN
       (package,gumbel_temp,train_model_file_path) = input
-      loss,entropy_loss,maxes,arg_maxes = result
+      loss,raw_span,maxes,arg_maxes = result
 
       weighted_train_loss += loss
-      weighted_train_entropy_loss += entropy_loss
+      weighted_raw_span_loss += raw_span
       weighted_train_max_sum += maxes
       # print(input,result)
 
@@ -1045,7 +1051,7 @@ if __name__ == "__main__":
 
     print("Gumbel_temp",gumbel_temp)
     print("Weighted train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
-    print("   Entropy loss",weighted_train_entropy_loss)
+    print("   Average raw span",weighted_raw_span_loss)
     print("   Average max",weighted_train_max_sum)
     print("   Average commitment length",train_trace_commitment_infos[1]/train_trace_commitment_infos[2])
     print_commitment_hist(train_trace_commitment_infos[0])

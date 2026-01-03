@@ -143,11 +143,15 @@ class MonsterModules(torch.nn.Module):
     self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
-    self.gnn_static_embedder = torch.nn.Sequential(
+    self.gnn_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,HP.GNN_INTERNAL_SIZE,bias=False)
+    """
+    torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GNN_INTERNAL_SIZE),
+
     )
+    """
 
     nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
 
@@ -182,11 +186,14 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
-    self.gage_static_embedder = torch.nn.Sequential(
+    self.gage_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,HP.GAGE_EMBEDDING_SIZE,bias=False)
+    """
+    torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
     )
+    """
 
     # TODO: should the var embed be LayerNormalized, so that it "lives in the same space as the other term embeddings"?
     # first attempt to do this was unstable in training
@@ -200,17 +207,23 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     )
+    self.gweight_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,HP.GWEIGHT_EMBEDDING_SIZE,bias=False)
+    """
     self.gweight_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     )
+    """
 
-    self.final_static_embedder = torch.nn.Sequential(
+    self.final_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE)
+    """
+    torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE)
     )
+    """
     self.clause_valuator = get_clause_valuator()
 
     self.tweak_map = torch.nn.ParameterDict(GLOBAL_TWEAK_MAP_FILLER()) # just to claim the space
