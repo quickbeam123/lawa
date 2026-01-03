@@ -247,7 +247,7 @@ class Context:
 
 # ============================================================================================
 
-def stage_perf_gather(ctx):
+def stage_perf_gather(ctx,use_special,use_tweaking):
   stage_start_time = time.time()
 
   # There is going to be files to store the results, ...
@@ -294,10 +294,10 @@ def stage_perf_gather(ctx):
         if HP.IMITATE and ctx.loop > 1:
           opts2_base = HP.NON_IMIT_EXTRA + opts2_base
 
-        if HP.USE_SPECIAL:
+        if use_special:
           opts2_base += HP.PERFORMS_SPECIAL[i]
 
-        if HP.USE_TWEAKING:
+        if use_tweaking:
           opts2_base += f" -ncem_gsd {i}"
 
         for prob in prob_lists:
@@ -426,9 +426,9 @@ def stage_perf_gather(ctx):
     for i in range(max_i+1):
       what_ran = ""
       # For now assumes USE_SPECIAL and USE_TWEAKING are mutually exclusive
-      if HP.USE_SPECIAL:
+      if use_special:
         what_ran = HP.PERFORMS_SPECIAL[i] if i < len(HP.PERFORMS_SPECIAL) else None
-      elif HP.USE_TWEAKING:
+      elif use_tweaking:
         what_ran = f" -ncem_gsd {i}"
 
       print("   {:>3} {:>6} {:6.4f} = {:>5} / {:>5} {:>5}{}".format(
@@ -602,12 +602,14 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
       for record in prob_records:
         train_model_version += 1
         train_model_file_path = os.path.join(HP.SCRATCH,"train-model-state_{}_{}.tar".format(os.getpid(),train_model_version))
+        """
         if with_tweaks:
           prob_no_dots = no_dots(record.prob)
           with torch.no_grad(): # inside worker, main tweak used for this problems tweak
             ctx.model.tweaky.copy_(ctx.tweak_map[prob_no_dots].detach())
+        """
         torch.save(ctx.model.state_dict(), train_model_file_path)
-        yield (W.JK_TRAIN,(record,train_model_file_path,tw_pref))
+        yield (W.JK_TRAIN,(record,train_model_file_path,epsilon if with_tweaks else None))
 
     weighted_train_loss = 0.0
     weighted_train_stats = defaultdict(float)
@@ -631,10 +633,12 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
       prob_no_dots = no_dots(record.prob)
       # print(f"   Train tweak for {record.prob} before: {tweak_map[prob_no_dots].norm()}")
 
+      """
       if with_tweaks:
         # land our tweak here in model againg (could have been changed since the job was sent)
         with torch.no_grad(): # inside worker, main tweak used for this problems tweak
           ctx.model.tweaky.copy_(ctx.tweak_map[prob_no_dots].detach())
+      """
 
       # copy from result parameters to our model's gradients
       grad_loader_temp.load_state_dict(torch.load(train_model_file_path))
@@ -656,12 +660,14 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
       optimizer.step()
       # print(f"   Train tweak for {record.prob} after: {tweak_map[prob_no_dots].norm()}")
 
+      """
       if with_tweaks:
         # note that using tweaky for each trace / problem separately is not ideal,
         # since the optimizer maintians statistics as if it was a single parameter,
         # where in fact, there are essentially as many tweakies as there are active traces
         with torch.no_grad():
           ctx.tweak_map[prob_no_dots].copy_(ctx.model.tweaky.detach())
+      """
 
       # print("       with norms gnn/gage/gweight/cleval:",gnn_norm ** 0.5, gage_norm ** 0.5, gweight_norm ** 0.5, cleval_norm ** 0.5)
       os.remove(train_model_file_path)
@@ -671,10 +677,16 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
     eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
 
     print("Train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
-    for i,(k,v) in enumerate(weighted_train_stats.items()):
-      print(f"    t_{k}",v)
-      if i == 2: # just some hardcoded pretty-printing
-        print()
+    if with_tweaks:
+      for i,(k,v) in enumerate(sorted(weighted_train_stats.items())):
+        print("    ",k,v)
+        if i in [2,5]:
+          print()
+    else:
+      for i,(k,v) in enumerate(weighted_train_stats.items()):
+        print(f"    t_{k}",v)
+        if i == 2: # just some hardcoded pretty-printing
+          print()
     print()
     sys.stdout.flush()
 
@@ -908,6 +920,8 @@ if __name__ == "__main__":
   # ===========================================================================
   # ===========================================================================
 
+  START_TWEAKING = 3
+
   iter = 0
   while True:
     if loop_count == 0:
@@ -921,10 +935,23 @@ if __name__ == "__main__":
     ctx.loop += 1
     loop_str = ctx.claim_loop_dir()
     print(loop_str)
+
+    # compute LR for our loop, taking into account our decay
+    lr_wish = HP.LEARNING_RATE * (HP.LEARNING_RATE_DECAY ** (ctx.loop-1))
+    print("Learning rate now at",lr_wish)
+    # tw_pref = (ctx.loop-1)*0.02 if ctx.loop <= 10 else 0.2
+    # print("Tweaked preference at",tw_pref)
+    warmup_phase = ctx.loop < START_TWEAKING
+    print("warmup_phase",warmup_phase)
+    gather_with_tweaks = ctx.loop > START_TWEAKING
+    print("gather_with_tweaks",gather_with_tweaks)
+    epsilon = max(0.05, 0.5 * math.exp(-(ctx.loop-START_TWEAKING) / 10))
+    print("Greedy epsilon",epsilon)
+    print()
     sys.stdout.flush()
 
     if not skip_first_stage:
-      stage_perf_gather(ctx)
+      stage_perf_gather(ctx,use_special=not gather_with_tweaks,use_tweaking=gather_with_tweaks)
 
     skip_first_stage = False # only possibly skipped for the first loop
 
@@ -952,6 +979,14 @@ if __name__ == "__main__":
 
     trace_problems = list(ctx.trace_index.cur_problems())
 
+    if ctx.loop == START_TWEAKING:
+      print("Ending warmup, will start tweaking. (Copying the generalist to the other slots now.)")
+      with torch.no_grad():
+        for i in range(HP.TWEAKS_TO_PICK):
+          ctx.model.tweaks[i].copy_(IC.get_neutral_tweak(ctx.model.clause_valuator_snd, detached = True))
+      print()
+      sys.stdout.flush()
+
     # NB: tweaks for just solved problems have not been initialized yet!
     # but at least make sure they exists so that we can correctly update the tweakmap for them
     """
@@ -964,11 +999,12 @@ if __name__ == "__main__":
     # we know traces for both new and old problems; so let's tweak them all
     # stage_tweaking(ctx,trace_problems,"before")
 
-    stage_eval_train_eval(ctx,trace_problems,with_early_stopping=with_early_stopping,with_tweaks=False)
+    stage_eval_train_eval(ctx,trace_problems,with_early_stopping=warmup_phase,with_tweaks=not warmup_phase)
 
     # STAGE 2b: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
     # stage_tweaking(ctx,trace_problems,"after")
 
+    """
     if HP.TWEAKS_TO_PICK > 0:
       # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
       print("Will build crit_submatrix and pick the best tweaks to bake into the model for the next trace collection")
@@ -978,6 +1014,7 @@ if __name__ == "__main__":
       crit_matrix = stage_build_crit_matrix(ctx,active_tweak_selection)
 
       stage_select_tweaks(ctx,crit_matrix)
+    """
 
     print()
     sys.stdout.flush()

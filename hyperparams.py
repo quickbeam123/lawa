@@ -90,7 +90,7 @@ TWEAKS_AS_BIAS = False
 USE_TWEAKING = False # instead of looking things up in PERFORMS_SPECIAL, we just keep increasing an argument to ncem_gsd
 
 TWEAK_MATRIX_SIZE = 256
-TWEAKS_TO_PICK = 0
+TWEAKS_TO_PICK = 4
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)

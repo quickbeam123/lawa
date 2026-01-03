@@ -10,7 +10,7 @@ from itertools import chain
 
 import multiprocessing
 import subprocess
-import numpy
+import numpy as np
 from dataclasses import dataclass
 
 import gc
@@ -133,7 +133,7 @@ JK_EVAL_TWEAK_MATRIX = 2  # construct our network to get the loss of this trace 
   #        - dist_to_good: average (over time moments) distance to a future proof clauase (in the logit-sorted order)
   #        (selection_hit_rate == 1.0 => dist_to_good == 0.0)
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
-  # input:     (record: ProbRecord,train_model_file_path,tw_pref)
+  # input:     (record: ProbRecord,train_model_file_path,epsilon)
   # output:    stat_dict
 
 def job_perform(input):
@@ -272,7 +272,7 @@ def job_eval_tweak_matrix(input):
 
 
 def job_train(input):
-  (record,train_model_file_path,tw_pref) = input
+  (record,train_model_file_path,epsilon) = input
 
   train_begin = time.time()
 
@@ -297,23 +297,40 @@ def job_train(input):
 
       just_before_final,num2idx = learn_model.pre_forward()
 
-      if tw_pref > 0.0:
+      if epsilon is not None:
+        """
         mytweak = local_model.tweaky
         notweak = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False)
         both_tweaks = torch.stack([notweak,mytweak])
+        """
 
-        losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
+        tweaks = [IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False)] + [tw for tw in local_model.tweaks]
 
-        loss = loss + local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
+        losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, torch.stack(tweaks))
+
+        winner = np.argmin(dists_to_good)
+        stat_dict["b_loss"] += local_fact*losses[winner].item()
+        stat_dict["b_selection_hit_rate"] += local_fact*selection_hit_rates[winner]
+        stat_dict["b_dist_to_good"] += local_fact*dists_to_good[winner]
+
+        if random.uniform(0.0, 1.0) < epsilon:
+          winner = random.randint(0,len(tweaks)-1)
+          stat_dict["tweaked randomly"] += local_fact
+        else:
+          stat_dict[f"tweaked winner {winner}"] += local_fact
+
+        loss = loss + local_fact*losses[winner]
 
         # the generalist's stats
-        stat_dict["loss"] += local_fact*losses[0].item()
-        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-        stat_dict["dist_to_good"] += local_fact*dists_to_good[0]
+        stat_dict["loss"] += local_fact*losses[winner].item()
+        stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[winner]
+        stat_dict["dist_to_good"] += local_fact*dists_to_good[winner]
         # the tweaked stats
+        """
         stat_dict["tweaked_loss"] += local_fact*losses[1].item()
         stat_dict["tweaked_selection_hit_rate"] += local_fact*selection_hit_rates[1]
         stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
+        """
 
       else:
         notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
