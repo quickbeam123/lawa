@@ -499,7 +499,7 @@ def stage_tweaking(ctx,trace_problems,before_or_after):
 
 # ============================================================================================
 
-def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
+def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
   # newly only lives one iter, so no need to save it
   optimizer = torch.optim.Adam(ctx.model.parameters(),
       lr=lr_wish, weight_decay=HP.WEIGHT_DECAY)
@@ -510,7 +510,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
   eval_criters = [None]*TIW
   stage2iter = 0
 
-  if TIW > 1: # we will need to single out the validation traces!
+  if with_early_stopping: # we will need to single out the validation traces!
     random.shuffle(trace_problems) # Note: this is a source of non-determinism!
     # an 80:20 split
     cut_idx = int(0.8*len(trace_problems))
@@ -521,7 +521,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
     valid_trace_problems = None
 
   while True:
-    if TIW > 1:
+    if with_early_stopping:
       # EVAL on validation problems
       eval_model_file_path = os.path.join(HP.SCRATCH,"eval-model-state_{}_{}.tar".format(os.getpid(),stage2iter))
       torch.save(ctx.model.state_dict(), eval_model_file_path)
@@ -555,7 +555,9 @@ def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
 
       eval_criters[stage2iter % TIW] = weighted_eval_criter
 
-      stage2iter += 1
+    stage2iter += 1
+
+    if with_early_stopping:
       if stage2iter >= TIW: # we have written everywhere (no None there anymore)
         oldest_idx = stage2iter % TIW
         oldest_val = eval_criters[oldest_idx]
@@ -676,15 +678,14 @@ def stage_eval_train_eval(ctx,trace_problems,with_tweaks):
     print()
     sys.stdout.flush()
 
-    if TIW == 1:
-      os.remove(eval_model_file_path) # ???
+    if not with_early_stopping and stage2iter >= TIW:
       break
 
   ctx.save_loop_model()
 
   # stage 2
   print()
-  print(f"  Stage 2a - took {time.time()-stage_start_time} seconds and {stage2iter-0.5} eval/train iterations")
+  print(f"  Stage 2a (with_early_stopping {with_early_stopping}) - took {time.time()-stage_start_time} seconds and {stage2iter-0.5} eval/train iterations")
   print()
   sys.stdout.flush()
 
@@ -942,21 +943,26 @@ if __name__ == "__main__":
     print("Learning rate now at",lr_wish)
     tw_pref = (ctx.loop-1)*0.02 if ctx.loop <= 10 else 0.2
     print("Tweaked preference at",tw_pref)
+    with_early_stopping = ctx.loop <= 2
+    print("with_early_stopping",with_early_stopping)
     print()
+    sys.stdout.flush()
 
     trace_problems = list(ctx.trace_index.cur_problems())
 
     # NB: tweaks for just solved problems have not been initialized yet!
     # but at least make sure they exists so that we can correctly update the tweakmap for them
+    """
     for prob in trace_problems:
       prob_no_dots = no_dots(prob)
       if prob_no_dots not in ctx.tweak_map:
         ctx.tweak_map[prob_no_dots] = IC.get_neutral_tweak(ctx.model.clause_valuator_snd, detached=True)
+    """
 
     # we know traces for both new and old problems; so let's tweak them all
-    stage_tweaking(ctx,trace_problems,"before")
+    # stage_tweaking(ctx,trace_problems,"before")
 
-    stage_eval_train_eval(ctx,trace_problems,with_tweaks=True)
+    stage_eval_train_eval(ctx,trace_problems,with_early_stopping=with_early_stopping,with_tweaks=False)
 
     # STAGE 2b: TWEAKIT - i.e., look for favorable tweaks to all gathered traces
     # stage_tweaking(ctx,trace_problems,"after")
