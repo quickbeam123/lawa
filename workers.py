@@ -13,7 +13,7 @@ import subprocess
 import numpy as np
 from dataclasses import dataclass
 
-import gc
+import random
 
 # first environ, then load torch, also later we set_num_treads (in "main")
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -270,6 +270,10 @@ def job_eval_tweak_matrix(input):
 
     return stat_dict
 
+def random_argmin(a):
+    a = np.asarray(a)
+    mins = np.flatnonzero(a == a.min())
+    return random.choice(mins)
 
 def job_train(input):
   (record,train_model_file_path,epsilon) = input
@@ -308,7 +312,7 @@ def job_train(input):
 
         losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, torch.stack(tweaks))
 
-        winner = np.argmin(dists_to_good)
+        winner = random_argmin(dists_to_good)
         stat_dict["b_loss"] += local_fact*losses[winner].item()
         stat_dict["b_selection_hit_rate"] += local_fact*selection_hit_rates[winner]
         stat_dict["b_dist_to_good"] += local_fact*dists_to_good[winner]
