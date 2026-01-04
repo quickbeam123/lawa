@@ -270,41 +270,62 @@ def stage_perf_gather(ctx,use_special,use_tweaking):
 
       result_metas.append((res_filename,mission))
 
-      for i,ilim in enumerate(luby(HP.INSTRUCTION_LIMIT_MIN,HP.INSTRUCTION_LIMIT_MAX)):
-        if i >= HP.NUM_PERFORMS and ctx.loop > 1 or ctx.loop == 1 and i >= HP.INITIAL_NUM_PERFORMS:
-          break
-        seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
-
-        # print(i,"for",ilim)
-
-        # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
-        opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
-
-        if HP.RANDOMIZED_STRATEGIES:
-          saturation_algorithm = ""
-          opts1_base += f" --sample_strategy {HP.RANDOMIZED_STRATEGIES}"
-        else:
-          saturation_algorithm = f"-sa {HP.SATURATION_ALGORITHM}"
-
-        # will stay the same
-        opts2_base = f" {HP.SHUFFLING_OPTIONS} {saturation_algorithm} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
-
-        if not HP.IMITATE or ctx.loop > 1:
-          opts2_base += f" -npcc on -ncem {script_model_file_path}"
-        if HP.IMITATE and ctx.loop > 1:
-          opts2_base = HP.NON_IMIT_EXTRA + opts2_base
-
+      per_problem_iilims = {}
+      for prob in prob_lists:
+        my_iilims = []
+        for i,ilim in enumerate(luby(HP.INSTRUCTION_LIMIT_MIN,HP.INSTRUCTION_LIMIT_MAX)):
+          if i >= HP.NUM_PERFORMS and ctx.loop > 1 or ctx.loop == 1 and i >= HP.INITIAL_NUM_PERFORMS:
+            break
+          my_iilims.append((i,ilim))
         if use_special:
-          opts2_base += HP.PERFORMS_SPECIAL[i]
-
+          my_iilims.reverse()
         if use_tweaking:
-          opts2_base += f" -ncem_gsd {i}"
+          random.shuffle(my_iilims)
+        per_problem_iilims[prob] = my_iilims
 
+      has_some = True
+      while has_some:
         for prob in prob_lists:
           if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
-            # print("Skipping for",prob,"who already has enough")
-            # we are starting to skip problems that already have enough traces
-            continue
+              # print("Skipping for",prob,"who already has enough")
+              # we are starting to skip problems that already have enough traces
+              continue
+
+          my_iilims = per_problem_iilims[prob]
+          if len(my_iilims) == 0:
+            has_some = False
+            break
+
+          (i,ilim) = my_iilims.pop()
+
+          # print(prob,i)
+
+          seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
+
+          # print(i,"for",ilim)
+
+          # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
+          opts1_base = f"-t {ilim2tlim(ilim)} -i {ilim} -p off"
+
+          if HP.RANDOMIZED_STRATEGIES:
+            saturation_algorithm = ""
+            opts1_base += f" --sample_strategy {HP.RANDOMIZED_STRATEGIES}"
+          else:
+            saturation_algorithm = f"-sa {HP.SATURATION_ALGORITHM}"
+
+          # will stay the same
+          opts2_base = f" {HP.SHUFFLING_OPTIONS} {saturation_algorithm} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+
+          if not HP.IMITATE or ctx.loop > 1:
+            opts2_base += f" -npcc on -ncem {script_model_file_path}"
+          if HP.IMITATE and ctx.loop > 1:
+            opts2_base = HP.NON_IMIT_EXTRA + opts2_base
+
+          if use_special:
+            opts2_base += HP.PERFORMS_SPECIAL[i]
+
+          if use_tweaking:
+            opts2_base += f" -ncem_gsd {i}"
 
           opts1 = opts1_base
           if HP.SATURATION_ALGORITHM.startswith("lrs") or HP.RANDOMIZED_STRATEGIES:
