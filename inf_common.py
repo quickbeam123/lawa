@@ -64,11 +64,19 @@ CLAUSE_EMBEDDER_INPUT_SIZE : Final[int] = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIM
 class MyFinal(torch.nn.Module):
     def __init__(self, size):
         super().__init__()
+        self.bias = torch.nn.Parameter(torch.empty(size))
+        assert HP.CLAUSE_EMBEDDER_LAYERS == 1
+        # "bound" below is simulating the last linear layer's (the one's which precedes MyFinal and has bias=False) fan_in
+        bound = 1 / math.sqrt(CLAUSE_EMBEDDER_INPUT_SIZE)
+        torch.nn.init.uniform_(self.bias, -bound, bound)
+
         self.weight = torch.nn.Parameter(torch.empty(size))
         torch.nn.init.kaiming_uniform_(self.weight.unsqueeze(0),a=math.sqrt(5))
+
         self.maybe_dropout = torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT) if HP.FINAL_LAYER_DROPOUT > 0.0 else torch.nn.Identity()
 
     def forward(self, x : Tensor):
+      x = x + self.bias
       x = torch.nn.functional.relu(x)
       x = self.maybe_dropout(x)
 
@@ -85,23 +93,27 @@ class MyFinal(torch.nn.Module):
 
     def forward_with_tweaks(self, x : Tensor, tweaks : Tensor):
       if HP.TWEAKS_AS_BIAS:
+        # we completely ignore self.bias here; the tweaks are now the bias(es)
         x = x + tweaks.unsqueeze(1)
+      else:
+        x = x + self.bias
 
       x = torch.nn.functional.relu(x)
       x = self.maybe_dropout(x)
 
       if HP.TWEAKS_AS_BIAS:
         w_hat = self.weight / (torch.linalg.vector_norm(self.weight) + 1e-8)
-
         return torch.matmul(x, w_hat)
       else:
-        # we completely ignore self.weight here; assuming it comes as one of the tweaks
+        # we completely ignore self.weight here; the tweaks are now the weight(s)
         ws_hat = tweaks / (torch.linalg.vector_norm(tweaks,dim=1,keepdim=True) + 1e-8)
 
         return torch.matmul(ws_hat, x.T)
 
 def get_clause_valuator_pair():
-  layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
+  # it should be the last linear layer that has bias=False
+  assert HP.CLAUSE_EMBEDDER_LAYERS == 1
+  layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE,bias=False)]
 
   # so far, we never used multiple layers here
   for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
@@ -114,13 +126,8 @@ def get_new_tweak():
   return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
 
 def get_neutral_tweak(myFinalToStealFrom: MyFinal, detached):
-  if HP.TWEAKS_AS_BIAS:
-    return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
-  else: # tweaks as the final dotter (init from "model")
-    if detached:
-      return torch.nn.Parameter(myFinalToStealFrom.weight.detach().clone())
-    else:
-      return myFinalToStealFrom.weight
+  what = myFinalToStealFrom.bias if HP.TWEAKS_AS_BIAS else myFinalToStealFrom.weight
+  return torch.nn.Parameter(what.detach().clone()) if detached else what
 
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work
@@ -415,10 +422,10 @@ class MonsterNN(torch.nn.Module):
     self.computing = True
 
   @torch.jit.export
-  def bake_tweak(self, tweak): # because it actually adds, it only makes sense to call this once!
+  def bake_tweak(self, tweak):
     with torch.no_grad():
       if HP.TWEAKS_AS_BIAS:
-        self.clause_valuator_fst[-1].bias.add_(tweak)
+        self.clause_valuator_snd.bias.copy_(tweak)
       else:
         self.clause_valuator_snd.weight.copy_(tweak)
 
