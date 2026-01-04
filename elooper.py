@@ -286,17 +286,16 @@ def stage_perf_gather(ctx,use_special,use_tweaking):
       has_some = True
       while has_some:
         for prob in prob_lists:
-          if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
-              # print("Skipping for",prob,"who already has enough")
-              # we are starting to skip problems that already have enough traces
-              continue
-
           my_iilims = per_problem_iilims[prob]
           if len(my_iilims) == 0:
             has_some = False
             break
-
           (i,ilim) = my_iilims.pop()
+
+          if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
+              # print("Skipping for",prob,"who already has enough")
+              # we are starting to skip problems that already have enough traces
+              continue
 
           # print(prob,i)
 
