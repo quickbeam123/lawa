@@ -1000,10 +1000,13 @@ if __name__ == "__main__":
     trace_problems = list(ctx.trace_index.cur_problems())
 
     if ctx.loop == START_TWEAKING:
-      print("Ending warmup, will start tweaking. (Copying the generalist to the other slots now.)")
+      NOISE = 0.5
+      print(f"Ending warmup, will start tweaking. (Copying the generalist to the other slots now; adding {NOISE}*base_tweak.std() worth of noise)")
       with torch.no_grad():
+        base_tweak = IC.get_neutral_tweak(ctx.model.clause_valuator_snd, detached = True)
+        sigma = NOISE * base_tweak.std()
         for i in range(HP.TWEAKS_TO_PICK):
-          ctx.model.tweaks[i].copy_(IC.get_neutral_tweak(ctx.model.clause_valuator_snd, detached = True))
+          ctx.model.tweaks[i].copy_(base_tweak + sigma * torch.randn_like(base_tweak))
       print()
       sys.stdout.flush()
 
