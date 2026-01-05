@@ -33,9 +33,11 @@ if __name__ == "__main__":
   # keep storing pairs (solutions,time)
   expers = {}
 
-  for exper_dir in sys.argv[1:]:
-    # print(exper_dir)
+  covereds = {} # experdir -> last loop's covered problem set
 
+  for exper_dir in sys.argv[1:]:
+    print(exper_dir)
+    best_covered = set()
     plottables = {m : ([],[]) for m in MISSIONS}
 
     root, dirs, files = next(os.walk(exper_dir))
@@ -64,7 +66,10 @@ if __name__ == "__main__":
         sample_record = next(iter(results.values()))[0]
         if len(sample_record) == 3:
           if isinstance(sample_record[2],W.VampResult):
-            fractional = sum(1.0 for prob,runs in results.items() for (i,ilim,info) in runs if (i == 0 and info.status == "uns"))
+            covered = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns") }
+            fractional = len(covered)
+            if len(covered) > len(best_covered):
+              best_covered = covered
           else:
             fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
         else:
@@ -91,6 +96,25 @@ if __name__ == "__main__":
       loop += 1
 
     expers[exper_dir] = plottables
+    covereds[exper_dir] = best_covered
+
+  if True:
+    print("Greedy cover of best sets from each exper:")
+    total = set()
+    while True:
+      best_dir = None
+      best_dir_adds = 0
+      for exper_dir,covers in covereds.items():
+        adds = len(covers - total)
+        if adds > best_dir_adds:
+          best_dir = exper_dir
+          best_dir_adds = adds
+      if best_dir is not None:
+        print(best_dir,"adds",best_dir_adds)
+        total |= covereds[best_dir]
+      else:
+        print("  in total",len(total))
+        break
 
   import matplotlib.pyplot as plt
   from matplotlib.ticker import MaxNLocator
@@ -154,7 +178,7 @@ if __name__ == "__main__":
   # ax1.set_xlim(xmin=0,xmax=24)
   # ax1.set_ylim(ymin=0.42,ymax=0.54)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
-  ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
+  # ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"percentage problems proven")
