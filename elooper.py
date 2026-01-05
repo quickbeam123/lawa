@@ -638,7 +638,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
       nonlocal weighted_train_stats
 
       assert job_kind == W.JK_TRAIN
-      (record,train_model_file_path,_tw_pref) = input
+      (record,train_model_file_path,_epsilon) = input
       loss, stat_dict = result
 
       weighted_train_loss += loss # (= the loss) multiplied by fact already in the child
