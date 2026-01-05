@@ -273,7 +273,7 @@ def job_eval_tweak_matrix(input):
 def random_argmin(a):
     a = np.asarray(a)
     mins = np.flatnonzero(a == a.min())
-    return random.choice(mins)
+    return random.choice(mins),len(mins)
 
 def job_train(input):
   (record,train_model_file_path,epsilon) = input
@@ -312,10 +312,17 @@ def job_train(input):
 
         losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, torch.stack(tweaks))
 
-        winner = random_argmin(dists_to_good)
+        winner,freedom = random_argmin(dists_to_good)
         stat_dict["b_loss"] += local_fact*losses[winner].item()
         stat_dict["b_selection_hit_rate"] += local_fact*selection_hit_rates[winner]
         stat_dict["b_dist_to_good"] += local_fact*dists_to_good[winner]
+
+        loser = np.argmax(dists_to_good)
+        stat_dict["c_loss"] += local_fact*losses[loser].item()
+        stat_dict["c_selection_hit_rate"] += local_fact*selection_hit_rates[loser]
+        stat_dict["c_dist_to_good"] += local_fact*dists_to_good[loser]
+
+        stat_dict[f"z_freedom[{freedom}]"] += local_fact
 
         if random.uniform(0.0, 1.0) < epsilon:
           winner = random.randint(0,len(tweaks)-1)

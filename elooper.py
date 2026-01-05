@@ -700,7 +700,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
     if with_tweaks:
       for i,(k,v) in enumerate(sorted(weighted_train_stats.items())):
         print("    ",k,v)
-        if i in [2,5]:
+        if i in [2,5,8,14]:
           print()
     else:
       for i,(k,v) in enumerate(weighted_train_stats.items()):
