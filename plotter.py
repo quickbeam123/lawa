@@ -33,6 +33,7 @@ if __name__ == "__main__":
   # keep storing pairs (solutions,time)
   expers = {}
 
+  ever_seen = set()
   covereds = {} # experdir -> last loop's covered problem set
 
   for exper_dir in sys.argv[1:]:
@@ -67,6 +68,7 @@ if __name__ == "__main__":
         if len(sample_record) == 3:
           if isinstance(sample_record[2],W.VampResult):
             covered = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns") }
+            ever_seen |= covered
             fractional = len(covered)
             if len(covered) > len(best_covered):
               best_covered = covered
@@ -115,6 +117,7 @@ if __name__ == "__main__":
       else:
         print("  in total",len(total))
         break
+    print("And ever_seen",len(ever_seen))
 
   import matplotlib.pyplot as plt
   from matplotlib.ticker import MaxNLocator
