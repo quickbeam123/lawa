@@ -330,7 +330,14 @@ def job_train(input):
         else:
           stat_dict[f"tweaked winner {winner}"] += local_fact
 
-        loss = loss + local_fact*losses[winner]
+        cosines = torch.tensor(0.0, requires_grad=True)
+        for j in range(len(tweaks)):
+          if j != winner:
+            cosines = cosines + torch.nn.functional.cosine_similarity(tweaks[winner], tweaks[j].detach(), dim=0)
+        cosines = cosines / (len(tweaks) - 1)
+        stat_dict["cosines"] += local_fact*cosines.item()
+
+        loss = loss + local_fact*losses[winner] + HP.TWEAKS_COSINE_LOSS_FACTOR*local_fact*cosines
 
         # the generalist's stats
         stat_dict["loss"] += local_fact*losses[winner].item()
