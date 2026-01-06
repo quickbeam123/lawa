@@ -92,6 +92,8 @@ USE_TWEAKING = False # instead of looking things up in PERFORMS_SPECIAL, we just
 TWEAK_MATRIX_SIZE = 256
 TWEAKS_TO_PICK = 4
 
+TWEAKS_BORN_WITH_NOISE = 0.0
+
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
