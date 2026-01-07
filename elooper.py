@@ -965,7 +965,7 @@ if __name__ == "__main__":
     print("warmup_phase",warmup_phase)
     gather_with_tweaks = ctx.loop > START_TWEAKING
     print("gather_with_tweaks",gather_with_tweaks)
-    epsilon = max(0.0, 0.5 * math.exp(-(ctx.loop-START_TWEAKING) / 10))
+    epsilon = max(0.0, 0.1 * math.exp(-(ctx.loop-START_TWEAKING) / 10))
     print("Greedy epsilon",epsilon)
     print()
     sys.stdout.flush()
