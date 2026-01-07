@@ -941,8 +941,10 @@ if __name__ == "__main__":
     # compute LR for our loop, taking into account our decay
     lr_wish = HP.LEARNING_RATE * (HP.LEARNING_RATE_DECAY ** (ctx.loop-1))
     print("Learning rate now at",lr_wish)
-    tw_pref = (ctx.loop-1)*0.02 if ctx.loop <= 10 else 0.2
-    print("Tweaked preference at",tw_pref)
+    # tw_pref = (ctx.loop-1)*0.02 if ctx.loop <= 10 else 0.2
+    tw_pref = 0.0
+    if tw_pref:
+      print("Tweaked preference at",tw_pref)
     with_early_stopping = ctx.loop <= 2
     print("with_early_stopping",with_early_stopping)
     print()
