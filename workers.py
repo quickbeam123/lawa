@@ -237,7 +237,7 @@ def job_eval_tweak_matrix(input):
       else:
         with torch.no_grad():
           notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
-          losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,notweaks)
+          losses,selection_hit_rates,dist_to_goods,_divergence = learn_model.forward(just_before_final,num2idx,notweaks)
 
         stat_dict["loss"] += local_fact*losses[0].item()
         stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
@@ -310,12 +310,13 @@ def job_train(input):
 
         tweaks = [IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False)] + [tw for tw in local_model.tweaks]
 
-        losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, torch.stack(tweaks))
+        losses,selection_hit_rates,dists_to_good,divergence = learn_model.forward(just_before_final, num2idx, torch.stack(tweaks),compute_divergence=True)
 
         winner,freedom = random_argmin(dists_to_good)
         stat_dict["b_loss"] += local_fact*losses[winner].item()
         stat_dict["b_selection_hit_rate"] += local_fact*selection_hit_rates[winner]
         stat_dict["b_dist_to_good"] += local_fact*dists_to_good[winner]
+        stat_dict["b_divergence"] += local_fact*divergence[winner].item()
 
         loser = np.argmax(dists_to_good)
         stat_dict["c_loss"] += local_fact*losses[loser].item()
@@ -337,7 +338,7 @@ def job_train(input):
         cosines = cosines / (len(tweaks) - 1)
         stat_dict["cosines"] += local_fact*cosines.item()
 
-        loss = loss + local_fact*losses[winner] + HP.TWEAKS_COSINE_LOSS_FACTOR*local_fact*cosines
+        loss = loss + local_fact*losses[winner] + HP.TWEAKS_COSINE_LOSS_FACTOR*local_fact*cosines - HP.TWEAKS_DIVERGENCE_FACTOR * divergence[winner]
 
         # the generalist's stats
         stat_dict["loss"] += local_fact*losses[winner].item()
@@ -352,7 +353,7 @@ def job_train(input):
 
       else:
         notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
-        losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final, num2idx, notweaks)
+        losses,selection_hit_rates,dist_to_goods,_divergence = learn_model.forward(just_before_final, num2idx, notweaks)
 
         loss = loss + local_fact*losses[0]
 

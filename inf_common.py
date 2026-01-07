@@ -5,6 +5,7 @@
 import os
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from typing import List, Final
@@ -77,7 +78,7 @@ class MyFinal(torch.nn.Module):
 
     def forward(self, x : Tensor):
       x = x + self.bias
-      x = torch.nn.functional.relu(x)
+      x = F.relu(x)
       x = self.maybe_dropout(x)
 
       # Actually, newly, let's try a setup in which this is never called from python directly
@@ -98,7 +99,7 @@ class MyFinal(torch.nn.Module):
       else:
         x = x + self.bias
 
-      x = torch.nn.functional.relu(x)
+      x = F.relu(x)
       x = self.maybe_dropout(x)
 
       if HP.TWEAKS_AS_BIAS:
@@ -489,7 +490,7 @@ class MonsterNN(torch.nn.Module):
       for key,embedder in self.gnn_node_init:
         self.gnn_nodes[key] = embedder.forward(self.gnn_nodes[key]).relu() + self.gnn_static_tweak # broadcasting to every embedded node
         if HP.GNN_DROPOUT > 0.0:
-          self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
+          self.gnn_nodes[key] = F.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
 
       for layer in self.gnn_layers:
         out_dict: Dict[str, Tensor] = {}
@@ -505,7 +506,7 @@ class MonsterNN(torch.nn.Module):
         for key, out in out_dict.items():
           self.gnn_nodes[key] = out.relu()
           if HP.GNN_DROPOUT > 0.0:
-            self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
+            self.gnn_nodes[key] = F.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
           out_dict = {}
 
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
@@ -849,6 +850,12 @@ def trace_good_for_learning(trace_file_path,logfile=None):
 
   return non_trivial, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w)
 
+def random_derangement(k):
+    while True:
+        perm = list(range(k))
+        random.shuffle(perm)
+        if all(perm[i] != i for i in range(k)):
+            return perm
 
 class LearningModel(torch.nn.Module):
   def __init__(self,
@@ -912,7 +919,7 @@ class LearningModel(torch.nn.Module):
 
     return self.nn.pre_eval_clauses(torch.stack(simple_feature_vecs),torch.stack(gage_feature_vecs),torch.stack(gweight_feature_vecs)),num2idx
 
-  def forward(self,just_before_final,num2idx,tweaks):
+  def forward(self,just_before_final,num2idx,tweaks,compute_divergence=False):
     (_static_features,_clause_simple_features,journal,num_good_selections,
                 _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
@@ -930,6 +937,11 @@ class LearningModel(torch.nn.Module):
 
     good_action_reward_loss = torch.zeros(num_loss_channels)
     num_good_steps = 0
+
+    if compute_divergence:
+      assert num_loss_channels > 1
+      derange_perm = torch.tensor(random_derangement(num_loss_channels), dtype=torch.long)
+      divergence = torch.zeros(num_loss_channels)
 
     passive = set()
     passive_good = set()
@@ -981,11 +993,21 @@ class LearningModel(torch.nn.Module):
 
           gathered_logits = logits[:,passive_t]
 
-          good_action_reward_loss += torch.nn.functional.cross_entropy(
+          good_action_reward_loss += F.cross_entropy(
             gathered_logits,
             passive_good_t,
             reduction="none",
             label_smoothing=HP.LABEL_SMOOTHING)
+
+          if compute_divergence:
+            # print("derange_perm",derange_perm)
+            detached_permuted_logits = torch.index_select(gathered_logits.detach(), dim=0, index=derange_perm)
+            # print("detached_permuted_logits",detached_permuted_logits.shape)
+            # print("gathered_logits",gathered_logits.shape)
+            # print(divergence,divergence.shape)
+            add_to_div = F.kl_div(F.log_softmax(gathered_logits, dim=-1),F.log_softmax(detached_permuted_logits, dim=-1),reduction='none',log_target=True).sum(dim=-1)
+            # print(add_to_div,add_to_div.shape)
+            divergence += add_to_div
 
           num_good_steps += 1
 
@@ -1003,4 +1025,4 @@ class LearningModel(torch.nn.Module):
 
     if squeeze_back:
       return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits[0], dists_to_good[0]
-    return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good
+    return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good, divergence/num_good_steps if compute_divergence else None

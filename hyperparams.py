@@ -94,6 +94,7 @@ TWEAKS_TO_PICK = 4
 
 TWEAKS_BORN_WITH_NOISE = 0.0
 TWEAKS_COSINE_LOSS_FACTOR = 0.0
+TWEAKS_DIVERGENCE_FACTOR = 0.2
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
