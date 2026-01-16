@@ -169,7 +169,7 @@ def save_trace_index(cur_dir,trace_index):
 
 def load_trace_index(adir):
   trace_index_file_path = os.path.join(adir,TRACE_INDEX)
-  return torch.load(trace_index_file_path)
+  return torch.load(trace_index_file_path,weights_only=False)
 
 def no_dots(name):
   return name.replace(".","_")
