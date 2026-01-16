@@ -236,6 +236,18 @@ def eval_tweak_matrix_one_trace(trace_file_path,local_model,local_fact,stat_dict
     torch.save(tweak_out, tweak_file_path)
   """
 
+def compute_local_fact(len_prob_traces):
+  local_fact = 1.0/len_prob_traces
+  if HP.SKEW_LOCAL_FACT and HP.MAX_TRACES_TO_KEEP > 1:
+    # if MAX_TRACES_TO_KEEP > 1 then let's linearly interpolate an extra factor,
+    # under which a single-trace-solved problem gets twice the leverage compared to all-trace-solved problem,
+    # while avarage-trace-solved problem stays with the original local_facts (i.e., gets multiplied by 1.0)
+    correct_fact = 2.0/3.0
+    correct_fact *= 1.0 + (HP.MAX_TRACES_TO_KEEP-len_prob_traces)/(HP.MAX_TRACES_TO_KEEP-1)
+    # print("with",len_prob_traces,"traces will multiply local_fact by",correct_fact)
+    local_fact *= correct_fact
+  return local_fact
+
 def job_eval_tweak_matrix(input):
   (record,model_file_path,tweak_file_path,compute_matrix) = input
 
@@ -253,7 +265,7 @@ def job_eval_tweak_matrix(input):
 
   # print("EVAL on",prob,fact,trace_file_paths)
 
-  local_fact = 1/len(record.prob_traces)
+  local_fact = compute_local_fact(len(record.prob_traces))
 
   stat_dict = defaultdict(float)
 
@@ -328,16 +340,7 @@ def job_train(input):
   local_model = IC.get_initial_model()
   local_model.load_state_dict(torch.load(train_model_file_path))
 
-  local_fact = 1/len(record.prob_traces)
-
-  if HP.SKEW_LOCAL_FACT and HP.MAX_TRACES_TO_KEEP > 1:
-    # if MAX_TRACES_TO_KEEP > 1 then let's linearly interpolate an extratra factor,
-    # under which a single-trace-solved problem gets twice the leverage compared to all-trace-solved problem
-    # (while avarage-trace-solved problem stays with the original local_facts (i.e., gets multiplied by 1.0)
-    correct_fact = 2.0/3.0
-    correct_fact *= 1.0 + (HP.MAX_TRACES_TO_KEEP-len(record.prob_traces))/(HP.MAX_TRACES_TO_KEEP-1)
-    # print("with",len(record.prob_traces),"traces will multiply local_fact by",correct_fact)
-    local_fact *= correct_fact
+  local_fact = compute_local_fact(len(record.prob_traces))
 
   # print("TRAIN on",prob,fact,trace_file_paths)
 
