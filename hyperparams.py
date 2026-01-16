@@ -81,6 +81,8 @@ NUM_PERFORMS = 5
 MAX_TRACES_TO_KEEP = 5 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
+SKEW_LOCAL_FACT = False
+
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = [" --decode lrs+1010_1:2_bce=on:bd=preordered:cond=fast:drc=off:fgj=on:lcm=predicate:newcnf=on:nm=4:nwc=1.0:sac=on:slsq=on:sp=unary_first:tgt=ground:to=kbo_0",

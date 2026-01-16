@@ -330,6 +330,15 @@ def job_train(input):
 
   local_fact = 1/len(record.prob_traces)
 
+  if HP.SKEW_LOCAL_FACT and HP.MAX_TRACES_TO_KEEP > 1:
+    # if MAX_TRACES_TO_KEEP > 1 then let's linearly interpolate an extratra factor,
+    # under which a single-trace-solved problem gets twice the leverage compared to all-trace-solved problem
+    # (while avarage-trace-solved problem stays with the original local_facts (i.e., gets multiplied by 1.0)
+    correct_fact = 2.0/3.0
+    correct_fact *= 1.0 + (HP.MAX_TRACES_TO_KEEP-len(record.prob_traces))/(HP.MAX_TRACES_TO_KEEP-1)
+    # print("with",len(record.prob_traces),"traces will multiply local_fact by",correct_fact)
+    local_fact *= correct_fact
+
   # print("TRAIN on",prob,fact,trace_file_paths)
 
   stat_dict = defaultdict(float)
