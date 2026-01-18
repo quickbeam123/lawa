@@ -78,18 +78,14 @@ CUM_MAX_STRENGTH = 2.0
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
 INITIAL_NUM_PERFORMS = 5
 NUM_PERFORMS = 5
-MAX_TRACES_TO_KEEP = 5 # should be at least 1!
+MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
 SKEW_LOCAL_FACT = False
 
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = [" --decode lrs+1010_1:2_bce=on:bd=preordered:cond=fast:drc=off:fgj=on:lcm=predicate:newcnf=on:nm=4:nwc=1.0:sac=on:slsq=on:sp=unary_first:tgt=ground:to=kbo_0",
-                    " --decode lrs+1011_1:2_drc=off:er=known:fde=unused:fgj=on:nm=16:nwc=2.0:plsq=on:s2a=on:sac=on:slsq=on:sp=const_min:to=kbo_0",
-                    " --decode lrs+1011_1:1_cond=fast:drc=off:er=known:fgj=on:lcm=predicate:nm=4:nwc=1.0:sac=on:sfv=off:slsq=on:sp=const_frequency:tgt=ground:to=lpo_0",
-                    " --decode ott+1011_1:1_bd=preordered:fde=unused:fgj=on:newcnf=on:nm=2:plsq=on:s2a=on:sac=on:sp=reverse_frequency:ss=axioms:to=kbo:urr=on_0",
-                    " --decode lrs-1002_1:10_bce=on:cond=fast:er=known:fde=unused:fgj=on:nwc=2.0:sac=on:slsq=on:to=lpo_0"]
+PERFORMS_SPECIAL = PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
 TWEAKS_AS_BIAS = False
 
