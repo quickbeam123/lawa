@@ -6,9 +6,6 @@ import hyperparams as HP
 
 import torch
 
-import warnings
-warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
-
 import os, sys, shutil, pickle, random, atexit, time
 
 from collections import defaultdict
@@ -24,6 +21,8 @@ def get_status(info):
   else:
     return info[0]
 
+SPLIT_MULTI = False
+
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
   #
@@ -33,10 +32,16 @@ if __name__ == "__main__":
   # keep storing pairs (solutions,time)
   expers = {}
 
-  for exper_dir in sys.argv[1:]:
-    # print(exper_dir)
+  ever_seen = set()
+  covereds = {} # experdir -> last loop's covered problem set
 
+  for exper_dir in sys.argv[1:]:
+    print(exper_dir)
+    best_covered = set()
     plottables = {m : ([],[]) for m in MISSIONS}
+
+    if SPLIT_MULTI:
+      extra_plottables = {idx : {m : ([],[]) for m in MISSIONS} for idx in range(5)}
 
     root, dirs, files = next(os.walk(exper_dir))
     loop = MAXINT
@@ -58,20 +63,36 @@ if __name__ == "__main__":
           continue
 
         # print("    ",file)
-        (meta,results) = torch.load(os.path.join(cur_dir,file))
+        (meta,results) = torch.load(os.path.join(cur_dir,file),weights_only=False)
         # print("      ",meta)
 
         sample_record = next(iter(results.values()))[0]
         if len(sample_record) == 3:
           if isinstance(sample_record[2],W.VampResult):
-            fractional = sum(1.0 for prob,runs in results.items() for (i,ilim,info) in runs if (i == 0 and info.status == "uns"))
+            covered = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns") }
+            ever_seen |= covered
+            fractional = len(covered)
+            if len(covered) > len(best_covered):
+              best_covered = covered
+
+            if SPLIT_MULTI:
+              # special hack to decompose "all5champs" into separate lines
+              ran_on_howmanies = [len({prob for prob,runs in results.items() for (i,ilim,info) in runs if(i == idx)}) for idx in range(5)]
+              if all(howmany== len(results) for howmany in ran_on_howmanies): # all 5 attempts ran on all problems
+                for idx in range(5):
+                  local_plottables = extra_plottables[idx]
+                  local_factional = len({prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns") and (i == idx)}) / len(results)
+                  for m in MISSIONS:
+                    if not file.startswith(m): # on purpose (ab)use "the other mission"
+                      local_plottables[m][0].append(loop) # NOTE: add -1 here to get the plots starting at 0, like for CADE
+                      local_plottables[m][1].append(local_factional)
           else:
             fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
         else:
           # started using NUM_PERFORMS with different params; only the 0-labeled run, however, counts
           fractional = sum(1.0 for prob,runs in results.items() for (i,info) in runs if (i == 0 and get_status(info) == "uns"))
 
-        fractional /= len(results.items())
+        fractional /= len(results) # divide by number of problems in results (includes the ones on whic we failed)
 
         print(fractional)
 
@@ -91,6 +112,35 @@ if __name__ == "__main__":
       loop += 1
 
     expers[exper_dir] = plottables
+    if SPLIT_MULTI:
+      for idx in range(5):
+        local_plottables = extra_plottables[idx]
+        if any(len(local_plottables[m][0]) for m in MISSIONS):
+          expers[f"{exper_dir}_{idx+1}"] = local_plottables
+
+    covereds[exper_dir] = best_covered
+
+  if True:
+    print("Greedy cover of best sets from each exper:")
+    total = set()
+    while True:
+      best_dir = None
+      best_dir_adds = 0
+      for exper_dir,covers in covereds.items():
+        adds = len(covers - total)
+        if adds > best_dir_adds:
+          best_dir = exper_dir
+          best_dir_adds = adds
+      if best_dir is not None:
+        print(best_dir,"adds",best_dir_adds)
+        # TODO: print only the high-rating ones here:
+        # for prob in covereds[best_dir] - total:
+        #     print("  ",prob)
+        total |= covereds[best_dir]
+      else:
+        print("  in total",len(total))
+        break
+    print("And ever_seen",len(ever_seen))
 
   import matplotlib.pyplot as plt
   from matplotlib.ticker import MaxNLocator
@@ -114,7 +164,7 @@ if __name__ == "__main__":
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-justSF": "justSF",
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-is128": "m=128",
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-es48": "n=48",
-             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-es16": "m=16",
+             "/home/sudamar2/mtpa-gnn/newbase10k-cumul-es16": "n=16",
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl4": "k=4",
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl8": "k=8",
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl16": "k=16",
@@ -132,8 +182,8 @@ if __name__ == "__main__":
           lab = exper_dir[len(common_prefix)-2:]+"_"+m
 
         h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = lab, color=col)
-        if m == "train":
-          handles.append(h)
+        # if m == "train":
+        handles.append(h)
 
         max_val,max_idx = (0.0,0)
         imax_val,imax_idx = (0.0,0)
