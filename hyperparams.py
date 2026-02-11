@@ -85,7 +85,7 @@ SKEW_LOCAL_FACT = False
 
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
-PERFORMS_SPECIAL = PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
+PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
 TWEAKS_AS_BIAS = False
 
@@ -176,6 +176,8 @@ FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
 MAX_TRAINS_PER_TRACE = 1000
 
 LABEL_SMOOTHING = 0.0
+
+ONLY_LEARN_FROM_EVER_SELECTED = True
 
 # traces bigger than these will be considered "failed" (and not learned from)
 MAX_GAGE_HEIGHT = 500

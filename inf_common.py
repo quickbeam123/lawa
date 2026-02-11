@@ -785,8 +785,13 @@ def trace_good_for_learning(trace_file_path,logfile=None):
    init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
    gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path,weights_only=False)
 
+  good_units = set(proof_units)
+  if HP.ONLY_LEARN_FROM_EVER_SELECTED:
+    selected_units = {cl_num for tag,cl_num in journal if tag == EVENT_SEL}
+    good_units &= selected_units
+
   # scan the journal and check if there are any selections with a good clause in passive at that time
-  # also, bake proof_units into the journal, so that we don't need the lookups anymore
+  # also, bake good_units into the journal, so that we don't need the lookups anymore
   newjournal = []
   passive = set() # just for consistency checking in the loop below
   good_in_passive = 0
@@ -795,7 +800,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     if tag == EVENT_ADD:
       assert cl_num not in passive
       passive.add(cl_num)
-      if cl_num in proof_units:
+      if cl_num in good_units:
         good_in_passive += 1
     else:
       assert(tag == EVENT_REM or tag == EVENT_SEL)
@@ -807,10 +812,10 @@ def trace_good_for_learning(trace_file_path,logfile=None):
           num_good_selections += 1
 
       # it's only getting removed as part of this selection step!
-      if cl_num in proof_units:
+      if cl_num in good_units:
         good_in_passive -= 1
 
-    newjournal.append((tag,cl_num,cl_num in proof_units))
+    newjournal.append((tag,cl_num,cl_num in good_units))
 
   gage_h,gage_w = gage_stats(gnn_init_clause_nums,gage_infers)
   gweight_h,gweight_w = gweight_stats(gweight_terms)
