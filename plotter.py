@@ -23,6 +23,8 @@ def get_status(info):
 
 SPLIT_MULTI = False
 
+GREEDY_START_GREEDY_END = True # to compare a greedy sequence of champs before and after they get boosted. Only don't on the 0-th slice; i.e. as if temp==0.0
+
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
   #
@@ -34,6 +36,10 @@ if __name__ == "__main__":
 
   ever_seen = set()
   covereds = {} # experdir -> last loop's covered problem set
+
+  if GREEDY_START_GREEDY_END:
+    start_sets = {} # exper -> set of problems solved by slice 0 at iter 0
+    best_sets = {} # exper -> set of problems solved by slice 0 at iter argmax
 
   for exper_dir in sys.argv[1:]:
     print(exper_dir)
@@ -86,6 +92,14 @@ if __name__ == "__main__":
                     if not file.startswith(m): # on purpose (ab)use "the other mission"
                       local_plottables[m][0].append(loop) # NOTE: add -1 here to get the plots starting at 0, like for CADE
                       local_plottables[m][1].append(local_factional)
+            if GREEDY_START_GREEDY_END:
+              covered0 = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns" and i == 0) }
+              if loop == 1:
+                start_sets[exper_dir] = covered0
+                # print(f"start_sets[{exper_dir}] = {len(covered0)}")
+              if exper_dir not in best_sets or len(best_sets[exper_dir]) < len(covered0):
+                best_sets[exper_dir] = covered0
+                # print(f"best_sets[{exper_dir}] = {len(covered0)}")
           else:
             fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
         else:
@@ -119,6 +133,35 @@ if __name__ == "__main__":
           expers[f"{exper_dir}_{idx+1}"] = local_plottables
 
     covereds[exper_dir] = best_covered
+
+  if GREEDY_START_GREEDY_END:
+    print("start strat boosting table")
+
+    iter = 0
+    greed0 = set()
+    greed_boost = set()
+    covered_1_plain = None
+    covered_1_boosted = None
+    for exper_dir, covered0 in start_sets.items():
+      covered_boost = best_sets[exper_dir]
+      if iter == 0:
+        covered_1_plain = covered0
+        covered_1_boosted = covered_boost
+      iter += 1
+      percent_boost = 100*(len(covered_boost) / len(covered0) - 1.0)
+
+      print(f"{iter} & \\num{{{len(covered0 - greed0)}}} & \\num{{{len(covered0)}}} & +\\SI{{{percent_boost:.1f}}}{{\\percent}} & \\num{{{len(covered_boost)}}} & \\num{{{len(covered_boost - greed_boost)}}} & ${{{iter}}}'$ \\\\")
+      greed0 |= covered0
+      greed_boost |= covered_boost
+
+    percent_boost = 100*(len(greed_boost) / len(greed0) - 1.0)
+    print("\hline")
+    print(f"union:        & \\num{{{len(greed0)}}} & $\\longrightarrow$ & +\\SI{{{percent_boost:.1f}}}{{\\percent}}  & $\\longrightarrow$ & \\num{{{len(greed_boost)}}} \\\\")
+    percent_1_plain = 100*(len(greed0) / len(covered_1_plain) - 1.0)
+    percent_1_boosted = 100*(len(greed_boost) / len(covered_1_boosted) - 1.0)
+    print(f"  & (\\SI{{{percent_1_plain:.1f}}}{{\\percent}} of 1) &&&& (\\SI{{{percent_1_boosted:.1f}}}{{\\percent}} of $1'$)")
+
+    print()
 
   if True:
     print("Greedy cover of best sets from each exper:")
