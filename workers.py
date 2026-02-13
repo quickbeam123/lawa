@@ -146,7 +146,7 @@ def job_gather(input):
 
   if vamp_res.status == "uns":
     #assert vamp_res.status == "uns", f"Ran {(prob,opts)} got {vamp_res} eval_opts were {eval_opts}"
-    assert os.path.isfile(trace_file_path)
+    assert os.path.isfile(trace_file_path), f"Ran {(prob,opts)} got {vamp_res} eval_opts were {eval_opts}"
 
     return IC.trace_good_for_learning(trace_file_path,train_log)
   else:
