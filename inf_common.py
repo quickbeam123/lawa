@@ -43,7 +43,7 @@ def get_conv():
       normalize=False,  # a bit like a layernorm on the output?
       root_weight=True, # like a self-loop; i.e. allow then target node to talk as well
       project=HP.GNN_SAGE_PROJECT,    # extra non-lineary before aggregating
-      bias=True)        # and why not add a bias before the relu that's about to come?
+      bias=True)        # and why not add a bias before the non-linearity that's about to come?
 
 class SingleEmbedding(torch.nn.Module):
     def __init__(self, embedding_dim):
@@ -69,7 +69,11 @@ class MyFinal(torch.nn.Module):
         self.maybe_dropout = torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT) if HP.FINAL_LAYER_DROPOUT > 0.0 else torch.nn.Identity()
 
     def forward(self, x : Tensor):
-      x = torch.nn.functional.relu(x)
+      if HP.USE_SILU:
+        x = torch.nn.functional.silu(x)
+      else:
+        x = torch.nn.functional.relu(x)
+
       x = self.maybe_dropout(x)
 
       # Actually, newly, let's try a setup in which this is never called from python directly
@@ -87,7 +91,10 @@ class MyFinal(torch.nn.Module):
       if HP.TWEAKS_AS_BIAS:
         x = x + tweaks.unsqueeze(1)
 
-      x = torch.nn.functional.relu(x)
+      if HP.USE_SILU:
+        x = torch.nn.functional.silu(x)
+      else:
+        x = torch.nn.functional.relu(x)
       x = self.maybe_dropout(x)
 
       if HP.TWEAKS_AS_BIAS:
@@ -105,7 +112,7 @@ def get_clause_valuator_pair():
 
   # so far, we never used multiple layers here
   for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-    layer_list.append(torch.nn.ReLU())
+    layer_list.append(torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU())
     layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
 
   return torch.nn.Sequential(*layer_list),MyFinal(HP.INTERAL_SIZE)
@@ -142,7 +149,7 @@ class MonsterModules(torch.nn.Module):
 
     self.gnn_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
+      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GNN_INTERNAL_SIZE),
     )
 
@@ -174,14 +181,14 @@ class MonsterModules(torch.nn.Module):
     self.gage_rule_embed = torch.nn.Embedding(num_embeddings=HP.NUM_INFERENCE_RULES, embedding_dim=HP.GAGE_EMBEDDING_SIZE)
     self.gage_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
+      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
     self.gage_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
+      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
     )
 
@@ -194,20 +201,20 @@ class MonsterModules(torch.nn.Module):
 
     self.gweight_term_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
+      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     )
     self.gweight_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
+      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     )
 
     self.final_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
-      torch.nn.ReLU(),
+      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE)
     )
     self.clause_valuator_fst, self.clause_valuator_snd = get_clause_valuator_pair()
@@ -480,7 +487,12 @@ class MonsterNN(torch.nn.Module):
 
     if self.computing:
       for key,embedder in self.gnn_node_init:
-        self.gnn_nodes[key] = embedder.forward(self.gnn_nodes[key]).relu() + self.gnn_static_tweak # broadcasting to every embedded node
+        temp = embedder.forward(self.gnn_nodes[key])
+        if HP.USE_SILU:
+          temp = torch.nn.functional.silu(temp)
+        else:
+          temp = torch.nn.functional.relu(temp)
+        self.gnn_nodes[key] = temp + self.gnn_static_tweak # broadcasting to every embedded node
         if HP.GNN_DROPOUT > 0.0:
           self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
 
@@ -496,7 +508,11 @@ class MonsterNN(torch.nn.Module):
             out_dict[tgt] = out
 
         for key, out in out_dict.items():
-          self.gnn_nodes[key] = out.relu()
+          if HP.USE_SILU:
+            self.gnn_nodes[key] = torch.nn.functional.silu(out)
+          else:
+            self.gnn_nodes[key] = torch.nn.functional.relu(out)
+
           if HP.GNN_DROPOUT > 0.0:
             self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
           out_dict = {}

@@ -131,6 +131,9 @@ NUM_PROBLEM_FEATURES : Final[int] = 15
 NUM_STRATEGY_FEATURES : Final[int] = 30
 NUM_GSD_FEATURES : Final[int] = 8
 
+# non-linearity
+USE_SILU : Final[bool] = True
+
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:
@@ -177,7 +180,7 @@ MAX_TRAINS_PER_TRACE = 1000
 
 LABEL_SMOOTHING = 0.0
 
-ONLY_LEARN_FROM_EVER_SELECTED = True
+ONLY_LEARN_FROM_EVER_SELECTED = False
 
 # traces bigger than these will be considered "failed" (and not learned from)
 MAX_GAGE_HEIGHT = 500
