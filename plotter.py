@@ -211,6 +211,8 @@ if __name__ == "__main__":
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl4": "k=4",
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl8": "k=8",
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl16": "k=16",
+             "/home/sudamar2/ijcar2026/newDefaults_i32K": "default",
+             "/home/sudamar2/ijcar2026/newDefaults_smartAgain_i32K": "smartAgain",
              }
 
   for exper_dir,plottables in expers.items():
