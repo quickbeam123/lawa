@@ -274,7 +274,7 @@ def job_eval_tweak_matrix(input):
       eval_tweak_matrix_one_trace(trace_file_path,local_model,local_fact,stat_dict)
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
-        f.write(f"{e} occurred in EVAL/TWEAK\n")
+        f.write(f"{type(e).__name__}: {e} occurred in EVAL/TWEAK\n")
         f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {model_file_path}, tweak_file_path {tweak_file_path})")
       raise
 
@@ -353,7 +353,7 @@ def job_train(input):
       loss += train_one_trace(trace_file_path,local_model,local_fact,stat_dict,tw_pref)
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
-        f.write(f"{e} occurred in TRAIN\n")
+        f.write(f"{type(e).__name__}: {e} occurred in TRAIN\n")
         f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {train_model_file_path})")
       raise
 
