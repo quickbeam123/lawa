@@ -180,7 +180,7 @@ MAX_TRAINS_PER_TRACE = 1000
 
 LABEL_SMOOTHING = 0.0
 
-ONLY_LEARN_FROM_EVER_SELECTED = False
+ONLY_LEARN_FROM_EVER_SELECTED = True
 
 # traces bigger than these will be considered "failed" (and not learned from)
 MAX_GAGE_HEIGHT = 500
