@@ -138,7 +138,7 @@ class MonsterModules(torch.nn.Module):
     self.gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
                 ("symbol",  torch.nn.Linear(11,HP.GNN_INTERNAL_SIZE)),
                 ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("term", torch.nn.Linear(9,HP.GNN_INTERNAL_SIZE)),
                 ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
 
     self.gnn_clause_final = torch.nn.Sequential(
