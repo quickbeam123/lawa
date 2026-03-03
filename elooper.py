@@ -57,7 +57,11 @@ def is_sound(trace_file_name):
   if not os.path.isfile(trace_file_name):
     print("Trace file",trace_file_name,"no longer exists")
     return False
-  tt = torch.load(trace_file_name)
+  try:
+    tt = torch.load(trace_file_name)
+  except EOFError:
+    print("Corrupted (unfinished) trace file",trace_file_name)
+    return False
   if isinstance(tt[3], int):
     return True
   print("Unconverted trace file",trace_file_name)
