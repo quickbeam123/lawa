@@ -135,17 +135,18 @@ class MonsterModules(torch.nn.Module):
   def __init__(self):
     super().__init__()
 
-    self.gnn_node_init = [("sort",  torch.nn.Linear(3,HP.GNN_INTERNAL_SIZE)),
-                ("symbol",  torch.nn.Linear(11,HP.GNN_INTERNAL_SIZE)),
+    self.gnn_node_init = [("typecon", torch.nn.Linear(5,HP.GNN_INTERNAL_SIZE)),
+                ("sort", torch.nn.Linear(6,HP.GNN_INTERNAL_SIZE)),
+                ("symbol",  torch.nn.Linear(24,HP.GNN_INTERNAL_SIZE)),
                 ("clause", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
-                ("term", torch.nn.Linear(10,HP.GNN_INTERNAL_SIZE)),
+                ("term", torch.nn.Linear(9,HP.GNN_INTERNAL_SIZE)),
                 ("var", torch.nn.Linear(1,HP.GNN_INTERNAL_SIZE)),] # TODO: discretize to have only a few embeddings? but non-linearly spread?
 
     self.gnn_clause_final = torch.nn.Sequential(
         torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
         torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE))
     self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
-    self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gnn_typecon_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
     self.gnn_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
@@ -159,9 +160,12 @@ class MonsterModules(torch.nn.Module):
     for lidx in range(HP.GNN_NUM_LAYERS):
       layer = []
       for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
+                                    ('sort', 'sort'), ('sort', 'sort'), ('sort', 'typecon'), ('typecon', 'sort'),
                                     ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
                                     ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
-                                    ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
+                                    ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term'),
+                                    ('term', 'sort'), ('sort', 'term')]):
+        # TODO: start thinking
         # in the last layer, no need for any other output than ["symbol","clause","sort"]
         # and vars don't need to talk to terms in the second to last layer (as vars never link to literals and only literal-terms talk to clauses)
         if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]) and (lidx != HP.GNN_NUM_LAYERS-2 or (src,tgt) != ('var', 'term')):
@@ -192,6 +196,8 @@ class MonsterModules(torch.nn.Module):
 
     # TODO: there is no reason for this to be a module; when refectoring, turn this into a parameter (should get fixed on Vampire side too)
     self.gweight_var_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gweight_svar_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gweight_skolem_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
 
     self.gweight_term_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
@@ -273,6 +279,8 @@ class MonsterNN(torch.nn.Module):
 
   # gweight modules
   # gweight_var_embed: SingleEmbedding
+  # gweight_svar_embed: SingleEmbedding
+  # gweight_skolem_embed: SingleEmbedding
   # gweight_term_combine: torch.nn.Module
   # gweight_static_embedder: torch.nn.Module
 
@@ -293,9 +301,9 @@ class MonsterNN(torch.nn.Module):
   gweight_static_tweak: Tensor
 
   def __init__(self,
-              gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
+              gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_typecon_final,gnn_static_embedder,
               gage_rule_embed, gage_combine, gage_static_embedder,
-              gweight_var_embed, gweight_term_combine, gweight_static_embedder,
+              gweight_var_embed, gweight_svar_embed, gweight_skolem_embed, gweight_term_combine, gweight_static_embedder,
               final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaky, tweaks):
     super().__init__()
 
@@ -314,7 +322,7 @@ class MonsterNN(torch.nn.Module):
     self.gnn_layers = gnn_layers
     self.gnn_clause_final = gnn_clause_final
     self.gnn_symbol_final = gnn_symbol_final
-    self.gnn_sort_final = gnn_sort_final
+    self.gnn_typecon_final = gnn_typecon_final
     self.gnn_static_embedder = gnn_static_embedder
 
     # records
@@ -341,6 +349,8 @@ class MonsterNN(torch.nn.Module):
 
     # modules
     self.gweight_var_embed = gweight_var_embed
+    self.gweight_svar_embed = gweight_svar_embed
+    self.gweight_skolem_embed = gweight_skolem_embed
     self.gweight_term_combine = gweight_term_combine
     self.gweight_static_embedder = gweight_static_embedder
 
@@ -517,7 +527,9 @@ class MonsterNN(torch.nn.Module):
       initial_clause_gage += self.gage_static_tweak # broadcasting for every inital clause
 
       self.gweight_symbol_embeds = torch.cat(
-        (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
+        (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),
+         self.gnn_typecon_final.forward(self.gnn_nodes["typecon"]),
+         self.gweight_skolem_embed.forward(torch.tensor(0.0)).unsqueeze(0)),dim=0)
 
       if not self.old_computing:
         return initial_clause_gage,self.gweight_symbol_embeds
@@ -529,6 +541,7 @@ class MonsterNN(torch.nn.Module):
 
       # also initialized the variable embedding for terms
       self.gweight_term_embed_store[0] = self.gweight_var_embed.forward(torch.tensor(0.0)) # the input will be ignored
+      self.gweight_term_embed_store[1] = self.gweight_svar_embed.forward(torch.tensor(0.0)) # the input will be ignored
 
       # TODO: could drop all the gnn stuff not needed anymore (hard to do in script?)
       '''
@@ -620,7 +633,7 @@ class MonsterNN(torch.nn.Module):
   def gweight_enqueue_one_term(self,id: int, functor: int, sign: float, args: List[int]):
     layer_idx = 0
     for a in args:
-      if a > 0:
+      if a > 1: # because slot 0 is reserved for term vars and slot 1 for type vars
         layer_idx = max(layer_idx,self.gweight_term_layers[a])
     layer_idx += 1
     layer_idx = max(layer_idx,self.gweight_cur_base_layer)
@@ -744,9 +757,9 @@ def export_model(model_state_dict,name):
   for param in m.parameters():
     param.requires_grad = False
 
-  module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
+  module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_typecon_final,m.gnn_static_embedder,
                      m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
-                     m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
+                     m.gweight_var_embed,m.gweight_svar_embed,m.gweight_skolem_embed,m.gweight_term_combine,m.gweight_static_embedder,
                      m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
   script = torch.jit.script(module)
   script.save(name)
@@ -778,7 +791,7 @@ def gweight_stats(terms):
   for (id,_functor,_sign,args) in terms:
     layer_idx = 0
     for a in args:
-      if a > 0:
+      if a > 1: # because slot 0 is reserved for term vars and slot 1 for type vars
         layer_idx = max(layer_idx,term_layers[a])
     layer_idx += 1
     term_layers[id] = layer_idx
@@ -868,9 +881,9 @@ class LearningModel(torch.nn.Module):
     self.trace_tuple = trace_tuple
 
     self.nn = MonsterNN(
-                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
+                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_typecon_final,m.gnn_static_embedder,
                     m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
-                    m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
+                    m.gweight_var_embed,m.gweight_svar_embed,m.gweight_skolem_embed,m.gweight_term_combine,m.gweight_static_embedder,
                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
     self.verbose = verbose
     if verbose:

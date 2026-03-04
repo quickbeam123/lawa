@@ -37,25 +37,25 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10611"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-hol_6936"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
 # only if RANDOMIZED_STRATEGIES is None does the SATURATION_ALGORITHM below kick in!
-SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+SATURATION_ALGORITHM = "lrs --decode lrs-1011_1:1_anc=none:au=on:bce=on:bd=preordered:bet=on:br=off:bsr=unit_only:cha=on:cond=fast:drc=off:e2e=on:er=filter:fd=preordered:fe=axiom:hfsq=on:hfsqc=1:hud=10:irw=on:kws=precedence:lcm=predicate:lma=off:nicw=on:nm=2:ntd=on:nwc=5.0:pe=on:piset=equals:prag=on:s2a=on:s2agt=64:sac=on:sd=2:sfv=off:sgt=8:slsqc=2:slsql=off:slsqr=4,1:sos=all:sp=weighted_frequency:ss=axioms:st=1.5:updr=off_0" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
-PROBLEM_LIST = "problemsCNFFOFTF0noSATnoARI.txt" # newly, we don't want to run on SAT
-NUM_TRAIN_PROBLEMS = 15500 # 15500 is the full set
+PROBLEM_LIST = "deeper.A4.shuf15000.txt" # newly, we don't want to run on SAT
+NUM_TRAIN_PROBLEMS = 15000
 EVAL_ON_TEST = False
 NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
 
 # currently not supported with mtpa-gnn!
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
-NON_IMIT_EXTRA = " -lpd off"
+NON_IMIT_EXTRA = " "
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 32000
+INSTRUCTION_LIMIT = 16000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
@@ -147,7 +147,7 @@ GNN_INTERNAL_SIZE : Final[int] = 32 # "big" is 48
 
 GNN_DROPOUT : Final[float] = 0.0
 
-NUM_INFERENCE_RULES : Final[int] = 202
+NUM_INFERENCE_RULES : Final[int] = 188
 GAGE_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
