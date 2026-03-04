@@ -37,7 +37,7 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-hol_6936"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-hol_6937"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
@@ -123,7 +123,9 @@ MAX_TEST_IMPROVE_ITER = 30
 # numVarOcc,VarOcc/W             7,8
 # Sine0,SineMax,SineLevel,   9,10,11
 # numSplits                       12
-NUM_CLAUSE_FEATURES : Final[int] = 12
+# NumOfAppVarsAndLambdas       13,14
+# there are three more here, related to theory reasoning
+NUM_CLAUSE_FEATURES : Final[int] = 14
 # todo: think of normalization / regularization ...
 
 # these two together are the STATIC features for a particular vampire run
