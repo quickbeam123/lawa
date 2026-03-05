@@ -37,12 +37,12 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-hol_6937"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-hol_6939"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
 # only if RANDOMIZED_STRATEGIES is None does the SATURATION_ALGORITHM below kick in!
-SATURATION_ALGORITHM = "lrs --decode lrs-1011_1:1_anc=none:au=on:bce=on:bd=preordered:bet=on:br=off:bsr=unit_only:cha=on:cond=fast:drc=off:e2e=on:er=filter:fd=preordered:fe=axiom:hfsq=on:hfsqc=1:hud=10:irw=on:kws=precedence:lcm=predicate:lma=off:nicw=on:nm=2:ntd=on:nwc=5.0:pe=on:piset=equals:prag=on:s2a=on:s2agt=64:sac=on:sd=2:sfv=off:sgt=8:slsqc=2:slsql=off:slsqr=4,1:sos=all:sp=weighted_frequency:ss=axioms:st=1.5:updr=off_0" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "deeper.A4.shuf15000.txt" # newly, we don't want to run on SAT
 NUM_TRAIN_PROBLEMS = 15000
@@ -125,7 +125,7 @@ MAX_TEST_IMPROVE_ITER = 30
 # numSplits                       12
 # NumOfAppVarsAndLambdas       13,14
 # there are three more here, related to theory reasoning
-NUM_CLAUSE_FEATURES : Final[int] = 14
+NUM_CLAUSE_FEATURES : Final[int] = 12
 # todo: think of normalization / regularization ...
 
 # these two together are the STATIC features for a particular vampire run

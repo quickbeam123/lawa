@@ -200,7 +200,7 @@ class MonsterModules(torch.nn.Module):
     self.gweight_skolem_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
 
     self.gweight_term_combine = torch.nn.Sequential(
-      torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
+      torch.nn.Linear(5*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
@@ -671,26 +671,22 @@ class MonsterNN(torch.nn.Module):
     for todos in self.gweight_todo_layers:
       # print("gweight layers:",len(todos))
 
-      # TODO: could maybe directly write to a giant tensor via slicing!
-      functors = []
-      signs = []
-      first_args = []
-      other_args = []
+      # Vampire promises the first two to be sort args and the second two term args
+      # (padding, if needed, sorts with "1" (the sort var) and terms with "0" (the term var)
+      # and cropping the additional ones if present; however, not that vLam and vApp (and all the reasonabl constants) fit into this wholly!
+      rows = []
       for id,functor,sign,args in todos:
-        functors.append(self.gweight_symbol_embeds[functor])
-        signs.append(torch.tensor([sign]))
-        if len(args) == 0:
-          first_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
-          other_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
-        else:
-          first_args.append(self.gweight_term_embed_store[args[0]])
-          if len(args) == 1:
-            other_args.append(torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE))
-          else:
-            other_arg = torch.sum(torch.stack([self.gweight_term_embed_store[a] for a in args[1:]]),dim=0)/(len(args)-1)
-            other_args.append(other_arg)
+        assert len(args) == 4
+        rows.append(torch.cat((
+          self.gweight_symbol_embeds[functor],
+          torch.tensor([sign]),
+          self.gweight_term_embed_store[args[0]],
+          self.gweight_term_embed_store[args[1]],
+          self.gweight_term_embed_store[args[2]],
+          self.gweight_term_embed_store[args[3]],
+        )))
 
-      res = self.gweight_term_combine(torch.cat((torch.stack(functors), torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
+      res = self.gweight_term_combine(torch.stack(rows))
       res += self.gweight_static_tweak # broadcasting for every line in res
       for j,(id,_,_,_) in enumerate(todos):
         self.gweight_term_embed_store[id] = res[j]
