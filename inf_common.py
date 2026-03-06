@@ -107,6 +107,57 @@ class MyFinal(torch.nn.Module):
 
         return torch.matmul(ws_hat, x.T)
 
+class GruStyleGweightCombiner(torch.nn.Module):
+    def __init__(self, N):
+      super().__init__()
+      # N = embedding size; input is [batch, 5N+1]: first N+1 is x, then 4 children of size N
+
+      # Reset gate: shared linear for input x, per-child matrices for h_i
+      self.W_r = torch.nn.Linear(N+1, N, bias=False)
+      self.V_r = torch.nn.Parameter(torch.empty(4, N, N))
+      self.b_r = torch.nn.Parameter(torch.zeros(4, N))
+
+      # Candidate hidden state: tanh(W_hat(cat(x, r*h)))
+      self.W_hat = torch.nn.Linear(5*N+1, N)
+
+      # Update gate: sigmoid(W_u(full_input))
+      self.W_u = torch.nn.Linear(5*N+1, N)
+
+      # Hidden state mixing: linear over children
+      self.W_h = torch.nn.Linear(4*N, N, bias=False)
+
+      self.N = N
+
+      # Orthogonal init for all [N,N] submatrices that multiply hidden states
+      for i in range(4):
+        torch.nn.init.orthogonal_(self.V_r[i])
+      for W in [self.W_u, self.W_hat]:
+        for i in range(4):
+          torch.nn.init.orthogonal_(W.weight[:, N+1+i*N : N+1+(i+1)*N])
+      for i in range(4):
+        torch.nn.init.orthogonal_(self.W_h.weight[:, i*N : (i+1)*N])
+
+    def forward(self, inp : Tensor):
+      N = self.N
+      x = inp[:, :N+1]                                    # [batch, N+1]
+      H = inp[:, N+1:].reshape(-1, 4, N)                  # [batch, 4, N]
+
+      # Reset gates (per-child, batched)
+      r_x = self.W_r(x)                                   # [batch, N]
+      r_h = torch.einsum('ijk,bik->bij', self.V_r, H) + self.b_r  # [batch, 4, N]
+      r = torch.sigmoid(r_h + r_x.unsqueeze(1))           # [batch, 4, N]
+
+      # Candidate hidden state
+      rH = (r * H).reshape(-1, 4*N)                       # [batch, 4*N]
+      h_hat = torch.tanh(self.W_hat(torch.cat((x, rH), dim=1)))  # [batch, N]
+
+      # Update gate
+      u = torch.sigmoid(self.W_u(inp))                    # [batch, N]
+
+      # Output
+      return u * self.W_h(inp[:, N+1:]) + (1 - u) * h_hat  # [batch, N]
+
+
 def get_clause_valuator_pair():
   layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
 
@@ -199,13 +250,14 @@ class MonsterModules(torch.nn.Module):
     self.gweight_svar_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
     self.gweight_skolem_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
 
-    self.gweight_term_combine = torch.nn.Sequential(
-      torch.nn.Linear(5*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
-      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-      torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
-      torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
-      torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
-    )
+    # self.gweight_term_combine = torch.nn.Sequential(
+    #  torch.nn.Linear(5*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
+    #  torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
+    #  torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
+    #  torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
+    #  torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
+    #)
+    self.gweight_term_combine = GruStyleGweightCombiner(HP.GWEIGHT_EMBEDDING_SIZE)
     self.gweight_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
