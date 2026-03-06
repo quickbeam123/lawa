@@ -44,10 +44,10 @@ RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if 
 # only if RANDOMIZED_STRATEGIES is None does the SATURATION_ALGORITHM below kick in!
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
-PROBLEM_LIST = "deeper.A4.shuf15000.txt" # newly, we don't want to run on SAT
-NUM_TRAIN_PROBLEMS = 15000
-EVAL_ON_TEST = False
-NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
+PROBLEM_LIST = "deeper.A4.shuf35000.txt" # newly, we don't want to run on SAT
+NUM_TRAIN_PROBLEMS = 30000
+EVAL_ON_TEST = True
+NUM_TEST_PROBLEMS = 5000 # the rest of current set
 
 # currently not supported with mtpa-gnn!
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
