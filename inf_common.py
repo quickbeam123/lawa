@@ -128,10 +128,6 @@ class GruStyleGweightCombiner(torch.nn.Module):
 
       self.N = N
 
-      self.rln = torch.nn.LayerNorm(N)
-      self.uln = torch.nn.LayerNorm(N)
-      self.hhln = torch.nn.LayerNorm(N)
-
       # Orthogonal init for all [N,N] submatrices that multiply hidden states
       for i in range(4):
         torch.nn.init.orthogonal_(self.V_r[i])
@@ -149,14 +145,14 @@ class GruStyleGweightCombiner(torch.nn.Module):
       # Reset gates (per-child, batched)
       r_x = self.W_r(x)                                   # [batch, N]
       r_h = torch.einsum('ijk,bik->bij', self.V_r, H) + self.b_r  # [batch, 4, N]
-      r = torch.sigmoid(self.rln(r_h + r_x.unsqueeze(1)))           # [batch, 4, N]
+      r = torch.sigmoid(r_h + r_x.unsqueeze(1))           # [batch, 4, N]
 
       # Candidate hidden state
       rH = (r * H).reshape(-1, 4*N)                       # [batch, 4*N]
-      h_hat = torch.tanh(self.hhln(self.W_hat(torch.cat((x, rH), dim=1))))  # [batch, N]
+      h_hat = torch.tanh(self.W_hat(torch.cat((x, rH), dim=1)))  # [batch, N]
 
       # Update gate
-      u = torch.sigmoid(self.uln(self.W_u(inp)))                    # [batch, N]
+      u = torch.sigmoid(self.W_u(inp))                    # [batch, N]
 
       # Output
       return u * self.W_h(inp[:, N+1:]) + (1 - u) * h_hat  # [batch, N]
