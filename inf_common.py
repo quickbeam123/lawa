@@ -250,14 +250,17 @@ class MonsterModules(torch.nn.Module):
     self.gweight_svar_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
     self.gweight_skolem_embed = SingleEmbedding(embedding_dim=HP.GWEIGHT_EMBEDDING_SIZE)
 
-    # self.gweight_term_combine = torch.nn.Sequential(
-    #  torch.nn.Linear(5*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
-    #  torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-    #  torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
-    #  torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
-    #  torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
-    #)
-    self.gweight_term_combine = GruStyleGweightCombiner(HP.GWEIGHT_EMBEDDING_SIZE)
+    # self.gweight_term_combine = GruStyleGweightCombiner(HP.GWEIGHT_EMBEDDING_SIZE)
+    # did not work as well as the good old one below (not even an LSTM variation)
+
+    self.gweight_term_combine = torch.nn.Sequential(
+      torch.nn.Linear(5*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
+      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
+      torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
+      torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
+    )
+
     self.gweight_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
