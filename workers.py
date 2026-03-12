@@ -359,6 +359,13 @@ def job_train(input):
 
   # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
 
+  """ # for debugging the "always mute neurons"
+  for name, param in local_model.named_parameters():
+    if param.grad is None:
+      print(f"grad is None for: {name}")
+  print()
+  """
+
   for param in local_model.parameters():
     grad = param.grad
     param.requires_grad = False # to allow the in-place operation just below

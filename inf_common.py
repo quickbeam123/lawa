@@ -219,7 +219,7 @@ class MonsterModules(torch.nn.Module):
         # TODO: start thinking
         # in the last layer, no need for any other output than ["symbol","clause","sort"]
         # and vars don't need to talk to terms in the second to last layer (as vars never link to literals and only literal-terms talk to clauses)
-        if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]) and (lidx != HP.GNN_NUM_LAYERS-2 or (src,tgt) != ('var', 'term')):
+        if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","typecon","clause"]):
           conv = get_conv()
           nested_modules[f"gnn_layer[{lidx}]:{src}->{tgt}:{i}"] = conv
           layer.append((src,tgt,i,conv))

@@ -125,7 +125,7 @@ MAX_TEST_IMPROVE_ITER = 30
 # numSplits                       12
 # NumOfAppVarsAndLambdas       13,14
 # there are three more here, related to theory reasoning
-NUM_CLAUSE_FEATURES : Final[int] = 12
+NUM_CLAUSE_FEATURES : Final[int] = 14
 # todo: think of normalization / regularization ...
 
 # these two together are the STATIC features for a particular vampire run
