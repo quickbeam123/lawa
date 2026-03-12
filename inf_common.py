@@ -157,49 +157,6 @@ class GruStyleGweightCombiner(torch.nn.Module):
       # Output
       return u * self.W_h(inp[:, N+1:]) + (1 - u) * h_hat  # [batch, N]
 
-class LSTMStyleGweightCombiner(torch.nn.Module):
-    def __init__(self, N):
-      super().__init__()
-      self.N = N
-
-      # Shared input projection for all 4 gates (i, f, o, g) with bias
-      self.W_x = torch.nn.Linear(N+1, 4*N)
-
-      # Per-child matrices for all 4 gates bundled, no bias
-      self.V = torch.nn.Parameter(torch.empty(4, 4*N, N))
-
-      # Orthogonal init for each [N, N] gate block within each child
-      for child in range(4):
-        for gate in range(4):
-          torch.nn.init.orthogonal_(self.V[child, gate*N:(gate+1)*N, :])
-
-    def forward(self, x : Tensor, h_children : Tensor, c_children : Tensor):
-      N = self.N
-      H = h_children.reshape(-1, 4, N)                      # [batch, 4, N]
-      C = c_children.reshape(-1, 4, N)                       # [batch, 4, N]
-
-      # One big einsum: per-child, all 4 gates
-      vh = torch.einsum('cij,bcj->bci', self.V, H)          # [batch, 4, 4*N]
-
-      # Chunk per-child contributions, each [batch, 4, N]
-      i_k, f_k, o_k, g_k = vh.chunk(4, dim=2)
-
-      # Input projection chunked into per-gate parts
-      wx_i, wx_f, wx_o, wx_g = self.W_x(x).chunk(4, dim=1) # each [batch, N]
-
-      # Forget gate: wx_f broadcast per-child, then sigmoid
-      f = torch.sigmoid(f_k + wx_f.unsqueeze(1))            # [batch, 4, N]
-
-      # i, o, g: sum over children first, add wx once, then nonlinearity
-      i = torch.sigmoid(i_k.sum(dim=1) + wx_i)              # [batch, N]
-      o = torch.sigmoid(o_k.sum(dim=1) + wx_o)              # [batch, N]
-      g = torch.tanh(g_k.sum(dim=1) + wx_g)                 # [batch, N]
-
-      # LSTM update
-      c = (f * C).sum(dim=1) + i * g                        # [batch, N]
-      h = o * torch.tanh(c)                                  # [batch, N]
-      return h, c
-
 
 def get_clause_valuator_pair():
   layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
@@ -300,7 +257,7 @@ class MonsterModules(torch.nn.Module):
     #  torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
     #  torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     #)
-    self.gweight_term_combine = LSTMStyleGweightCombiner(HP.GWEIGHT_EMBEDDING_SIZE)
+    self.gweight_term_combine = GruStyleGweightCombiner(HP.GWEIGHT_EMBEDDING_SIZE)
     self.gweight_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
@@ -386,7 +343,6 @@ class MonsterNN(torch.nn.Module):
   # gweight helper data
   gweight_symbol_embeds: Tensor
   gweight_term_embed_store: Dict[int,Tensor]
-  gweight_term_cell_store: Dict[int,Tensor]
   gweight_term_layers: Dict[int,int]
   gweight_cur_base_layer: int
   gweight_todo_layers: List[List[Tuple[int,int,float,List[int]]]]
@@ -458,7 +414,6 @@ class MonsterNN(torch.nn.Module):
     # helpers
     self.gweight_symbol_embeds = torch.zeros(0) # dummy, overwritten by gnn_perform
     self.gweight_term_embed_store = {}
-    self.gweight_term_cell_store = {}
     self.gweight_term_layers = {}
     self.gweight_cur_base_layer = 1
     self.gweight_todo_layers = []
@@ -638,9 +593,7 @@ class MonsterNN(torch.nn.Module):
 
       # also initialized the variable embedding for terms
       self.gweight_term_embed_store[0] = self.gweight_var_embed.forward(torch.tensor(0.0)) # the input will be ignored
-      self.gweight_term_cell_store[0] = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE)
       self.gweight_term_embed_store[1] = self.gweight_svar_embed.forward(torch.tensor(0.0)) # the input will be ignored
-      self.gweight_term_cell_store[1] = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE)
 
       # TODO: could drop all the gnn stuff not needed anymore (hard to do in script?)
       '''
@@ -773,33 +726,22 @@ class MonsterNN(torch.nn.Module):
       # Vampire promises the first two to be sort args and the second two term args
       # (padding, if needed, sorts with "1" (the sort var) and terms with "0" (the term var)
       # and cropping the additional ones if present; however, not that vLam and vApp (and all the reasonabl constants) fit into this wholly!
-      x_rows = []
-      h_rows = []
-      c_rows = []
+      rows = []
       for id,functor,sign,args in todos:
         assert len(args) == 4
-        x_rows.append(torch.cat((
+        rows.append(torch.cat((
           self.gweight_symbol_embeds[functor],
           torch.tensor([sign]),
-        )))
-        h_rows.append(torch.cat((
           self.gweight_term_embed_store[args[0]],
           self.gweight_term_embed_store[args[1]],
           self.gweight_term_embed_store[args[2]],
           self.gweight_term_embed_store[args[3]],
         )))
-        c_rows.append(torch.cat((
-          self.gweight_term_cell_store[args[0]],
-          self.gweight_term_cell_store[args[1]],
-          self.gweight_term_cell_store[args[2]],
-          self.gweight_term_cell_store[args[3]],
-        )))
 
-      h_res, c_res = self.gweight_term_combine(torch.stack(x_rows), torch.stack(h_rows), torch.stack(c_rows))
-      h_res += self.gweight_static_tweak # broadcasting for every line in h_res
+      res = self.gweight_term_combine(torch.stack(rows))
+      res += self.gweight_static_tweak # broadcasting for every line in res
       for j,(id,_,_,_) in enumerate(todos):
-        self.gweight_term_embed_store[id] = h_res[j]
-        self.gweight_term_cell_store[id] = c_res[j]
+        self.gweight_term_embed_store[id] = res[j]
 
     self.gweight_cur_base_layer += len(self.gweight_todo_layers)
     empty_todo_layers: List[List[Tuple[int,int,float,List[int]]]] = []
