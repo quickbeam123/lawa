@@ -227,8 +227,8 @@ if __name__ == "__main__":
           lab = exper_dir[len(common_prefix)-2:]+"_"+m
 
         h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = lab, color=col)
-        # if m == "train":
-        handles.append(h)
+        if m == "train":
+          handles.append(h)
 
         max_val,max_idx = (0.0,0)
         imax_val,imax_idx = (0.0,0)
@@ -247,9 +247,9 @@ if __name__ == "__main__":
   ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
 
   # ax1.set_xlim(xmin=0,xmax=24)
-  # ax1.set_ylim(ymin=0.42,ymax=0.54)
+  ax1.set_ylim(ymin=0.0) #,ymax=0.54)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
-  ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
+  # ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"percentage problems proven")
