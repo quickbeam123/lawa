@@ -58,11 +58,15 @@ if __name__ == "__main__":
 
   for prob in all_problems:
     assert prob in results1.keys() and prob in results2.keys()
-    assert len(results1[prob]) == len(results2[prob]) == 1
-    vr1 = results1[prob][0][1]
-    vr2 = results2[prob][0][1]
+    # print(results1[prob])
+    # print(results2[prob])
+    # assert len(results1[prob]) == len(results2[prob])
+    vr1 = results1[prob][0][-1]
+    vr2 = results2[prob][0][-1]
     # if status1 == None:
     #   print(prob,instructions1,activations1)
+    print(vr1)
+    print(vr2)
 
     if vr1.status == "uns":
       if vr2.status == "uns":
@@ -105,7 +109,7 @@ if __name__ == "__main__":
 
   print("total commonly solved",total_common)
   val = (vr1_act_log_sum - vr2_act_log_sum)/total_common
-  print("geomeand vr1/vr2 act",math.exp(val))
+  print("geomean vr1/vr2 act",math.exp(val))
   print("second more rate",second_more/total_common)
 
   if False: # figure out how much the newtwork is taking up, looking at problems not solved by it (so that it ran for the whole time slot)
@@ -133,7 +137,7 @@ if __name__ == "__main__":
 
     exit(0)
 
-  if True:
+  if False:
     print("Network computation overhead analysis 2 - all failed neural runs (not just the wins of the default strategy)")
     not_parsed = 0
     parsed_but_no_gnn = 0
