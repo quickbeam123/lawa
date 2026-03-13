@@ -10,6 +10,7 @@ from torch import Tensor
 from typing import List, Final
 
 import torch_geometric
+from torch_geometric.nn import MessagePassing
 
 # print(torch.__config__.parallel_info())
 
@@ -44,6 +45,33 @@ def get_conv():
       root_weight=True, # like a self-loop; i.e. allow then target node to talk as well
       project=HP.GNN_SAGE_PROJECT,    # extra non-lineary before aggregating
       bias=True)        # and why not add a bias before the non-linearity that's about to come?
+
+class EdgeSAGE(MessagePassing):
+    def __init__(self, in_channels, out_channels, num_edge_types, edge_emb_dim=None):
+        super().__init__(aggr="mean")
+
+        if edge_emb_dim is None:
+            edge_emb_dim = in_channels
+
+        # Edge-type embedding lookup
+        self.edge_emb = torch.nn.Embedding(num_edge_types, edge_emb_dim)
+
+        # Message transformation
+        self.msg = torch.nn.Linear(in_channels + edge_emb_dim, out_channels)
+
+        # Self-node transformation
+        self.lin = torch.nn.Linear(in_channels, out_channels)
+
+    def forward(self, x, edge_index, edge_type):
+        return self.propagate(edge_index, x=x, edge_type=edge_type)
+
+    def message(self, x_j, edge_type):
+        e = self.edge_emb(edge_type)           # [E, edge_emb_dim]
+        m = torch.cat([x_j, e], dim=-1)
+        return self.msg(m)
+
+    def update(self, aggr_out, x):
+        return self.lin(x) + aggr_out
 
 class SingleEmbedding(torch.nn.Module):
     def __init__(self, embedding_dim):
@@ -155,26 +183,16 @@ class MonsterModules(torch.nn.Module):
 
     nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
 
-    self.gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
+    self.gnn_edge_sage_layers: List[EdgeSAGE] = []
     for lidx in range(HP.GNN_NUM_LAYERS*HP.GNN_MULTIPLIER):
       if lidx % HP.GNN_MULTIPLIER == 0:
         last_fresh_layer = lidx
-      layer = []
-      for i,(src,tgt) in enumerate([('symbol', 'sort'), ('sort', 'symbol'), ('symbol', 'symbol'), ('symbol', 'symbol'),
-                                    ('clause', 'term'), ('term', 'clause'), ('term', 'term'), ('term', 'term'),
-                                    ('clause', 'var'), ('var', 'clause'), ('var', 'sort'), ('sort', 'var'),
-                                    ('term', 'var'), ('var', 'term'), ('term', 'symbol'), ('symbol', 'term')]):
-        # in the last layer, no need for any other output than ["symbol","clause","sort"]
-        # and vars don't need to talk to terms in the second to last layer (as vars never link to literals and only literal-terms talk to clauses)
-        if (lidx != HP.GNN_NUM_LAYERS-1 or tgt in ["symbol","clause","sort"]) and (lidx != HP.GNN_NUM_LAYERS-2 or (src,tgt) != ('var', 'term')):
-          # effectively copies the same convolution for HP.GNN_MULTIPLIER many times
-          if lidx == last_fresh_layer:
-            conv = get_conv()
-          else:
-            conv = nested_modules[f"gnn_layer[{last_fresh_layer}]:{src}->{tgt}:{i}"]
-          nested_modules[f"gnn_layer[{lidx}]:{src}->{tgt}:{i}"] = conv
-          layer.append((src,tgt,i,conv))
-      self.gnn_layers.append(layer)
+      if lidx == last_fresh_layer:
+        layer = EdgeSAGE(HP.GNN_INTERNAL_SIZE, HP.GNN_INTERNAL_SIZE, 16)
+      else:
+        layer = nested_modules[f"gnn_edge_sage_layer[{last_fresh_layer}]"]
+      nested_modules[f"gnn_edge_sage_layer[{lidx}]"] = layer
+      self.gnn_edge_sage_layers.append(layer)
 
     self.gnn_nested_modules = torch.nn.ModuleDict(nested_modules)
 
@@ -246,18 +264,22 @@ class MonsterNN(torch.nn.Module):
 
   # gnn "modules"
   gnn_node_init: List[Tuple[str,torch.nn.modules.linear.Linear]]
-  gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]]
+  gnn_edge_sage_layers: List[EdgeSAGE]
   # gnn_clause_final: torch.nn.Module
   # gnn_symbol_final: torch.nn.Module
   # gnn_static_embedder: torch.nn.Module
 
   # gnn records
   init_gnn_nodes: Dict[str,Tensor]
-  gnn_edges: List[Tuple[str,str,Tensor]]
   gnn_init_clause_nums: List[int]
 
-  # gnn helper data
-  gnn_nodes: Dict[str,Tensor]
+  # gnn helper data (unified graph representation)
+  gnn_node_features: Dict[str,Tensor]
+  gnn_kind_offsets: Dict[str,int]
+  gnn_kind_counts: Dict[str,int]
+  gnn_edge_index: Tensor
+  gnn_edge_type: Tensor
+  gnn_next_edge_type_id: int
 
   gnn_static_tweak: Tensor
 
@@ -299,7 +321,7 @@ class MonsterNN(torch.nn.Module):
   gweight_static_tweak: Tensor
 
   def __init__(self,
-              gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
+              gnn_node_init,gnn_edge_sage_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
               gage_rule_embed, gage_combine, gage_static_embedder,
               gweight_var_embed, gweight_term_combine, gweight_static_embedder,
               final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaky, tweaks):
@@ -311,13 +333,13 @@ class MonsterNN(torch.nn.Module):
 
     # This is crazy, but while we don't need this for any computation, things don't jit.script witout it!
     # (maybe its necessary so that the annotations above can be digested?
-    # I think it's the gnn_node_init and gnn_layers, who's types include modules)
-    self.dummy = torch_geometric.nn.SAGEConv((1,1),1)
+    # I think it's the gnn_node_init and gnn_edge_sage_layers, who's types include modules)
+    self.dummy = EdgeSAGE(1, 1, 1)
     self.dummy2 = torch.nn.Linear(1,1)
 
     # modules-like
     self.gnn_node_init = gnn_node_init
-    self.gnn_layers = gnn_layers
+    self.gnn_edge_sage_layers = gnn_edge_sage_layers
     self.gnn_clause_final = gnn_clause_final
     self.gnn_symbol_final = gnn_symbol_final
     self.gnn_sort_final = gnn_sort_final
@@ -325,10 +347,16 @@ class MonsterNN(torch.nn.Module):
 
     # records
     self.init_gnn_nodes = {}
-    self.gnn_nodes = {}
-    self.gnn_edges = []
     self.gnn_init_clause_nums = [] # will be set from Vampire later anyway
     self.gnn_static_tweak = torch.zeros(HP.GNN_INTERNAL_SIZE) # dummy, overwritten by set_static_features
+
+    # unified graph state (built by gnn_node_kind / gnn_edge_kind calls)
+    self.gnn_node_features: Dict[str, Tensor] = {}
+    self.gnn_kind_offsets: Dict[str, int] = {}
+    self.gnn_kind_counts: Dict[str, int] = {}
+    self.gnn_edge_index = torch.zeros((2, 0), dtype=torch.long)
+    self.gnn_edge_type = torch.zeros(0, dtype=torch.long)
+    self.gnn_next_edge_type_id: int = 0
 
     # modules
     self.gage_rule_embed = gage_rule_embed
@@ -467,17 +495,40 @@ class MonsterNN(torch.nn.Module):
     if self.recording:
       self.init_gnn_nodes[what] = features.clone()
 
-    # the caller guarantees the tensor will still be alive when gnn_perform is called
-    self.gnn_nodes[what] = features
+    # compute offset as sum of all previously added kind counts
+    offset = 0
+    for _k, c in self.gnn_kind_counts.items():
+      offset += c
+    self.gnn_kind_offsets[what] = offset
+    self.gnn_kind_counts[what] = features.size(0)
+    self.gnn_node_features[what] = features
 
   @torch.jit.export
   def gnn_edge_kind(self,src: str, tgt: str, src_idxs: List[int], tgt_idxs: List[int]):
-    src_idxs_t = torch.tensor(src_idxs)
-    tgt_idxs_t = torch.tensor(tgt_idxs)
+    src_offset = self.gnn_kind_offsets[src]
+    tgt_offset = self.gnn_kind_offsets[tgt]
 
-    self.gnn_edges.append((src,tgt,torch.stack([src_idxs_t,tgt_idxs_t])))
-    # also record the opposite edge
-    self.gnn_edges.append((tgt,src,torch.stack([tgt_idxs_t,src_idxs_t])))
+    src_t = torch.tensor(src_idxs)
+    tgt_t = torch.tensor(tgt_idxs)
+
+    fwd_type = self.gnn_next_edge_type_id
+    rev_type = self.gnn_next_edge_type_id + 1
+    self.gnn_next_edge_type_id += 2
+
+    src_g = src_t + src_offset
+    tgt_g = tgt_t + tgt_offset
+    n = src_t.size(0)
+
+    new_ei = torch.cat([torch.stack([src_g, tgt_g]), torch.stack([tgt_g, src_g])], dim=1)
+    new_et = torch.cat([torch.full((n,), fwd_type, dtype=torch.long),
+                        torch.full((n,), rev_type, dtype=torch.long)])
+
+    if self.gnn_edge_index.size(1) == 0:
+      self.gnn_edge_index = new_ei
+      self.gnn_edge_type = new_et
+    else:
+      self.gnn_edge_index = torch.cat([self.gnn_edge_index, new_ei], dim=1)
+      self.gnn_edge_type = torch.cat([self.gnn_edge_type, new_et])
 
   @torch.jit.export
   def gnn_perform(self, clause_nums: List[int]) -> Tuple[Tensor,Tensor]:
@@ -486,44 +537,47 @@ class MonsterNN(torch.nn.Module):
       self.gnn_init_clause_nums = clause_nums
 
     if self.computing:
+      # Step 1: embed each node kind, concatenate into unified tensor
+      embedded_parts: List[Tensor] = []
       for key,embedder in self.gnn_node_init:
-        temp = embedder.forward(self.gnn_nodes[key])
+        temp = embedder.forward(self.gnn_node_features[key])
         if HP.USE_SILU:
           temp = torch.nn.functional.silu(temp)
         else:
           temp = torch.nn.functional.relu(temp)
-        self.gnn_nodes[key] = temp + self.gnn_static_tweak # broadcasting to every embedded node
+        temp = temp + self.gnn_static_tweak
         if HP.GNN_DROPOUT > 0.0:
-          self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
+          temp = torch.nn.functional.dropout(temp,HP.GNN_DROPOUT,self.training)
+        embedded_parts.append(temp)
+      x = torch.cat(embedded_parts, dim=0)
 
-      for layer in self.gnn_layers:
-        out_dict: Dict[str, Tensor] = {}
-        for src,tgt,i,conv in layer:
-          out = conv.forward((self.gnn_nodes[src],self.gnn_nodes[tgt]),self.gnn_edges[i][2])
-          # print(src,tgt,i)
-          # print(out)
-          if tgt in out_dict:
-            out_dict[tgt] = out_dict[tgt] + out
-          else:
-            out_dict[tgt] = out
+      # Step 2: run EdgeSAGE layers
+      for edge_sage in self.gnn_edge_sage_layers:
+        x = edge_sage.forward(x, self.gnn_edge_index, self.gnn_edge_type)
+        if HP.USE_SILU:
+          x = torch.nn.functional.silu(x)
+        else:
+          x = torch.nn.functional.relu(x)
+        if HP.GNN_DROPOUT > 0.0:
+          x = torch.nn.functional.dropout(x,HP.GNN_DROPOUT,self.training)
 
-        for key, out in out_dict.items():
-          if HP.USE_SILU:
-            self.gnn_nodes[key] = torch.nn.functional.silu(out)
-          else:
-            self.gnn_nodes[key] = torch.nn.functional.relu(out)
+      # Step 3: extract per-kind slices from unified tensor
+      clause_offset = self.gnn_kind_offsets["clause"]
+      clause_count = self.gnn_kind_counts["clause"]
+      symbol_offset = self.gnn_kind_offsets["symbol"]
+      symbol_count = self.gnn_kind_counts["symbol"]
+      sort_offset = self.gnn_kind_offsets["sort"]
+      sort_count = self.gnn_kind_counts["sort"]
 
-          if HP.GNN_DROPOUT > 0.0:
-            self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
-          out_dict = {}
+      clause_nodes = x[clause_offset : clause_offset + clause_count]
+      symbol_nodes = x[symbol_offset : symbol_offset + symbol_count]
+      sort_nodes = x[sort_offset : sort_offset + sort_count]
 
-      # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
-
-      initial_clause_gage = self.gnn_clause_final.forward(self.gnn_nodes["clause"])
+      initial_clause_gage = self.gnn_clause_final.forward(clause_nodes)
       initial_clause_gage += self.gage_static_tweak # broadcasting for every inital clause
 
       self.gweight_symbol_embeds = torch.cat(
-        (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
+        (self.gnn_symbol_final.forward(symbol_nodes),self.gnn_sort_final.forward(sort_nodes)),dim=0)
 
       if not self.old_computing:
         return initial_clause_gage,self.gweight_symbol_embeds
@@ -536,18 +590,14 @@ class MonsterNN(torch.nn.Module):
       # also initialized the variable embedding for terms
       self.gweight_term_embed_store[0] = self.gweight_var_embed.forward(torch.tensor(0.0)) # the input will be ignored
 
-      # TODO: could drop all the gnn stuff not needed anymore (hard to do in script?)
-      '''
-      empty_gnn_node_init: List[Tuple[str, torch.nn.modules.linear.Linear]] = []
-      self.gnn_node_init = empty_gnn_node_init
-      empty_gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
-      self.gnn_layers = empty_gnn_layers
-      self.gnn_clause_final = self.dummy2
-      self.gnn_symbol_final = None
-      if not self.recording:
-        self.gnn_nodes = None
-        self.gnn_edges = None
-      '''
+      # reset unified graph state for next problem
+      self.gnn_node_features = {}
+      self.gnn_kind_offsets = torch.jit.annotate(Dict[str, int], {})
+      self.gnn_kind_counts = torch.jit.annotate(Dict[str, int], {})
+      self.gnn_edge_index = torch.zeros((2, 0), dtype=torch.long)
+      self.gnn_edge_type = torch.zeros(0, dtype=torch.long)
+      self.gnn_next_edge_type_id = 0
+
     return torch.zeros(0),torch.zeros(0)
 
   @torch.jit.export
@@ -560,7 +610,8 @@ class MonsterNN(torch.nn.Module):
     # self.proof_units = proof_units
 
     torch.save((self.static_features,self.clause_simple_features,self.journal,proof_units,
-                self.init_gnn_nodes,self.gnn_edges,self.gnn_init_clause_nums,
+                self.init_gnn_nodes,self.gnn_edge_index,self.gnn_edge_type,
+                self.gnn_kind_offsets,self.gnn_kind_counts,self.gnn_init_clause_nums,
                 self.gage_infers,self.gweight_terms,self.gweight_clauses),filename)
 
   def gage_enqueue_one(self,cl_num: int, inf_rule: int, parents: List[int]):
@@ -750,7 +801,7 @@ def export_model(model_state_dict,name):
   for param in m.parameters():
     param.requires_grad = False
 
-  module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
+  module = MonsterNN(m.gnn_node_init,m.gnn_edge_sage_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                      m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                      m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
                      m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
@@ -798,7 +849,8 @@ def trace_good_for_learning(trace_file_path,logfile=None):
   # if good, save with additional info as needed by learning
 
   (static_features,clause_simple_features,journal,proof_units,
-   init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
+   init_gnn_nodes,gnn_edge_index,gnn_edge_type,
+   gnn_kind_offsets,gnn_kind_counts,gnn_init_clause_nums,
    gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path,weights_only=False)
 
   good_units = set(proof_units)
@@ -858,7 +910,8 @@ def trace_good_for_learning(trace_file_path,logfile=None):
 
   if (non_trivial and passes_limits):
     torch.save((static_features,clause_simple_features,newjournal,num_good_selections,
-                init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
+                init_gnn_nodes,gnn_edge_index,gnn_edge_type,
+                gnn_kind_offsets,gnn_kind_counts,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses),trace_file_path)
 
   return non_trivial, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w)
@@ -874,7 +927,7 @@ class LearningModel(torch.nn.Module):
     self.trace_tuple = trace_tuple
 
     self.nn = MonsterNN(
-                    m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
+                    m.gnn_node_init,m.gnn_edge_sage_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                     m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
                     m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
@@ -884,7 +937,8 @@ class LearningModel(torch.nn.Module):
 
   def pre_forward(self):
     (static_features,clause_simple_features,_journal,_num_good_selections,
-                init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
+                init_gnn_nodes,gnn_edge_index,gnn_edge_type,
+                gnn_kind_offsets,gnn_kind_counts,gnn_init_clause_nums,
                 gage_infers,gweight_terms,gweight_clauses) = self.trace_tuple
 
     self.nn.computing = True
@@ -893,8 +947,11 @@ class LearningModel(torch.nn.Module):
     self.nn.set_static_features(static_features)
 
     if HP.USE_GAGE or HP.USE_GWEIGHT:
-      self.nn.gnn_nodes = init_gnn_nodes
-      self.nn.gnn_edges = gnn_edges
+      self.nn.gnn_node_features = init_gnn_nodes
+      self.nn.gnn_kind_offsets = gnn_kind_offsets
+      self.nn.gnn_kind_counts = gnn_kind_counts
+      self.nn.gnn_edge_index = gnn_edge_index
+      self.nn.gnn_edge_type = gnn_edge_type
       self.nn.gnn_perform(gnn_init_clause_nums)
 
     if HP.USE_GAGE:
@@ -928,7 +985,8 @@ class LearningModel(torch.nn.Module):
 
   def forward(self,just_before_final,num2idx,tweaks):
     (_static_features,_clause_simple_features,journal,num_good_selections,
-                _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
+                _init_gnn_nodes,_gnn_edge_index,_gnn_edge_type,
+                _gnn_kind_offsets,_gnn_kind_counts,_gnn_init_clause_nums,
                 _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
 
     # print("just_before_final",just_before_final.shape)
