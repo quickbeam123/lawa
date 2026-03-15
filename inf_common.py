@@ -508,14 +508,15 @@ class MonsterNN(torch.nn.Module):
             out_dict[tgt] = out
 
         for key, out in out_dict.items():
+          temp = self.gnn_nodes[key] + out
           if HP.USE_SILU:
-            self.gnn_nodes[key] = torch.nn.functional.silu(out)
+            self.gnn_nodes[key] = torch.nn.functional.silu(temp)
           else:
-            self.gnn_nodes[key] = torch.nn.functional.relu(out)
+            self.gnn_nodes[key] = torch.nn.functional.relu(temp)
 
           if HP.GNN_DROPOUT > 0.0:
             self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
-          out_dict = {}
+        out_dict = {}
 
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
 
