@@ -150,7 +150,7 @@ class MonsterModules(torch.nn.Module):
     self.gnn_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-      torch.nn.Linear(HP.INTERAL_SIZE,HP.GNN_INTERNAL_SIZE),
+      torch.nn.Linear(HP.INTERAL_SIZE,HP.GNN_INTERNAL_SIZE,bias=False),
     )
 
     nested_modules = { "gnn_node_init:"+kind : embed for kind,embed in self.gnn_node_init}
@@ -487,12 +487,11 @@ class MonsterNN(torch.nn.Module):
 
     if self.computing:
       for key,embedder in self.gnn_node_init:
-        temp = embedder.forward(self.gnn_nodes[key])
+        temp = embedder.forward(self.gnn_nodes[key]) + self.gnn_static_tweak # broadcasting to every embedded node
         if HP.USE_SILU:
-          temp = torch.nn.functional.silu(temp)
+          self.gnn_nodes[key] = torch.nn.functional.silu(temp)
         else:
-          temp = torch.nn.functional.relu(temp)
-        self.gnn_nodes[key] = temp + self.gnn_static_tweak # broadcasting to every embedded node
+          self.gnn_nodes[key] = torch.nn.functional.relu(temp)
         if HP.GNN_DROPOUT > 0.0:
           self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
 
