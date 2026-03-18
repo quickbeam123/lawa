@@ -492,13 +492,19 @@ class MonsterNN(torch.nn.Module):
           self.gnn_nodes[key] = torch.nn.functional.silu(temp)
         else:
           self.gnn_nodes[key] = torch.nn.functional.relu(temp)
-        if HP.GNN_DROPOUT > 0.0:
-          self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
+        # maybe no dropout here yet?
+        # if HP.GNN_DROPOUT > 0.0:
+        #   self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
 
       for layer in self.gnn_layers:
         out_dict: Dict[str, Tensor] = {}
         for src,tgt,i,conv in layer:
-          out = conv.forward((self.gnn_nodes[src],self.gnn_nodes[tgt]),self.gnn_edges[i][2])
+          if HP.GNN_DROPOUT > 0.0:
+            sources = torch.nn.functional.dropout(self.gnn_nodes[src],HP.GNN_DROPOUT,self.training)
+          else:
+            sources = self.gnn_nodes[src]
+
+          out = conv.forward((sources,self.gnn_nodes[tgt]),self.gnn_edges[i][2])
           # print(src,tgt,i)
           # print(out)
           if tgt in out_dict:
@@ -507,14 +513,11 @@ class MonsterNN(torch.nn.Module):
             out_dict[tgt] = out
 
         for key, out in out_dict.items():
-          temp = self.gnn_nodes[key] + out
+          temp = out + self.gnn_nodes[key] # the residual connection here
           if HP.USE_SILU:
             self.gnn_nodes[key] = torch.nn.functional.silu(temp)
           else:
             self.gnn_nodes[key] = torch.nn.functional.relu(temp)
-
-          if HP.GNN_DROPOUT > 0.0:
-            self.gnn_nodes[key] = torch.nn.functional.dropout(self.gnn_nodes[key],HP.GNN_DROPOUT,self.training)
         out_dict = {}
 
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
