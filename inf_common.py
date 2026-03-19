@@ -185,7 +185,6 @@ class MonsterModules(torch.nn.Module):
     self.gage_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-      torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
@@ -205,7 +204,6 @@ class MonsterModules(torch.nn.Module):
     self.gweight_term_combine = torch.nn.Sequential(
       torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-      torch.nn.Dropout(HP.TREE_DROPOUT) if HP.TREE_DROPOUT > 0.0 else torch.nn.Identity(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
       torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
     )
@@ -599,6 +597,9 @@ class MonsterNN(torch.nn.Module):
             otherPrem = torch.sum(torch.stack([self.gage_embed_store[p] for p in parents[1:]]),dim=0)/(len(parents)-1)
             otherPrems.append(otherPrem)
       ruleEbeds = self.gage_rule_embed(torch.tensor(ruleIdxs))
+      if HP.TREE_DROPOUT:
+        ruleEbeds = torch.nn.functional.dropout(ruleEbeds,HP.TREE_DROPOUT,self.training)
+
       mainPremEbeds = torch.stack(mainPrems)
       otherPremEbeds = torch.stack(otherPrems)
       res = self.gage_combine(torch.cat((ruleEbeds, mainPremEbeds, otherPremEbeds), dim=1))
@@ -670,7 +671,11 @@ class MonsterNN(torch.nn.Module):
             other_arg = torch.sum(torch.stack([self.gweight_term_embed_store[a] for a in args[1:]]),dim=0)/(len(args)-1)
             other_args.append(other_arg)
 
-      res = self.gweight_term_combine(torch.cat((torch.stack(functors), torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
+      functors = torch.stack(functors)
+      if HP.TREE_DROPOUT:
+        functors = torch.nn.functional.dropout(functors,HP.TREE_DROPOUT,self.training)
+
+      res = self.gweight_term_combine(torch.cat((functors, torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
       res += self.gweight_static_tweak # broadcasting for every line in res
       for j,(id,_,_,_) in enumerate(todos):
         self.gweight_term_embed_store[id] = res[j]
