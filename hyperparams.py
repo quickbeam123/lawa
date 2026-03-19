@@ -39,7 +39,8 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 
 RANDOM_SEED: Final[int] = 42
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn_10617"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10724"
+
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
