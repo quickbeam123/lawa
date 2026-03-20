@@ -48,9 +48,9 @@ RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if 
 SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "problemsCNFFOFTF0noSATnoARI.txt" # newly, we don't want to run on SAT
-NUM_TRAIN_PROBLEMS = 15500 # 15500 is the full set
-EVAL_ON_TEST = False
-NUM_TEST_PROBLEMS = 0 # the rest of current TPTP
+NUM_TRAIN_PROBLEMS = 12400 # 15500 is the full set
+EVAL_ON_TEST = True
+NUM_TEST_PROBLEMS = 3100 # the rest of current TPTP
 
 # currently not supported with mtpa-gnn!
 IMITATE = True # should the first loop use the given clause selection heuristic? (if False, use the usual "-npcc on -ncem ..." with the randomly initialized model)
@@ -58,7 +58,7 @@ NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 32000
+INSTRUCTION_LIMIT = 16000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value

@@ -249,7 +249,7 @@ if __name__ == "__main__":
   # ax1.set_xlim(xmin=0,xmax=24)
   # ax1.set_ylim(ymin=0.42,ymax=0.54)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
-  ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
+  # ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"percentage problems proven")
