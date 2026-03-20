@@ -3,7 +3,7 @@
 import inf_common as IC
 import hyperparams as HP
 
-import os, sys, shutil, random, atexit, time, pickle, math
+import os, sys, shutil, atexit, time, pickle, math, random
 from collections import defaultdict
 from collections import deque
 from itertools import chain
@@ -384,10 +384,13 @@ JOB_DISPATCH = {JK_PERFORM : job_perform,
                 JK_EVAL_TWEAK_MATRIX: job_eval_tweak_matrix,
                 JK_TRAIN: job_train}
 
-def worker(q_in, q_out):
+def worker(q_in, q_out, worker_id):
   # tell each worker we don't want any extra threads
   torch.set_num_threads(1)
   torch.set_num_interop_threads(1)
+
+  random.seed(HP.RANDOM_SEED + worker_id)
+  torch.manual_seed(HP.RANDOM_SEED + worker_id)
 
   while True:
     (job_kind,input) = q_in.get()
@@ -400,7 +403,7 @@ def create_workforce(numworkers):
   queue_in = multiprocessing.Queue()
   queue_out = multiprocessing.Queue()
   for i in range(numworkers):
-    p = multiprocessing.Process(target=worker, args=(queue_in,queue_out))
+    p = multiprocessing.Process(target=worker, args=(queue_in,queue_out,i))
     p.start()
     my_processes.append(p)
   return (queue_in,queue_out)

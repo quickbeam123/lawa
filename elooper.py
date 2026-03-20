@@ -28,6 +28,8 @@ import torch
 import warnings
 warnings.filterwarnings("ignore", message=r"You are using `torch.load`", category=FutureWarning)
 
+rng = random.Random(HP.RANDOM_SEED)
+
 TRAIN_PROBLEMS_FILE = "train.txt"
 TEST_PROBLEMS_FILE = "test.txt"
 
@@ -42,8 +44,8 @@ def train_test_problem_split():
   with open(HP.PROBLEM_LIST,"r") as f:
     full_list = [line.rstrip() for line in f.readlines()]
   assert len(full_list) >= HP.NUM_TRAIN_PROBLEMS + HP.NUM_TEST_PROBLEMS
-  our_problems = random.sample(full_list,HP.NUM_TRAIN_PROBLEMS + HP.NUM_TEST_PROBLEMS)
-  random.shuffle(our_problems)
+  our_problems = rng.sample(full_list,HP.NUM_TRAIN_PROBLEMS + HP.NUM_TEST_PROBLEMS)
+  rng.shuffle(our_problems)
   return our_problems[:HP.NUM_TRAIN_PROBLEMS],our_problems[HP.NUM_TRAIN_PROBLEMS:]
 
 def save_train_test_problems(exper_dir,train_problems,test_problems):
@@ -277,7 +279,7 @@ def stage_perf_gather(ctx):
       for i,ilim in enumerate(luby(HP.INSTRUCTION_LIMIT_MIN,HP.INSTRUCTION_LIMIT_MAX)):
         if i >= HP.NUM_PERFORMS and ctx.loop > 1 or ctx.loop == 1 and i >= HP.INITIAL_NUM_PERFORMS:
           break
-        seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
+        seed = rng.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
         # print(i,"for",ilim)
 
@@ -515,7 +517,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
   stage2iter = 0
 
   if with_early_stopping: # we will need to single out the validation traces!
-    random.shuffle(trace_problems) # Note: this is a source of non-determinism!
+    rng.shuffle(trace_problems)
     # an 80:20 split
     cut_idx = int(0.8*len(trace_problems))
     train_trace_problems = trace_problems[:cut_idx]
@@ -601,7 +603,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
     train_model_version = 0
     def get_train_tasks():
       prob_records = W.create_prob_records(train_trace_problems,ctx.trace_index)
-      random.shuffle(prob_records)
+      rng.shuffle(prob_records)
       nonlocal train_model_version
       for record in prob_records:
         train_model_version += 1
@@ -815,6 +817,8 @@ if __name__ == "__main__":
   # (CAREFUL: this way can only call looper from lawa folder)
   shutil.copy("hyperparams.py",exper_dir)
 
+  torch.manual_seed(HP.RANDOM_SEED)
+
   ctx = Context()
   ctx.init_train_test(folder_with_prev_exper)
 
@@ -977,7 +981,7 @@ if __name__ == "__main__":
       # Now let's take a random set of HP.TWEAK_MATRIX_SIZE active tweaks and save them to a file
       print("Will build crit_submatrix and pick the best tweaks to bake into the model for the next trace collection")
       active_tweaks = [ctx.tweak_map[no_dots(prob)] for prob in ctx.trace_index.cur_problems()]
-      active_tweak_selection = random.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
+      active_tweak_selection = rng.sample(active_tweaks, k=min(HP.TWEAK_MATRIX_SIZE, len(active_tweaks)))
 
       crit_matrix = stage_build_crit_matrix(ctx,active_tweak_selection)
 
