@@ -953,7 +953,7 @@ if __name__ == "__main__":
     tw_pref = 0.0
     if tw_pref:
       print("Tweaked preference at",tw_pref)
-    with_early_stopping = ctx.loop <= 2
+    with_early_stopping = ctx.loop <= HP.NUM_EARLY_STOP_ROUNDS
     print("with_early_stopping",with_early_stopping)
     print()
     sys.stdout.flush()
