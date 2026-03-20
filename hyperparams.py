@@ -137,6 +137,9 @@ NUM_GSD_FEATURES : Final[int] = 8
 # non-linearity
 USE_SILU : Final[bool] = True
 
+# normalizations
+USE_RMS : Final[bool] = True # False means LayerNorm
+
 # Architecture
 CLAUSE_EMBEDDER_LAYERS : Final[int] = 1  # must be at least 1, to simplify things
 # the following internal size is used:

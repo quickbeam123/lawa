@@ -146,7 +146,7 @@ class MonsterModules(torch.nn.Module):
 
     self.gnn_clause_final = torch.nn.Sequential(
         torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
-        torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE))
+        torch.nn.RMSNorm([HP.GAGE_EMBEDDING_SIZE]) if HP.USE_RMS else torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE))
     self.gnn_symbol_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     self.gnn_sort_final = torch.nn.Linear(HP.GNN_INTERNAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
 
@@ -186,7 +186,7 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(3*HP.GAGE_EMBEDDING_SIZE,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
-      torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
+      torch.nn.RMSNorm([HP.GAGE_EMBEDDING_SIZE]) if HP.USE_RMS else torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
     self.gage_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
@@ -205,7 +205,7 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(3*HP.GWEIGHT_EMBEDDING_SIZE+1,HP.INTERAL_SIZE),
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
-      torch.nn.LayerNorm(HP.GWEIGHT_EMBEDDING_SIZE)
+      torch.nn.RMSNorm([HP.GWEIGHT_EMBEDDING_SIZE]) if HP.USE_RMS else torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
     self.gweight_static_embedder = torch.nn.Sequential(
       torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
