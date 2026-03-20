@@ -310,7 +310,6 @@ class MonsterNN(torch.nn.Module):
 
     self.recording = False
     self.computing = False
-    self.old_computing = False
 
     # This is crazy, but while we don't need this for any computation, things don't jit.script witout it!
     # (maybe its necessary so that the annotations above can be digested?
@@ -531,29 +530,11 @@ class MonsterNN(torch.nn.Module):
       self.gweight_symbol_embeds = torch.cat(
         (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
 
-      if not self.old_computing:
-        return initial_clause_gage,self.gweight_symbol_embeds
-
-      # pass on the gage-style clause embeddings to the gage part (using clause_nums)
-      for i,cl_num in enumerate(clause_nums):
-        self.gage_embed_store[cl_num] = initial_clause_gage[i]
-        self.gage_cl_layers[cl_num] = 0
-
-      # also initialized the variable embedding for terms
-      self.gweight_term_embed_store[0] = self.gweight_var_embed.forward(torch.tensor(0.0)) # the input will be ignored
-
       # TODO: could drop all the gnn stuff not needed anymore (hard to do in script?)
-      '''
-      empty_gnn_node_init: List[Tuple[str, torch.nn.modules.linear.Linear]] = []
-      self.gnn_node_init = empty_gnn_node_init
-      empty_gnn_layers: List[List[Tuple[str,str,int,torch_geometric.nn.SAGEConv]]] = []
-      self.gnn_layers = empty_gnn_layers
-      self.gnn_clause_final = self.dummy2
-      self.gnn_symbol_final = None
-      if not self.recording:
-        self.gnn_nodes = None
-        self.gnn_edges = None
-      '''
+
+      return initial_clause_gage,self.gweight_symbol_embeds
+
+    # need to return something along all paths
     return torch.zeros(0),torch.zeros(0)
 
   @torch.jit.export
@@ -1089,7 +1070,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
                     and kbSize <= HP.MAX_KBSIZE)
 
   if (non_trivial and passes_limits):
-    cl_nums_ordered = list(clause_simple_features.keys())
+    cl_nums_ordered = sorted(clause_simple_features.keys())
     num2idx = {cn: idx for idx, cn in enumerate(cl_nums_ordered)}
     simple_features_stacked = torch.stack([clause_simple_features[cn] for cn in cl_nums_ordered])
 
