@@ -24,6 +24,8 @@ import sys, random, math
 
 import hyperparams as HP
 
+VERIFY_VECTORIZED = False  # set True to run both old and new GAGE/GWEIGHT paths and assert they match
+
 from collections import defaultdict
 from itertools import chain
 from sortedcontainers import SortedList
@@ -1089,8 +1091,11 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     gage_data = precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered)
     gweight_data = precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered)
 
-    torch.save((static_features, simple_features_stacked, newjournal, num_good_selections,
-                num2idx, gnn_data, gage_data, gweight_data), trace_file_path)
+    to_save = (static_features, simple_features_stacked, newjournal, num_good_selections,
+                num2idx, gnn_data, gage_data, gweight_data)
+    if VERIFY_VECTORIZED:
+      to_save = to_save + (gage_infers, gweight_terms, gweight_clauses)
+    torch.save(to_save, trace_file_path)
 
   return non_trivial, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w)
 
@@ -1113,9 +1118,55 @@ class LearningModel(torch.nn.Module):
     if verbose:
       print("Got verbose")
 
+  def _old_pre_forward_for_verify(self, initial_clause_gage, gweight_symbol_embeds):
+    """Run the old dict-based GAGE/GWEIGHT path (restored from pre-vectorization code).
+    Returns (old_gage_features, old_gweight_features) tensors for comparison.
+    Requires TREE_DROPOUT = 0.0 for meaningful comparison."""
+    tt = self.trace_tuple
+    gnn_init_clause_nums = tt[5][2]  # gnn_data[2]
+    num2idx = tt[4]
+    gage_infers = tt[8]
+    gweight_terms = tt[9]
+    gweight_clauses = tt[10]
+
+    cl_nums_ordered = list(num2idx.keys())
+
+    # Seed gage_embed_store from the already-computed initial_clause_gage (avoid re-running GNN)
+    for i, cn in enumerate(gnn_init_clause_nums):
+      self.nn.gage_embed_store[cn] = initial_clause_gage[i]
+      self.nn.gage_cl_layers[cn] = 0
+
+    # Seed gweight variable embedding
+    self.nn.gweight_term_embed_store[0] = self.nn.gweight_var_embed.forward(torch.tensor(0.0))
+    self.nn.gweight_symbol_embeds = gweight_symbol_embeds
+
+    # Old GAGE path: enqueue all inferences, then embed pending
+    if HP.USE_GAGE:
+      for (cl_num, inf_rule, parents) in gage_infers:
+        self.nn.gage_enqueue_one(cl_num, inf_rule, parents)
+
+    # Old GWEIGHT path: enqueue all terms and clauses, then embed pending
+    if HP.USE_GWEIGHT:
+      for (id, functor, sign, args) in gweight_terms:
+        self.nn.gweight_enqueue_one_term(id, functor, sign, args)
+      self.nn.gweight_clause_todo = gweight_clauses
+
+    if HP.USE_GAGE or HP.USE_GWEIGHT:
+      self.nn.embed_pending()
+
+    # Gather old embeddings in cl_nums_ordered order
+    old_gage = None
+    old_gweight = None
+    if HP.USE_GAGE:
+      old_gage = torch.stack([self.nn.gage_embed_store[cn] for cn in cl_nums_ordered])
+    if HP.USE_GWEIGHT:
+      old_gweight = torch.stack([self.nn.gweight_clause_embeds[cn] for cn in cl_nums_ordered])
+
+    return old_gage, old_gweight
+
   def pre_forward(self):
     (static_features, simple_features_stacked, _journal, _num_good_selections,
-     num2idx, gnn_data, gage_data, gweight_data) = self.trace_tuple
+     num2idx, gnn_data, gage_data, gweight_data) = self.trace_tuple[:8]
 
     init_gnn_nodes, gnn_edges, gnn_init_clause_nums = gnn_data
 
@@ -1140,14 +1191,26 @@ class LearningModel(torch.nn.Module):
       self.nn.gweight_term_combine, self.nn.gweight_static_tweak
     ) if HP.USE_GWEIGHT else None
 
+    # Verification: run old dict-based path and compare
+    if VERIFY_VECTORIZED:
+      assert len(self.trace_tuple) > 8
+      old_gage, old_gweight = self._old_pre_forward_for_verify(initial_clause_gage, gweight_symbol_embeds)
+      eps = 1e-5
+      if HP.USE_GAGE:
+        diff = (gage_features - old_gage).abs().max().item()
+        assert diff < eps, f"GAGE verification failed: max diff = {diff}"
+      if HP.USE_GWEIGHT:
+        diff = (gweight_features - old_gweight).abs().max().item()
+        assert diff < eps, f"GWEIGHT verification failed: max diff = {diff}"
+
     just_before_final = self.nn.pre_eval_clauses(
       simple_features_stacked, gage_features, gweight_features)
 
     return just_before_final, num2idx
 
   def forward(self,just_before_final,num2idx,tweaks):
-    (_static_features, _simple_features, journal, num_good_selections,
-     _num2idx, _gnn_data, _gage_data, _gweight_data) = self.trace_tuple
+    journal = self.trace_tuple[2]
+    num_good_selections = self.trace_tuple[3]
 
     # print("just_before_final",just_before_final.shape)
     if tweaks is not None:
