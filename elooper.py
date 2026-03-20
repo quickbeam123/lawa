@@ -275,6 +275,8 @@ def stage_perf_gather(ctx):
       result_metas.append((res_filename,mission))
 
       for i,ilim in enumerate(luby(HP.INSTRUCTION_LIMIT_MIN,HP.INSTRUCTION_LIMIT_MAX)):
+        if mission == "test" and i >= 1:
+          break
         if i >= HP.NUM_PERFORMS and ctx.loop > 1 or ctx.loop == 1 and i >= HP.INITIAL_NUM_PERFORMS:
           break
         seed = random.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
