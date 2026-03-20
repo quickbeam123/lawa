@@ -10,6 +10,7 @@ from torch import Tensor
 from typing import List, Final
 
 import torch_geometric
+from torch_geometric.utils import scatter
 
 # print(torch.__config__.parallel_info())
 
@@ -796,6 +797,226 @@ def gweight_stats(terms):
   return len(widths),max(widths.values(),default=0)
 
 
+def precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered):
+  """Build index tensors for vectorized gage tree processing.
+
+  Global index scheme: 0 = zero embedding, 1..N_init = initial clauses, N_init+1.. = inferred.
+  """
+  cl_to_global = {}
+  for i, cn in enumerate(gnn_init_clause_nums):
+    cl_to_global[cn] = i + 1  # 1-indexed, 0 is zero embed
+
+  next_idx = len(gnn_init_clause_nums) + 1
+
+  # Topological sort into layers (same logic as gage_enqueue_one)
+  cl_layers = {cn: 0 for cn in gnn_init_clause_nums}
+  raw_layers = []
+
+  for cl_num, inf_rule, parents in gage_infers:
+    layer_idx = 0
+    for p in parents:
+      layer_idx = max(layer_idx, cl_layers[p])
+    layer_idx += 1
+    cl_layers[cl_num] = layer_idx
+
+    cl_to_global[cl_num] = next_idx
+    next_idx += 1
+
+    while len(raw_layers) < layer_idx:
+      raw_layers.append([])
+    raw_layers[layer_idx - 1].append((cl_num, inf_rule, parents))
+
+  n_total = next_idx
+
+  # Build per-layer index tensors
+  layers = []
+  for raw_layer in raw_layers:
+    K = len(raw_layer)
+    rule_idxs = torch.empty(K, dtype=torch.long)
+    main_idxs = torch.zeros(K, dtype=torch.long)
+    other_idxs = torch.zeros(K, dtype=torch.long)
+
+    multi_flat_list = []
+    multi_assign_list = []
+    has_multi = None
+
+    for j, (cl_num, inf_rule, parents) in enumerate(raw_layer):
+      rule_idxs[j] = inf_rule
+      if len(parents) >= 1:
+        main_idxs[j] = cl_to_global[parents[0]]
+      if len(parents) >= 2:
+        other_idxs[j] = cl_to_global[parents[1]]
+      if len(parents) >= 3:
+        if has_multi is None:
+          has_multi = torch.zeros(K, dtype=torch.bool)
+        has_multi[j] = True
+        for p in parents[1:]:
+          multi_flat_list.append(cl_to_global[p])
+          multi_assign_list.append(j)
+
+    if has_multi is not None:
+      multi_parent_fix = (
+        has_multi,
+        torch.tensor(multi_flat_list, dtype=torch.long),
+        torch.tensor(multi_assign_list, dtype=torch.long),
+      )
+    else:
+      multi_parent_fix = None
+
+    layers.append((rule_idxs, main_idxs, other_idxs, multi_parent_fix))
+
+  gather_idxs = torch.tensor([cl_to_global[cn] for cn in cl_nums_ordered], dtype=torch.long)
+  return (n_total, layers, gather_idxs)
+
+
+def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
+  """Build index tensors for vectorized gweight tree processing.
+
+  Global index scheme: 0 = zero embedding, 1 = variable embedding, 2.. = terms.
+  """
+  term_to_global = {0: 1}  # term id 0 (variable) -> global idx 1
+  next_idx = 2
+
+  # Topological sort terms into layers (same logic as gweight_enqueue_one_term)
+  term_layers_map = {}
+  raw_layers = []
+
+  for id, functor, sign, args in gweight_terms:
+    layer_idx = 0
+    for a in args:
+      if a > 0:
+        layer_idx = max(layer_idx, term_layers_map[a])
+    layer_idx += 1
+    term_layers_map[id] = layer_idx
+
+    term_to_global[id] = next_idx
+    next_idx += 1
+
+    while len(raw_layers) < layer_idx:
+      raw_layers.append([])
+    raw_layers[layer_idx - 1].append((id, functor, sign, args))
+
+  n_terms = next_idx
+
+  # Build per-layer index tensors
+  term_layers = []
+  for raw_layer in raw_layers:
+    K = len(raw_layer)
+    functor_idxs = torch.empty(K, dtype=torch.long)
+    sign_vals = torch.empty(K)
+    first_arg_idxs = torch.zeros(K, dtype=torch.long)
+    other_arg_idxs = torch.zeros(K, dtype=torch.long)
+
+    multi_flat_list = []
+    multi_assign_list = []
+    has_multi = None
+
+    for j, (id, functor, sign, args) in enumerate(raw_layer):
+      functor_idxs[j] = functor
+      sign_vals[j] = sign
+      if len(args) >= 1:
+        first_arg_idxs[j] = term_to_global[args[0]]
+      if len(args) >= 2:
+        other_arg_idxs[j] = term_to_global[args[1]]
+      if len(args) >= 3:
+        if has_multi is None:
+          has_multi = torch.zeros(K, dtype=torch.bool)
+        has_multi[j] = True
+        for a in args[1:]:
+          multi_flat_list.append(term_to_global[a])
+          multi_assign_list.append(j)
+
+    if has_multi is not None:
+      multi_arg_fix = (
+        has_multi,
+        torch.tensor(multi_flat_list, dtype=torch.long),
+        torch.tensor(multi_assign_list, dtype=torch.long),
+      )
+    else:
+      multi_arg_fix = None
+
+    term_layers.append((functor_idxs, sign_vals, first_arg_idxs, other_arg_idxs, multi_arg_fix))
+
+  # Clause aggregation: build flat index tensors for scatter_sum
+  lit_flat_list = []
+  lit_assign_list = []
+  cl_num_to_clause_idx = {}
+  for clause_idx, (cl_num, lits) in enumerate(gweight_clauses):
+    cl_num_to_clause_idx[cl_num] = clause_idx
+    for lit_id in lits:
+      lit_flat_list.append(term_to_global[lit_id])
+      lit_assign_list.append(clause_idx)
+
+  clause_agg = (
+    torch.tensor(lit_flat_list, dtype=torch.long),
+    torch.tensor(lit_assign_list, dtype=torch.long),
+    len(gweight_clauses),
+  )
+
+  gather_idxs = torch.tensor([cl_num_to_clause_idx[cn] for cn in cl_nums_ordered], dtype=torch.long)
+  return (n_terms, term_layers, clause_agg, gather_idxs)
+
+
+def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_combine, gage_static_tweak):
+  n_total, layers, gather_idxs = gage_data
+  D = initial_clause_gage.shape[1]
+
+  zero_embed = initial_clause_gage.new_zeros(1, D)
+  all_embeds = torch.cat([zero_embed, initial_clause_gage], dim=0)
+
+  for rule_idxs, main_idxs, other_idxs, multi_fix in layers:
+    K = rule_idxs.shape[0]
+    rule_e = gage_rule_embed(rule_idxs)
+    main_e = all_embeds[main_idxs]
+    other_e = all_embeds[other_idxs]
+
+    if multi_fix is not None:
+      has_multi, multi_flat, multi_assign = multi_fix
+      multi_gathered = all_embeds[multi_flat]
+      multi_avg = scatter(multi_gathered, multi_assign, dim=0, dim_size=K, reduce='mean')
+      other_e = torch.where(has_multi.unsqueeze(1), multi_avg, other_e)
+
+    res = gage_combine(torch.cat([rule_e, main_e, other_e], dim=1))
+    res = res + gage_static_tweak
+    all_embeds = torch.cat([all_embeds, res], dim=0)
+
+  return all_embeds[gather_idxs]
+
+
+def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_data,
+                           gweight_term_combine, gweight_static_tweak):
+  n_terms, term_layers, clause_agg, gather_idxs = gweight_data
+  D = gweight_symbol_embeds.shape[1]
+
+  zero_embed = gweight_symbol_embeds.new_zeros(1, D)
+  var_embed = gweight_var_embed(torch.tensor(0.0)).unsqueeze(0)
+  all_term_embeds = torch.cat([zero_embed, var_embed], dim=0)
+
+  for functor_idxs, sign_vals, first_arg_idxs, other_arg_idxs, multi_fix in term_layers:
+    K = functor_idxs.shape[0]
+    functor_e = gweight_symbol_embeds[functor_idxs]
+    signs = sign_vals.unsqueeze(1)
+    first_e = all_term_embeds[first_arg_idxs]
+    other_e = all_term_embeds[other_arg_idxs]
+
+    if multi_fix is not None:
+      has_multi, multi_flat, multi_assign = multi_fix
+      multi_gathered = all_term_embeds[multi_flat]
+      multi_avg = scatter(multi_gathered, multi_assign, dim=0, dim_size=K, reduce='mean')
+      other_e = torch.where(has_multi.unsqueeze(1), multi_avg, other_e)
+
+    res = gweight_term_combine(torch.cat([functor_e, signs, first_e, other_e], dim=1))
+    res = res + gweight_static_tweak
+    all_term_embeds = torch.cat([all_term_embeds, res], dim=0)
+
+  # Clause aggregation via scatter_sum
+  lit_flat, lit_assign, n_clauses = clause_agg
+  lit_embeds = all_term_embeds[lit_flat]
+  clause_embeds = scatter(lit_embeds, lit_assign, dim=0, dim_size=n_clauses, reduce='sum')
+
+  return clause_embeds[gather_idxs]
+
+
 def trace_good_for_learning(trace_file_path,logfile=None):
   # open what's been saved and check it
   # if good, save with additional info as needed by learning
@@ -860,9 +1081,16 @@ def trace_good_for_learning(trace_file_path,logfile=None):
                     and kbSize <= HP.MAX_KBSIZE)
 
   if (non_trivial and passes_limits):
-    torch.save((static_features,clause_simple_features,newjournal,num_good_selections,
-                init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
-                gage_infers,gweight_terms,gweight_clauses),trace_file_path)
+    cl_nums_ordered = list(clause_simple_features.keys())
+    num2idx = {cn: idx for idx, cn in enumerate(cl_nums_ordered)}
+    simple_features_stacked = torch.stack([clause_simple_features[cn] for cn in cl_nums_ordered])
+
+    gnn_data = (init_gnn_nodes, gnn_edges, gnn_init_clause_nums)
+    gage_data = precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered)
+    gweight_data = precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered)
+
+    torch.save((static_features, simple_features_stacked, newjournal, num_good_selections,
+                num2idx, gnn_data, gage_data, gweight_data), trace_file_path)
 
   return non_trivial, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w)
 
@@ -886,53 +1114,40 @@ class LearningModel(torch.nn.Module):
       print("Got verbose")
 
   def pre_forward(self):
-    (static_features,clause_simple_features,_journal,_num_good_selections,
-                init_gnn_nodes,gnn_edges,gnn_init_clause_nums,
-                gage_infers,gweight_terms,gweight_clauses) = self.trace_tuple
+    (static_features, simple_features_stacked, _journal, _num_good_selections,
+     num2idx, gnn_data, gage_data, gweight_data) = self.trace_tuple
+
+    init_gnn_nodes, gnn_edges, gnn_init_clause_nums = gnn_data
 
     self.nn.computing = True
-    self.nn.old_computing = True # some parts are otherwise skipped (as outsourced to cpp)
-
     self.nn.set_static_features(static_features)
 
+    initial_clause_gage = None
+    gweight_symbol_embeds = None
     if HP.USE_GAGE or HP.USE_GWEIGHT:
       self.nn.gnn_nodes = init_gnn_nodes
       self.nn.gnn_edges = gnn_edges
-      self.nn.gnn_perform(gnn_init_clause_nums)
+      initial_clause_gage, gweight_symbol_embeds = self.nn.gnn_perform(gnn_init_clause_nums)
 
-    if HP.USE_GAGE:
-      for (cl_num,inf_rule,parents) in gage_infers:
-        self.nn.gage_enqueue_one(cl_num,inf_rule,parents)
+    gage_features = run_vectorized_gage(
+      initial_clause_gage, gage_data,
+      self.nn.gage_rule_embed, self.nn.gage_combine, self.nn.gage_static_tweak
+    ) if HP.USE_GAGE else None
 
-    if HP.USE_GWEIGHT:
-      for (id,functor,sign,args) in gweight_terms:
-        self.nn.gweight_enqueue_one_term(id,functor,sign,args)
-      self.nn.gweight_clause_todo = gweight_clauses
+    gweight_features = run_vectorized_gweight(
+      gweight_symbol_embeds, self.nn.gweight_var_embed,
+      gweight_data,
+      self.nn.gweight_term_combine, self.nn.gweight_static_tweak
+    ) if HP.USE_GWEIGHT else None
 
-    if HP.USE_GAGE or HP.USE_GWEIGHT:
-      self.nn.embed_pending()
+    just_before_final = self.nn.pre_eval_clauses(
+      simple_features_stacked, gage_features, gweight_features)
 
-    num2idx = {}
-
-    # emulating MonsterNN.eval_clauses (but note the slight difference with problem_features / problem_embedder)
-    simple_feature_vecs = []
-    gage_feature_vecs = []
-    gweight_feature_vecs = []
-    for idx,(cl_num,features) in enumerate(clause_simple_features.items()):
-      num2idx[cl_num] = idx
-      if HP.USE_SIMPLE_FEATURES:
-        simple_feature_vecs.append(features)
-      if HP.USE_GAGE:
-        gage_feature_vecs.append(self.nn.gage_embed_store[cl_num])
-      if HP.USE_GWEIGHT:
-        gweight_feature_vecs.append(self.nn.gweight_clause_embeds[cl_num])
-
-    return self.nn.pre_eval_clauses(torch.stack(simple_feature_vecs),torch.stack(gage_feature_vecs),torch.stack(gweight_feature_vecs)),num2idx
+    return just_before_final, num2idx
 
   def forward(self,just_before_final,num2idx,tweaks):
-    (_static_features,_clause_simple_features,journal,num_good_selections,
-                _init_gnn_nodes,_gnn_edges,_gnn_init_clause_nums,
-                _gage_infers,_gweight_terms,_gweight_clauses) = self.trace_tuple
+    (_static_features, _simple_features, journal, num_good_selections,
+     _num2idx, _gnn_data, _gage_data, _gweight_data) = self.trace_tuple
 
     # print("just_before_final",just_before_final.shape)
     if tweaks is not None:
