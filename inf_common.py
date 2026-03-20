@@ -821,12 +821,15 @@ def precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered):
     layer_idx += 1
     cl_layers[cl_num] = layer_idx
 
-    cl_to_global[cl_num] = next_idx
-    next_idx += 1
-
     while len(raw_layers) < layer_idx:
       raw_layers.append([])
     raw_layers[layer_idx - 1].append((cl_num, inf_rule, parents))
+
+  # Assign global indices in layer order (must match torch.cat order in run_vectorized_gage)
+  for raw_layer in raw_layers:
+    for cl_num, _inf_rule, _parents in raw_layer:
+      cl_to_global[cl_num] = next_idx
+      next_idx += 1
 
   n_total = next_idx
 
@@ -891,12 +894,15 @@ def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
     layer_idx += 1
     term_layers_map[id] = layer_idx
 
-    term_to_global[id] = next_idx
-    next_idx += 1
-
     while len(raw_layers) < layer_idx:
       raw_layers.append([])
     raw_layers[layer_idx - 1].append((id, functor, sign, args))
+
+  # Assign global indices in layer order (must match torch.cat order in run_vectorized_gweight)
+  for raw_layer in raw_layers:
+    for id, _functor, _sign, _args in raw_layer:
+      term_to_global[id] = next_idx
+      next_idx += 1
 
   n_terms = next_idx
 
