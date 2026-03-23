@@ -967,7 +967,7 @@ def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_dat
   # Clause aggregation via segment_reduce sum
   lit_flat, lit_lengths = clause_agg
   lit_embeds = all_term_embeds[lit_flat]
-  clause_embeds = torch.segment_reduce(lit_embeds, 'sum', lengths=lit_lengths, initial=0.0)
+  clause_embeds = torch.segment_reduce(lit_embeds, HP.LIT_TO_CLAUSE_AGGREG, lengths=lit_lengths, initial=0.0)
 
   return clause_embeds[gather_idxs]
 

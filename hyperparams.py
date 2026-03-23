@@ -162,6 +162,8 @@ GAGE_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 # GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
 
+LIT_TO_CLAUSE_AGGREG = "sum"
+
 TREE_DROPOUT : Final[float] = 0.0 # maybe is good, but also contributes to higher variance (ingore by default)
 
 USE_SIMPLE_FEATURES : Final[bool] = True
