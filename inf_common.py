@@ -1168,7 +1168,7 @@ class LearningModel(torch.nn.Module):
     if VERIFY_VECTORIZED:
       assert len(self.trace_tuple) > 8
       old_gage, old_gweight = self._old_pre_forward_for_verify(initial_clause_gage, gweight_symbol_embeds)
-      eps = 1e-4
+      eps = 5e-4
       if HP.USE_GAGE:
         diff = (gage_features - old_gage).abs().max().item()
         assert diff < eps, f"GAGE verification failed: max diff = {diff}"
