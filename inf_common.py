@@ -10,7 +10,6 @@ from torch import Tensor
 from typing import List, Final
 
 import torch_geometric
-from torch_geometric.utils import scatter
 
 # print(torch.__config__.parallel_info())
 
@@ -898,20 +897,19 @@ def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
     other_flat = torch.tensor(other_flat_list, dtype=torch.long) if other_flat_list else torch.empty(0, dtype=torch.long)
     term_layers.append((functor_idxs, sign_vals, first_arg_idxs, other_flat, other_lengths))
 
-  # Clause aggregation: build flat index tensors for scatter_sum
+  # Clause aggregation: build flat index tensors for segment_reduce sum
   lit_flat_list = []
-  lit_assign_list = []
+  lit_lengths = []
   cl_num_to_clause_idx = {}
   for clause_idx, (cl_num, lits) in enumerate(gweight_clauses):
     cl_num_to_clause_idx[cl_num] = clause_idx
     for lit_id in lits:
       lit_flat_list.append(term_to_global[lit_id])
-      lit_assign_list.append(clause_idx)
+    lit_lengths.append(len(lits))
 
   clause_agg = (
     torch.tensor(lit_flat_list, dtype=torch.long),
-    torch.tensor(lit_assign_list, dtype=torch.long),
-    len(gweight_clauses),
+    torch.tensor(lit_lengths, dtype=torch.long),
   )
 
   gather_idxs = torch.tensor([cl_num_to_clause_idx[cn] for cn in cl_nums_ordered], dtype=torch.long)
@@ -966,10 +964,10 @@ def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_dat
     res = res + gweight_static_tweak
     all_term_embeds = torch.cat([all_term_embeds, res], dim=0)
 
-  # Clause aggregation via scatter_sum
-  lit_flat, lit_assign, n_clauses = clause_agg
+  # Clause aggregation via segment_reduce sum
+  lit_flat, lit_lengths = clause_agg
   lit_embeds = all_term_embeds[lit_flat]
-  clause_embeds = scatter(lit_embeds, lit_assign, dim=0, dim_size=n_clauses, reduce='sum')
+  clause_embeds = torch.segment_reduce(lit_embeds, 'sum', lengths=lit_lengths, initial=0.0)
 
   return clause_embeds[gather_idxs]
 
