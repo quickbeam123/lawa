@@ -97,6 +97,8 @@ USE_TWEAKING = False # instead of looking things up in PERFORMS_SPECIAL, we just
 TWEAK_MATRIX_SIZE = 256
 TWEAKS_TO_PICK = 0
 
+TRAIN_MINIBATCH_SIZE : Final[int] = 1 # accumulate gradients from this many workers before one optimizer step
+
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model

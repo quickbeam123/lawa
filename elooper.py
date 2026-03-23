@@ -619,9 +619,11 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
 
     weighted_train_loss = 0.0
     weighted_train_stats = defaultdict(float)
+    minibatch_count = 0
     def process_results_from_train(job_kind,input,result):
       nonlocal weighted_train_loss
       nonlocal weighted_train_stats
+      nonlocal minibatch_count
 
       assert job_kind == W.JK_TRAIN
       (record,train_model_file_path,_tw_pref) = input
@@ -659,9 +661,16 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
         else:
           cleval_norm  += param_copy.data.norm(2) ** 2
         '''
-        param.grad = param_copy
+        if param.grad is None:
+          param.grad = param_copy.clone()
+        else:
+          param.grad.add_(param_copy)
 
-      optimizer.step()
+      minibatch_count += 1
+      if minibatch_count >= HP.TRAIN_MINIBATCH_SIZE:
+        optimizer.step()
+        optimizer.zero_grad()
+        minibatch_count = 0
       # print(f"   Train tweak for {record.prob} after: {tweak_map[prob_no_dots].norm()}")
 
       if with_tweaks:
@@ -677,6 +686,10 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
 
     pre_train = time.time()
     eval_and_train_in_parallel(get_train_tasks(),process_results_from_train)
+
+    if minibatch_count > 0:
+      optimizer.step()
+      optimizer.zero_grad()
 
     print("Train loss",weighted_train_loss,"in",int(time.time()-pre_train),"s")
     for i,(k,v) in enumerate(weighted_train_stats.items()):
