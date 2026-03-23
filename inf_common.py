@@ -825,36 +825,19 @@ def precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered):
     K = len(raw_layer)
     rule_idxs = torch.empty(K, dtype=torch.long)
     main_idxs = torch.zeros(K, dtype=torch.long)
-    other_idxs = torch.zeros(K, dtype=torch.long)
-
-    multi_flat_list = []
-    multi_assign_list = []
-    has_multi = None
+    other_flat_list = []
+    other_lengths = torch.zeros(K, dtype=torch.long)
 
     for j, (cl_num, inf_rule, parents) in enumerate(raw_layer):
       rule_idxs[j] = inf_rule
       if len(parents) >= 1:
         main_idxs[j] = cl_to_global[parents[0]]
-      if len(parents) >= 2:
-        other_idxs[j] = cl_to_global[parents[1]]
-      if len(parents) >= 3:
-        if has_multi is None:
-          has_multi = torch.zeros(K, dtype=torch.bool)
-        has_multi[j] = True
-        for p in parents[1:]:
-          multi_flat_list.append(cl_to_global[p])
-          multi_assign_list.append(j)
+      for p in parents[1:]:
+        other_flat_list.append(cl_to_global[p])
+      other_lengths[j] = max(0, len(parents) - 1)
 
-    if has_multi is not None:
-      multi_parent_fix = (
-        has_multi,
-        torch.tensor(multi_flat_list, dtype=torch.long),
-        torch.tensor(multi_assign_list, dtype=torch.long),
-      )
-    else:
-      multi_parent_fix = None
-
-    layers.append((rule_idxs, main_idxs, other_idxs, multi_parent_fix))
+    other_flat = torch.tensor(other_flat_list, dtype=torch.long) if other_flat_list else torch.empty(0, dtype=torch.long)
+    layers.append((rule_idxs, main_idxs, other_flat, other_lengths))
 
   gather_idxs = torch.tensor([cl_to_global[cn] for cn in cl_nums_ordered], dtype=torch.long)
   return (n_total, layers, gather_idxs)
@@ -899,37 +882,21 @@ def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
     functor_idxs = torch.empty(K, dtype=torch.long)
     sign_vals = torch.empty(K)
     first_arg_idxs = torch.zeros(K, dtype=torch.long)
-    other_arg_idxs = torch.zeros(K, dtype=torch.long)
 
-    multi_flat_list = []
-    multi_assign_list = []
-    has_multi = None
+    other_flat_list = []
+    other_lengths = torch.zeros(K, dtype=torch.long)
 
     for j, (id, functor, sign, args) in enumerate(raw_layer):
       functor_idxs[j] = functor
       sign_vals[j] = sign
       if len(args) >= 1:
         first_arg_idxs[j] = term_to_global[args[0]]
-      if len(args) >= 2:
-        other_arg_idxs[j] = term_to_global[args[1]]
-      if len(args) >= 3:
-        if has_multi is None:
-          has_multi = torch.zeros(K, dtype=torch.bool)
-        has_multi[j] = True
-        for a in args[1:]:
-          multi_flat_list.append(term_to_global[a])
-          multi_assign_list.append(j)
+      for a in args[1:]:
+        other_flat_list.append(term_to_global[a])
+      other_lengths[j] = max(0, len(args) - 1)
 
-    if has_multi is not None:
-      multi_arg_fix = (
-        has_multi,
-        torch.tensor(multi_flat_list, dtype=torch.long),
-        torch.tensor(multi_assign_list, dtype=torch.long),
-      )
-    else:
-      multi_arg_fix = None
-
-    term_layers.append((functor_idxs, sign_vals, first_arg_idxs, other_arg_idxs, multi_arg_fix))
+    other_flat = torch.tensor(other_flat_list, dtype=torch.long) if other_flat_list else torch.empty(0, dtype=torch.long)
+    term_layers.append((functor_idxs, sign_vals, first_arg_idxs, other_flat, other_lengths))
 
   # Clause aggregation: build flat index tensors for scatter_sum
   lit_flat_list = []
@@ -958,17 +925,15 @@ def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_co
   zero_embed = initial_clause_gage.new_zeros(1, D)
   all_embeds = torch.cat([zero_embed, initial_clause_gage], dim=0)
 
-  for rule_idxs, main_idxs, other_idxs, multi_fix in layers:
+  for rule_idxs, main_idxs, other_flat, other_lengths in layers:
     K = rule_idxs.shape[0]
     rule_e = gage_rule_embed(rule_idxs)
     main_e = all_embeds[main_idxs]
-    other_e = all_embeds[other_idxs]
 
-    if multi_fix is not None:
-      has_multi, multi_flat, multi_assign = multi_fix
-      multi_gathered = all_embeds[multi_flat]
-      multi_avg = scatter(multi_gathered, multi_assign, dim=0, dim_size=K, reduce='mean')
-      other_e = torch.where(has_multi.unsqueeze(1), multi_avg, other_e)
+    if other_flat.numel() > 0:
+      other_e = torch.segment_reduce(all_embeds[other_flat], 'mean', lengths=other_lengths, initial=0.0)
+    else:
+      other_e = all_embeds.new_zeros(K, D)
 
     res = gage_combine(torch.cat([rule_e, main_e, other_e], dim=1))
     res = res + gage_static_tweak
@@ -986,18 +951,16 @@ def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_dat
   var_embed = gweight_var_embed(torch.tensor(0.0)).unsqueeze(0)
   all_term_embeds = torch.cat([zero_embed, var_embed], dim=0)
 
-  for functor_idxs, sign_vals, first_arg_idxs, other_arg_idxs, multi_fix in term_layers:
+  for functor_idxs, sign_vals, first_arg_idxs, other_flat, other_lengths in term_layers:
     K = functor_idxs.shape[0]
     functor_e = gweight_symbol_embeds[functor_idxs]
     signs = sign_vals.unsqueeze(1)
     first_e = all_term_embeds[first_arg_idxs]
-    other_e = all_term_embeds[other_arg_idxs]
 
-    if multi_fix is not None:
-      has_multi, multi_flat, multi_assign = multi_fix
-      multi_gathered = all_term_embeds[multi_flat]
-      multi_avg = scatter(multi_gathered, multi_assign, dim=0, dim_size=K, reduce='mean')
-      other_e = torch.where(has_multi.unsqueeze(1), multi_avg, other_e)
+    if other_flat.numel() > 0:
+      other_e = torch.segment_reduce(all_term_embeds[other_flat], 'mean', lengths=other_lengths, initial=0.0)
+    else:
+      other_e = all_term_embeds.new_zeros(K, D)
 
     res = gweight_term_combine(torch.cat([functor_e, signs, first_e, other_e], dim=1))
     res = res + gweight_static_tweak
