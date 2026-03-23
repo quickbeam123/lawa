@@ -23,7 +23,7 @@ def get_status(info):
 
 SPLIT_MULTI = False
 
-GREEDY_START_GREEDY_END = True # to compare a greedy sequence of champs before and after they get boosted. Only don't on the 0-th slice; i.e. as if temp==0.0
+GREEDY_START_GREEDY_END = False # to compare a greedy sequence of champs before and after they get boosted. Only don't on the 0-th slice; i.e. as if temp==0.0
 
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
@@ -227,8 +227,8 @@ if __name__ == "__main__":
           lab = exper_dir[len(common_prefix)-2:]+"_"+m
 
         h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = lab, color=col)
-        # if m == "train":
-        handles.append(h)
+        if m == "train":
+          handles.append(h)
 
         max_val,max_idx = (0.0,0)
         imax_val,imax_idx = (0.0,0)
@@ -249,7 +249,7 @@ if __name__ == "__main__":
   # ax1.set_xlim(xmin=0,xmax=24)
   # ax1.set_ylim(ymin=0.42,ymax=0.54)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
-  # ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
+  ax1.axhline(y=0.5493, color='gray', linestyle='--', linewidth=0.5) # for rms_baseTraceSet_i16K
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"percentage problems proven")
