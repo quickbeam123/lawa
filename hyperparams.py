@@ -157,6 +157,8 @@ GWEIGHT_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 
 TREE_DROPOUT : Final[float] = 0.0 # maybe is good, but also contributes to higher variance (ingore by default)
 
+LIT_TO_CLAUSE_AGGREG = "sum"
+
 USE_SIMPLE_FEATURES : Final[bool] = True
 USE_GAGE : Final[bool] = True
 USE_GWEIGHT : Final[bool] = True

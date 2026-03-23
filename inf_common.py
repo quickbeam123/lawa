@@ -10,7 +10,6 @@ from torch import Tensor
 from typing import List, Final
 
 import torch_geometric
-from torch_geometric.utils import scatter
 
 # print(torch.__config__.parallel_info())
 
@@ -894,36 +893,19 @@ def precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered):
     K = len(raw_layer)
     rule_idxs = torch.empty(K, dtype=torch.long)
     main_idxs = torch.zeros(K, dtype=torch.long)
-    other_idxs = torch.zeros(K, dtype=torch.long)
-
-    multi_flat_list = []
-    multi_assign_list = []
-    has_multi = None
+    other_flat_list = []
+    other_lengths = torch.zeros(K, dtype=torch.long)
 
     for j, (cl_num, inf_rule, parents) in enumerate(raw_layer):
       rule_idxs[j] = inf_rule
       if len(parents) >= 1:
         main_idxs[j] = cl_to_global[parents[0]]
-      if len(parents) >= 2:
-        other_idxs[j] = cl_to_global[parents[1]]
-      if len(parents) >= 3:
-        if has_multi is None:
-          has_multi = torch.zeros(K, dtype=torch.bool)
-        has_multi[j] = True
-        for p in parents[1:]:
-          multi_flat_list.append(cl_to_global[p])
-          multi_assign_list.append(j)
+      for p in parents[1:]:
+        other_flat_list.append(cl_to_global[p])
+      other_lengths[j] = max(0, len(parents) - 1)
 
-    if has_multi is not None:
-      multi_parent_fix = (
-        has_multi,
-        torch.tensor(multi_flat_list, dtype=torch.long),
-        torch.tensor(multi_assign_list, dtype=torch.long),
-      )
-    else:
-      multi_parent_fix = None
-
-    layers.append((rule_idxs, main_idxs, other_idxs, multi_parent_fix))
+    other_flat = torch.tensor(other_flat_list, dtype=torch.long) if other_flat_list else torch.empty(0, dtype=torch.long)
+    layers.append((rule_idxs, main_idxs, other_flat, other_lengths))
 
   gather_idxs = torch.tensor([cl_to_global[cn] for cn in cl_nums_ordered], dtype=torch.long)
   return (n_total, layers, gather_idxs)
@@ -984,20 +966,19 @@ def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
 
     term_layers.append((functor_idxs, sign_vals, arg0_idxs, arg1_idxs, arg2_idxs, arg3_idxs))
 
-  # Clause aggregation: scatter_sum over literals
+  # Clause aggregation: build flat index tensors for segment_reduce
   lit_flat_list = []
-  lit_assign_list = []
+  lit_lengths = []
   cl_num_to_clause_idx = {}
   for clause_idx, (cl_num, lits) in enumerate(gweight_clauses):
     cl_num_to_clause_idx[cl_num] = clause_idx
     for lit_id in lits:
       lit_flat_list.append(term_to_global[lit_id])
-      lit_assign_list.append(clause_idx)
+    lit_lengths.append(len(lits))
 
   clause_agg = (
     torch.tensor(lit_flat_list, dtype=torch.long),
-    torch.tensor(lit_assign_list, dtype=torch.long),
-    len(gweight_clauses),
+    torch.tensor(lit_lengths, dtype=torch.long),
   )
 
   gather_idxs = torch.tensor([cl_num_to_clause_idx[cn] for cn in cl_nums_ordered], dtype=torch.long)
@@ -1011,17 +992,15 @@ def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_co
   zero_embed = initial_clause_gage.new_zeros(1, D)
   all_embeds = torch.cat([zero_embed, initial_clause_gage], dim=0)
 
-  for rule_idxs, main_idxs, other_idxs, multi_fix in layers:
+  for rule_idxs, main_idxs, other_flat, other_lengths in layers:
     K = rule_idxs.shape[0]
     rule_e = gage_rule_embed(rule_idxs)
     main_e = all_embeds[main_idxs]
-    other_e = all_embeds[other_idxs]
 
-    if multi_fix is not None:
-      has_multi, multi_flat, multi_assign = multi_fix
-      multi_gathered = all_embeds[multi_flat]
-      multi_avg = scatter(multi_gathered, multi_assign, dim=0, dim_size=K, reduce='mean')
-      other_e = torch.where(has_multi.unsqueeze(1), multi_avg, other_e)
+    if other_flat.numel() > 0:
+      other_e = torch.segment_reduce(all_embeds[other_flat], 'mean', lengths=other_lengths, initial=0.0)
+    else:
+      other_e = all_embeds.new_zeros(K, D)
 
     res = gage_combine(torch.cat([rule_e, main_e, other_e], dim=1))
     res = res + gage_static_tweak
@@ -1052,10 +1031,10 @@ def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_sva
     res = res + gweight_static_tweak
     all_term_embeds = torch.cat([all_term_embeds, res], dim=0)
 
-  # Clause aggregation via scatter_sum
-  lit_flat, lit_assign, n_clauses = clause_agg
+  # Clause aggregation via segment_reduce
+  lit_flat, lit_lengths = clause_agg
   lit_embeds = all_term_embeds[lit_flat]
-  clause_embeds = scatter(lit_embeds, lit_assign, dim=0, dim_size=n_clauses, reduce='sum')
+  clause_embeds = torch.segment_reduce(lit_embeds, HP.LIT_TO_CLAUSE_AGGREG, lengths=lit_lengths, initial=0.0)
 
   return clause_embeds[gather_idxs]
 
