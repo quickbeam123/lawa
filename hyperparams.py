@@ -112,7 +112,7 @@ WORTH_REPORTING = 120 # more than this many seconds and a new line goes into det
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
 TEST_IMPROVE_WINDOW = 5
 
-NUM_EARLY_STOP_ROUNDS = 3
+NUM_EARLY_STOP_ROUNDS = 2
 
 EARLY_STOP_ON = "dist_to_good"
 
