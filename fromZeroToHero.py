@@ -25,7 +25,7 @@ def eval_tweaks(trace_file_path,tweaks):
 
   with torch.no_grad():
     just_before_final,num2idx = learn_model.pre_forward()
-    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final,num2idx,tweaks)
+    losses = learn_model.forward(just_before_final,num2idx,tweaks)
 
   return losses.detach()
 

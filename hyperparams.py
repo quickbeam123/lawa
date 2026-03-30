@@ -114,8 +114,6 @@ TEST_IMPROVE_WINDOW = 5
 
 NUM_EARLY_STOP_ROUNDS = 2
 
-EARLY_STOP_ON = "dist_to_good"
-
 ANYWAY_STEP_ALL = True # True seems to be better, False ( = "take just one") was the long standing default
 
 # if that seems to be taking forever to converge, let's just rerun the perform/gather part

@@ -123,15 +123,10 @@ JK_PERFORM = 0 # runs vampire in "real-time" mode to assess its performance
 JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training trace
   # input:     (mission,prob,counter,opts,eval_opts - just for reporting purposes,gather_log)
   # output:    filename where got saved if got a non-degenerate trace; or None
-JK_EVAL_TWEAK_MATRIX = 2  # construct our network to get the loss of this trace (no training to do);
+JK_EVAL_TWEAK_MATRIX = 2  # construct our network to get the loss of this trace (no training to do)
   # if tweak_file_path specified, go load the tweak from there an also find a good tweak for the given record by local gradient descent; extend the stat_dict further and save the resulting tweak back to the file
   # input:     (record: ProbRecord,model_file_path,tweak_file_path or None,compute_matrix: bool)
-  # output:    stat_dict
-  #   contains the computed loss - for the
-  #   further ML statistics - for each trace separately, a) for the initial tweak, b) for the final tweak
-  #        - selection_hit_rate: percentage of time moments, in which a proof clause has minimial logit
-  #        - dist_to_good: average (over time moments) distance to a future proof clauase (in the logit-sorted order)
-  #        (selection_hit_rate == 1.0 => dist_to_good == 0.0)
+  # output:    stat_dict (contains "loss")
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
   # input:     (record: ProbRecord,train_model_file_path,tw_pref)
   # output:    stat_dict
@@ -159,7 +154,6 @@ def look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in):
   last_loss = float('inf')
 
   timed_out = 0.0
-  to_perfection = 0.0
 
   numiter = 0
   start_time = time.time()
@@ -167,8 +161,7 @@ def look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in):
     numiter += 1
 
     local_optimizer.zero_grad()
-    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final,num2idx,
-                                                                   tweak_in.unsqueeze(0))
+    losses = learn_model.forward(just_before_final,num2idx,tweak_in.unsqueeze(0))
 
     loss = losses[0]
     loss.backward()
@@ -179,26 +172,17 @@ def look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in):
       break
 
     last_loss = now_loss
-    last_shr = selection_hit_rates[0]
-    last_dtg = dists_to_good[0]
     last_norm = torch.norm(tweak_in).item()
     tweak_out = tweak_in.clone()
 
-    if dists_to_good[0] < 0.000001:
-      to_perfection = 1.0
-      break
-
     telapsed = time.time() - start_time
-    if telapsed > HP.TWEAK_SEARCH_MAX_TIME: # TODO: make a HP
+    if telapsed > HP.TWEAK_SEARCH_MAX_TIME:
       timed_out = 1.0
       break
 
   return tweak_out, {"tweaked_loss": last_loss,
-          "tweaked_selection_hit_rate": last_shr,
-          "tweaked_dist_to_good": last_dtg,
           "tweaks_norm": last_norm,
           "tweakings_timed_out": timed_out,
-          "tweakings_to_perfection": to_perfection,
           "tweakings_numiter": numiter}
 
 def eval_tweak_matrix_one_trace(trace_file_path,local_model,local_fact,stat_dict):
@@ -214,17 +198,15 @@ def eval_tweak_matrix_one_trace(trace_file_path,local_model,local_fact,stat_dict
     with torch.no_grad():
       assert len(record.prob_traces) == 1
       # TODO: should I tell learn_model I don't need the metrics?
-      losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,torch.stack(active_tweak_selection))
+      losses = learn_model.forward(just_before_final,num2idx,torch.stack(active_tweak_selection))
   else:
   """
 
   with torch.no_grad():
     notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
-    losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,notweaks)
+    losses = learn_model.forward(just_before_final,num2idx,notweaks)
 
   stat_dict["loss"] += local_fact*losses[0].item()
-  stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-  stat_dict["dist_to_good"] += local_fact*dist_to_goods[0]
 
   # CAREFUL: this gets a bit weird if there is more than one trace for a problem
   """
@@ -305,29 +287,20 @@ def train_one_trace(trace_file_path,local_model,local_fact,stat_dict,tw_pref):
     notweak = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False)
     both_tweaks = torch.stack([notweak,mytweak])
 
-    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
+    losses = learn_model.forward(just_before_final, num2idx, both_tweaks)
 
     loss = local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
 
-    # the generalist's stats
     stat_dict["loss"] += local_fact*losses[0].item()
-    stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-    stat_dict["dist_to_good"] += local_fact*dists_to_good[0]
-    # the tweaked stats
     stat_dict["tweaked_loss"] += local_fact*losses[1].item()
-    stat_dict["tweaked_selection_hit_rate"] += local_fact*selection_hit_rates[1]
-    stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
 
   else:
     notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
-    losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final, num2idx, notweaks)
+    losses = learn_model.forward(just_before_final, num2idx, notweaks)
 
     loss = local_fact*losses[0]
 
-    # the generalist's stats
     stat_dict["loss"] += local_fact*losses[0].item()
-    stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-    stat_dict["dist_to_good"] += local_fact*dist_to_goods[0]
 
   loss.backward() # is OK to call once per trace, it anyway accummulates
   return loss.item() # just the float goes back for statistics

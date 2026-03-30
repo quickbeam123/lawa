@@ -555,8 +555,8 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
 
       pre_eval = time.time()
       eval_and_train_in_parallel(get_eval_tasks(),process_results_from_eval)
-      weighted_eval_criter = weighted_eval_stats[HP.EARLY_STOP_ON]
-      print(f"Eval {HP.EARLY_STOP_ON} {weighted_eval_criter} in",int(time.time()-pre_eval),"s")
+      weighted_eval_criter = weighted_eval_stats["loss"]
+      print(f"Eval loss {weighted_eval_criter} in",int(time.time()-pre_eval),"s")
       for k,v in weighted_eval_stats.items():
         print(f"    e_{k}",v)
       sys.stdout.flush()
@@ -570,7 +570,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
         oldest_idx = stage2iter % TIW
         oldest_val = eval_criters[oldest_idx]
         if all((el >= oldest_val for el in eval_criters)):
-          print(f"Eval {HP.EARLY_STOP_ON} didn't improve for",TIW-1,"iterations now")
+          print(f"Eval loss didn't improve for",TIW-1,"iterations now")
           if stage2iter == TIW:
             if HP.ANYWAY_STEP_ALL:
               actual_idx = TIW-1
@@ -582,7 +582,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
           else:
             actual_idx = oldest_idx
             ctx.model.load_state_dict(torch.load(eval_models[oldest_idx]))
-          print(f"  took model with eval {HP.EARLY_STOP_ON}",eval_criters[actual_idx])
+          print(f"  took model with eval loss",eval_criters[actual_idx])
 
           for eval_model_file_path in eval_models:
             os.remove(eval_model_file_path)

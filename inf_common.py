@@ -27,7 +27,6 @@ VERIFY_VECTORIZED = False  # set True to run both old and new GAGE/GWEIGHT paths
 
 from collections import defaultdict
 from itertools import chain
-from sortedcontainers import SortedList
 
 
 def default_defaultdict_of_list():
@@ -1165,7 +1164,6 @@ class LearningModel(torch.nn.Module):
     journal = self.trace_tuple[2]
     num_good_selections = self.trace_tuple[3]
 
-    # print("just_before_final",just_before_final.shape)
     if tweaks is not None:
       logits = self.nn.clause_valuator_snd.forward_with_tweaks(just_before_final,tweaks)
       squeeze_back = False
@@ -1174,20 +1172,12 @@ class LearningModel(torch.nn.Module):
       squeeze_back = True
 
     num_loss_channels = logits.shape[0]
-    # num_clauses = logits.shape[1]
 
     good_action_reward_loss = torch.zeros(num_loss_channels)
     num_good_steps = 0
 
     passive = set()
     passive_good = set()
-
-    # to compute our metric (as opposed the loss)
-    sorted_passive = [SortedList(key=lambda cl_idx, channel=chan : -logits[channel,cl_idx].item()) for chan in range(num_loss_channels)]
-
-    num_sels = 0
-    selection_hits = [0]*num_loss_channels
-    dists_to_good = [0.0]*num_loss_channels
 
     for tag,cl_num,isGood in journal:
       if cl_num not in num2idx:
@@ -1197,8 +1187,6 @@ class LearningModel(torch.nn.Module):
       idx = num2idx[cl_num]
       if tag == EVENT_ADD:
         passive.add(idx)
-        for chan in range(num_loss_channels):
-          sorted_passive[chan].add(idx)
         if isGood:
           passive_good.add(idx)
         continue
@@ -1208,19 +1196,6 @@ class LearningModel(torch.nn.Module):
         # don't learn from every selection for traces with many-many of them (but go and learn at least once)
         if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
 
-          # computing the "ML statistics" about how close the good clauses would be to the beginning of our queue here
-          num_sels += 1
-          for chan in range(num_loss_channels):
-            first_good = 0
-            for first_good,ith_idx in enumerate(sorted_passive[chan]):
-              if ith_idx in passive_good:
-                break
-            if first_good>0:
-              dists_to_good[chan] += first_good / (len(sorted_passive[chan])-1) # make it span <0,1>
-            else:
-              selection_hits[chan] += 1
-
-          # computing the loss
           passive_l = sorted(passive)
           passive_t = torch.tensor(passive_l, dtype=torch.long)
           c = 1/len(passive_good)
@@ -1238,17 +1213,11 @@ class LearningModel(torch.nn.Module):
           num_good_steps += 1
 
       passive.remove(idx)
-      for chan in range(num_loss_channels):
-        sorted_passive[chan].remove(idx)
-
       if isGood:
         passive_good.remove(idx)
 
     assert num_good_steps, "The training example was still degenerate!"
-    for chan in range(num_loss_channels):
-      selection_hits[chan] /= num_sels
-      dists_to_good[chan] /= num_sels
 
     if squeeze_back:
-      return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits[0], dists_to_good[0]
-    return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good
+      return good_action_reward_loss.squeeze(0)/num_good_steps
+    return good_action_reward_loss/num_good_steps
