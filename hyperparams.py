@@ -103,7 +103,7 @@ TRAIN_MINIBATCH_SIZE : Final[int] = 1 # accumulate gradients from this many work
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
 # EVAL_PARALLELISM = 16 # should be TRAINING_PARALLELISM / NUM_GSD_FEATURES, but I think I can afford a bit leeway
-TRAINING_PARALLELISM = 64
+TRAINING_PARALLELISM = 16
 WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
 # also in elooper:
@@ -156,7 +156,7 @@ GNN_NUM_LAYERS : Final[int] = 5 # "big" is 8
 GNN_MULTIPLIER : Final[int] = 1
 GNN_INTERNAL_SIZE : Final[int] = 32 # "big" is 48
 
-GNN_DROPOUT : Final[float] = 0.0
+GNN_DROPOUT : Final[float] = 0.1
 
 NUM_INFERENCE_RULES : Final[int] = 202
 GAGE_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
