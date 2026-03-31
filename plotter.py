@@ -120,7 +120,7 @@ if __name__ == "__main__":
         # print("     -> ",successes)
         for m in MISSIONS:
           if file.startswith(m):
-            plottables[m][0].append(loop) # NOTE: add -1 here to get the plots starting at 0, like for CADE
+            plottables[m][0].append(loop -1 ) # NOTE: add -1 here to get the plots starting at 0, like for CADE
             plottables[m][1].append(fractional)
 
       loop += 1
@@ -213,6 +213,8 @@ if __name__ == "__main__":
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl16": "k=16",
              "/home/sudamar2/ijcar2026/newDefaults_i32K": "default",
              "/home/sudamar2/ijcar2026/newDefaults_smartAgain_i32K": "smartAgain",
+             "/home/sudamar2/holawa/a1shuf65k_6944_defaults_theA1CompletishChamp_i16K": "Deepire TH0 (train / test)",
+             "/home/sudamar2/holawa/a1shuf65k2a4_6944_defaults_theA4CompletishChamp_i16K": "Deepire TH1 (train / test)"
              }
 
   for exper_dir,plottables in expers.items():
@@ -247,7 +249,7 @@ if __name__ == "__main__":
   ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
 
   # ax1.set_xlim(xmin=0,xmax=24)
-  ax1.set_ylim(ymin=0.0) #,ymax=0.54)
+  # ax1.set_ylim(ymin=0.0) #,ymax=0.54)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
   # ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
 
