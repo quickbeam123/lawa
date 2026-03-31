@@ -980,10 +980,17 @@ def precompute_forward_indices(journal, num2idx, num_good_selections):
 
 def segment_logsumexp(flat_logits, lengths):
   """Compute logsumexp per segment. flat_logits: [C, total], lengths: [S]. Returns [C, S]."""
-  seg_max = torch.segment_reduce(flat_logits, 'max', lengths=lengths, axis=1)
-  shifted = flat_logits - seg_max.repeat_interleave(lengths, dim=1)
-  seg_sum = torch.segment_reduce(shifted.exp(), 'sum', lengths=lengths, axis=1)
-  return seg_max + seg_sum.log()
+  results = []
+  # TODO: this could be vectorized using axis=1 in newer pytorches;
+  # currently getting "RuntimeError: segment_reduce(): Expected axis to be the last dimension of lengths but got 1." for such code
+  # GPT suggested to transpose (and basically just used axis=0), but this seems cleaner:
+  for c in range(flat_logits.shape[0]):
+    row = flat_logits[c]
+    seg_max = torch.segment_reduce(row, 'max', lengths=lengths)
+    shifted = row - seg_max.repeat_interleave(lengths)
+    seg_sum = torch.segment_reduce(shifted.exp(), 'sum', lengths=lengths)
+    results.append(seg_max + seg_sum.log())
+  return torch.stack(results)
 
 
 def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_combine, gage_static_tweak):
