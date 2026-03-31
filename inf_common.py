@@ -24,6 +24,7 @@ import sys, random, math
 import hyperparams as HP
 
 VERIFY_VECTORIZED = False  # set True to run both old and new GAGE/GWEIGHT paths and assert they match
+VERIFY_VECTORIZED_FORWARD = False  # set True to run both old and new forward() paths and compare
 
 from collections import defaultdict
 from itertools import chain
@@ -915,6 +916,76 @@ def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
   return (n_terms, term_layers, clause_agg, gather_idxs)
 
 
+def precompute_forward_indices(journal, num2idx, num_good_selections):
+  """Replay journal to build precomputed index tensors for vectorized forward.
+
+  Returns:
+    forward_data: tuple of (flat_passive, passive_lengths, good_indices, good_weights, num_steps)
+      flat_passive:     LongTensor [total_passive] - concatenated clause indices per step
+      passive_lengths:  LongTensor [S] - passive set size per step
+      good_indices:     LongTensor [num_unique_good] - distinct good clause indices
+      good_weights:     FloatTensor [num_unique_good] - accumulated 1/|G_s| weight per good clause
+      num_steps:        int
+  """
+  passive = set()
+  passive_good = set()
+
+  all_passive = []
+  passive_lengths_list = []
+  good_weight_accum = defaultdict(float)  # idx -> accumulated weight
+  num_good_steps = 0
+
+  for tag, cl_num, isGood in journal:
+    # ignoring clauses we never even had to evaluate in the run
+    if cl_num not in num2idx:
+      continue
+    idx = num2idx[cl_num]
+
+    if tag == EVENT_ADD:
+      passive.add(idx)
+      if isGood:
+        passive_good.add(idx)
+      continue
+
+    if tag == EVENT_SEL and len(passive_good) > 0:
+      if num_good_steps == 0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections:
+        # Record this step's passive set
+        passive_sorted = sorted(passive)
+        all_passive.extend(passive_sorted)
+        passive_lengths_list.append(len(passive_sorted))
+
+        # Accumulate good clause weights
+        c = 1.0 / len(passive_good)
+        for g_idx in passive_good:
+          good_weight_accum[g_idx] += c
+
+        num_good_steps += 1
+
+    # covers both EVENT_SEL and EVENT_REM
+    passive.remove(idx)
+    if isGood:
+      passive_good.remove(idx)
+
+  assert num_good_steps > 0, "No eligible learning steps in trace"
+
+  flat_passive = torch.tensor(all_passive, dtype=torch.long)
+  passive_lengths = torch.tensor(passive_lengths_list, dtype=torch.long)
+
+  good_idx_list = sorted(good_weight_accum.keys())
+  good_indices = torch.tensor(good_idx_list, dtype=torch.long)
+  good_weights = torch.tensor([good_weight_accum[i] for i in good_idx_list], dtype=torch.float)
+
+  return (flat_passive, passive_lengths, good_indices, good_weights, num_good_steps)
+
+
+def segment_logsumexp(flat_logits, lengths):
+  """Compute logsumexp per segment. flat_logits: [C, total], lengths: [S]. Returns [C, S]."""
+  seg_max = torch.segment_reduce(flat_logits, 'max', lengths=lengths, axis=1)
+  shifted = flat_logits - seg_max.repeat_interleave(lengths, dim=1)
+  seg_sum = torch.segment_reduce(shifted.exp(), 'sum', lengths=lengths, axis=1)
+  return seg_max + seg_sum.log()
+
+
 def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_combine, gage_static_tweak):
   n_total, layers, gather_idxs = gage_data
   D = initial_clause_gage.shape[1]
@@ -1042,9 +1113,10 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     gnn_data = (init_gnn_nodes, gnn_edges, gnn_init_clause_nums)
     gage_data = precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered)
     gweight_data = precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered)
+    forward_data = precompute_forward_indices(newjournal, num2idx, num_good_selections)
 
     to_save = (static_features, simple_features_stacked, newjournal, num_good_selections,
-                num2idx, gnn_data, gage_data, gweight_data)
+                num2idx, gnn_data, gage_data, gweight_data, forward_data)
     if VERIFY_VECTORIZED:
       to_save = to_save + (gage_infers, gweight_terms, gweight_clauses)
     torch.save(to_save, trace_file_path)
@@ -1077,9 +1149,9 @@ class LearningModel(torch.nn.Module):
     tt = self.trace_tuple
     gnn_init_clause_nums = tt[5][2]  # gnn_data[2]
     num2idx = tt[4]
-    gage_infers = tt[8]
-    gweight_terms = tt[9]
-    gweight_clauses = tt[10]
+    gage_infers = tt[9]
+    gweight_terms = tt[10]
+    gweight_clauses = tt[11]
 
     cl_nums_ordered = list(num2idx.keys())
 
@@ -1145,7 +1217,7 @@ class LearningModel(torch.nn.Module):
 
     # Verification: run old dict-based path and compare
     if VERIFY_VECTORIZED:
-      assert len(self.trace_tuple) > 8
+      assert len(self.trace_tuple) > 9
       old_gage, old_gweight = self._old_pre_forward_for_verify(initial_clause_gage, gweight_symbol_embeds)
       eps = 1e-5
       if HP.USE_GAGE:
@@ -1161,8 +1233,8 @@ class LearningModel(torch.nn.Module):
     return just_before_final, num2idx
 
   def forward(self,just_before_final,num2idx,tweaks):
-    journal = self.trace_tuple[2]
-    num_good_selections = self.trace_tuple[3]
+    forward_data = self.trace_tuple[8]
+    flat_passive, passive_lengths, good_indices, good_weights, num_steps = forward_data
 
     if tweaks is not None:
       logits = self.nn.clause_valuator_snd.forward_with_tweaks(just_before_final,tweaks)
@@ -1171,53 +1243,76 @@ class LearningModel(torch.nn.Module):
       logits = self.nn.clause_valuator_snd.forward(just_before_final).unsqueeze(0)
       squeeze_back = True
 
+    # Denominator: logsumexp per step for each channel
+    flat_passive_logits = logits[:, flat_passive]                       # [C, total_passive]
+    lse = segment_logsumexp(flat_passive_logits, passive_lengths)       # [C, S]
+    denom = lse.sum(dim=1)                                              # [C]
+
+    # Numerator: gather good clause logits, dot with precomputed weights
+    good_logits = logits[:, good_indices]                               # [C, num_unique_good]
+    numer = torch.matmul(good_logits, good_weights)                     # [C]
+
+    loss = (denom - numer) / num_steps
+
+    if VERIFY_VECTORIZED_FORWARD:
+      old_loss = self._old_forward_for_verify(logits, forward_data)
+      eps = 1e-4
+      diff = (loss - old_loss).abs().max().item()
+      assert diff < eps, f"Forward verify failed: max diff = {diff}"
+
+    if squeeze_back:
+      return loss.squeeze(0)
+    return loss
+
+  def _old_forward_for_verify(self, logits, forward_data):
+    """Run old per-step cross_entropy for verification against vectorized forward."""
+    flat_passive, passive_lengths, _, _, num_steps = forward_data
     num_loss_channels = logits.shape[0]
 
     good_action_reward_loss = torch.zeros(num_loss_channels)
-    num_good_steps = 0
 
+    # Reconstruct coin tosses from forward_data: split flat_passive by passive_lengths
+    # and determine good clauses from the journal's isGood flags
+    journal = self.trace_tuple[2]
+    num2idx = self.trace_tuple[4]
+
+    # Replay journal to reconstruct the same selected steps
     passive = set()
     passive_good = set()
+    step_idx = 0
+    offset = 0
 
-    for tag,cl_num,isGood in journal:
+    for tag, cl_num, isGood in journal:
       if cl_num not in num2idx:
-        # ignoring clauses we never even had to evaluate in the run
         continue
-
       idx = num2idx[cl_num]
+
       if tag == EVENT_ADD:
         passive.add(idx)
         if isGood:
           passive_good.add(idx)
         continue
 
-      if tag == EVENT_SEL and len(passive_good): # can learn
-
-        # don't learn from every selection for traces with many-many of them (but go and learn at least once)
-        if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
-
-          passive_l = sorted(passive)
-          passive_t = torch.tensor(passive_l, dtype=torch.long)
-          c = 1/len(passive_good)
-          passive_good_l = [c if idx in passive_good else 0.0 for idx in passive_l]
-          passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype).unsqueeze(0).expand(num_loss_channels,-1)
-
-          gathered_logits = logits[:,passive_t]
-
-          good_action_reward_loss += torch.nn.functional.cross_entropy(
-            gathered_logits,
-            passive_good_t,
-            reduction="none",
-            label_smoothing=HP.LABEL_SMOOTHING)
-
-          num_good_steps += 1
+      if tag == EVENT_SEL and len(passive_good) > 0:
+        if step_idx < num_steps:
+          # Check if this step matches by comparing passive set to flat_passive segment
+          L = passive_lengths[step_idx].item()
+          expected = flat_passive[offset:offset+L].tolist()
+          if sorted(passive) == expected:
+            # This step was selected — compute cross_entropy
+            passive_t = flat_passive[offset:offset+L]
+            c = 1.0 / len(passive_good)
+            target_l = [c if i in passive_good else 0.0 for i in expected]
+            target_t = torch.tensor(target_l, dtype=logits.dtype).unsqueeze(0).expand(num_loss_channels, -1)
+            gathered = logits[:, passive_t]
+            good_action_reward_loss += torch.nn.functional.cross_entropy(
+              gathered, target_t, reduction="none")
+            offset += L
+            step_idx += 1
 
       passive.remove(idx)
       if isGood:
         passive_good.remove(idx)
 
-    assert num_good_steps, "The training example was still degenerate!"
-
-    if squeeze_back:
-      return good_action_reward_loss.squeeze(0)/num_good_steps
-    return good_action_reward_loss/num_good_steps
+    assert step_idx == num_steps, f"Verify: found {step_idx} steps, expected {num_steps}"
+    return good_action_reward_loss / num_steps
