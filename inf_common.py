@@ -187,11 +187,6 @@ class MonsterModules(torch.nn.Module):
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE),
       torch.nn.RMSNorm([HP.GAGE_EMBEDDING_SIZE]) if HP.USE_RMS else torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
-    self.gage_static_embedder = torch.nn.Sequential(
-      torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
-      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-      torch.nn.Linear(HP.INTERAL_SIZE,HP.GAGE_EMBEDDING_SIZE)
-    )
 
     # TODO: should the var embed be LayerNormalized, so that it "lives in the same space as the other term embeddings"?
     # first attempt to do this was unstable in training
@@ -205,11 +200,6 @@ class MonsterModules(torch.nn.Module):
       torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
       torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE),
       torch.nn.RMSNorm([HP.GWEIGHT_EMBEDDING_SIZE]) if HP.USE_RMS else torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
-    )
-    self.gweight_static_embedder = torch.nn.Sequential(
-      torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
-      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-      torch.nn.Linear(HP.INTERAL_SIZE,HP.GWEIGHT_EMBEDDING_SIZE)
     )
 
     self.final_static_embedder = torch.nn.Sequential(
@@ -264,7 +254,6 @@ class MonsterNN(torch.nn.Module):
   # gage modules
   # gage_rule_embed: torch.nn.Module
   # gage_combine: torch.nn.Module
-  # gage_static_embedder: torch.nn.Module
 
   # gage records
   gage_infers: List[Tuple[int,int,List[int]]]
@@ -275,12 +264,9 @@ class MonsterNN(torch.nn.Module):
   gage_cur_base_layer: int
   gage_todo_layers: List[List[Tuple[int,int,List[int]]]]
 
-  gage_static_tweak: Tensor
-
   # gweight modules
   # gweight_var_embed: SingleEmbedding
   # gweight_term_combine: torch.nn.Module
-  # gweight_static_embedder: torch.nn.Module
 
   # gweight records
   gweight_terms: List[Tuple[int,int,float,List[int]]]
@@ -296,12 +282,9 @@ class MonsterNN(torch.nn.Module):
   gweight_clause_todo: List[Tuple[int,List[int]]]
   gweight_clause_embeds: Dict[int,Tensor]
 
-  gweight_static_tweak: Tensor
-
   def __init__(self,
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
-              gage_rule_embed, gage_combine, gage_static_embedder,
-              gweight_var_embed, gweight_term_combine, gweight_static_embedder,
+              gage_rule_embed, gage_combine, gweight_var_embed, gweight_term_combine,
               final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaky, tweaks):
     super().__init__()
 
@@ -332,11 +315,9 @@ class MonsterNN(torch.nn.Module):
     # modules
     self.gage_rule_embed = gage_rule_embed
     self.gage_combine = gage_combine
-    self.gage_static_embedder = gage_static_embedder
 
     # records
     self.gage_infers = []
-    self.gage_static_tweak = torch.zeros(HP.GAGE_EMBEDDING_SIZE) # dummy, overwritten by set_static_features
 
     # helpers
     self.gage_embed_store = {}
@@ -347,12 +328,10 @@ class MonsterNN(torch.nn.Module):
     # modules
     self.gweight_var_embed = gweight_var_embed
     self.gweight_term_combine = gweight_term_combine
-    self.gweight_static_embedder = gweight_static_embedder
 
     # records
     self.gweight_terms = []
     self.gweight_clauses = []
-    self.gweight_static_tweak = torch.zeros(HP.GWEIGHT_EMBEDDING_SIZE) # dummy, overwritten by set_static_features
 
     # helpers
     self.gweight_symbol_embeds = torch.zeros(0) # dummy, overwritten by gnn_perform
@@ -445,19 +424,11 @@ class MonsterNN(torch.nn.Module):
       if (HP.USE_GAGE or HP.USE_GWEIGHT) and HP.FEED_STATIC_FEAUTURES_TO_GNN:
         self.gnn_static_tweak = self.gnn_static_embedder(features)
 
-      if HP.USE_GAGE and HP.FEED_STATIC_FEAUTURES_TO_THE_TREES:
-        self.gage_static_tweak = self.gage_static_embedder.forward(features)
-
-      if HP.USE_GWEIGHT and HP.FEED_STATIC_FEAUTURES_TO_THE_TREES:
-        self.gweight_static_tweak = self.gweight_static_embedder.forward(features)
-
       if HP.FEED_STATIC_FEATURES_FINAL_MLP:
-        self.final_static_tweak = self.final_static_embedder.forward(features)
+        self.final_static_tweak = self.final_static_embedder(features)
 
     """
     print("set_static_features - gnn_static_tweak",self.gnn_static_tweak)
-    print("set_static_features - gage_static_twea",self.gage_static_tweak)
-    print("set_static_features - gweight_static_tweak",self.gweight_static_tweak)
     print("set_static_features - final_static_tweak",self.final_static_tweak)
     """
 
@@ -522,7 +493,6 @@ class MonsterNN(torch.nn.Module):
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
 
       initial_clause_gage = self.gnn_clause_final.forward(self.gnn_nodes["clause"])
-      initial_clause_gage += self.gage_static_tweak # broadcasting for every inital clause
 
       self.gweight_symbol_embeds = torch.cat(
         (self.gnn_symbol_final.forward(self.gnn_nodes["symbol"]),self.gnn_sort_final.forward(self.gnn_nodes["sort"])),dim=0)
@@ -602,7 +572,6 @@ class MonsterNN(torch.nn.Module):
       mainPremEbeds = torch.stack(mainPrems)
       otherPremEbeds = torch.stack(otherPrems)
       res = self.gage_combine(torch.cat((ruleEbeds, mainPremEbeds, otherPremEbeds), dim=1))
-      res += self.gage_static_tweak # broadcasting for every line in res
       for j,(clNum,_,_) in enumerate(todos):
         self.gage_embed_store[clNum] = res[j]
 
@@ -675,7 +644,6 @@ class MonsterNN(torch.nn.Module):
         functors = torch.nn.functional.dropout(functors,HP.TREE_DROPOUT,self.training)
 
       res = self.gweight_term_combine(torch.cat((functors, torch.stack(signs), torch.stack(first_args), torch.stack(other_args)), dim=1))
-      res += self.gweight_static_tweak # broadcasting for every line in res
       for j,(id,_,_,_) in enumerate(todos):
         self.gweight_term_embed_store[id] = res[j]
 
@@ -742,8 +710,7 @@ def export_model(model_state_dict,name):
     param.requires_grad = False
 
   module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
-                     m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
-                     m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
+                     m.gage_rule_embed,m.gage_combine,m.gweight_var_embed,m.gweight_term_combine,
                      m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
   script = torch.jit.script(module)
   script.save(name)
@@ -916,7 +883,7 @@ def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
   return (n_terms, term_layers, clause_agg, gather_idxs)
 
 
-def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_combine, gage_static_tweak):
+def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_combine):
   n_total, layers, gather_idxs = gage_data
   D = initial_clause_gage.shape[1]
 
@@ -934,14 +901,12 @@ def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_co
       other_e = all_embeds.new_zeros(K, D)
 
     res = gage_combine(torch.cat([rule_e, main_e, other_e], dim=1))
-    res = res + gage_static_tweak
     all_embeds = torch.cat([all_embeds, res], dim=0)
 
   return all_embeds[gather_idxs]
 
 
-def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_data,
-                           gweight_term_combine, gweight_static_tweak):
+def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_data,gweight_term_combine):
   n_terms, term_layers, clause_agg, gather_idxs = gweight_data
   D = gweight_symbol_embeds.shape[1]
 
@@ -961,7 +926,6 @@ def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_dat
       other_e = all_term_embeds.new_zeros(K, D)
 
     res = gweight_term_combine(torch.cat([functor_e, signs, first_e, other_e], dim=1))
-    res = res + gweight_static_tweak
     all_term_embeds = torch.cat([all_term_embeds, res], dim=0)
 
   # Clause aggregation via segment_reduce sum
@@ -1064,8 +1028,7 @@ class LearningModel(torch.nn.Module):
 
     self.nn = MonsterNN(
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
-                    m.gage_rule_embed,m.gage_combine,m.gage_static_embedder,
-                    m.gweight_var_embed,m.gweight_term_combine,m.gweight_static_embedder,
+                    m.gage_rule_embed,m.gage_combine,m.gweight_var_embed,m.gweight_term_combine,
                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
     self.verbose = verbose
     if verbose:
@@ -1134,14 +1097,11 @@ class LearningModel(torch.nn.Module):
       initial_clause_gage, gweight_symbol_embeds = self.nn.gnn_perform(gnn_init_clause_nums)
 
     gage_features = run_vectorized_gage(
-      initial_clause_gage, gage_data,
-      self.nn.gage_rule_embed, self.nn.gage_combine, self.nn.gage_static_tweak
+      initial_clause_gage, gage_data, self.nn.gage_rule_embed, self.nn.gage_combine
     ) if HP.USE_GAGE else None
 
     gweight_features = run_vectorized_gweight(
-      gweight_symbol_embeds, self.nn.gweight_var_embed,
-      gweight_data,
-      self.nn.gweight_term_combine, self.nn.gweight_static_tweak
+      gweight_symbol_embeds, self.nn.gweight_var_embed, gweight_data, self.nn.gweight_term_combine
     ) if HP.USE_GWEIGHT else None
 
     # Verification: run old dict-based path and compare

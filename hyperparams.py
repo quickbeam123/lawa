@@ -39,7 +39,7 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 
 RANDOM_SEED: Final[int] = 42
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10724"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10730"
 
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
@@ -181,8 +181,8 @@ USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
 USE_STATIC_FEATURES : Final[bool] = False
-FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = USE_STATIC_FEATURES # additionally feed these features already to the GNN
-FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = USE_STATIC_FEATURES
+FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = False # additionally feed these features already to the GNN
+FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = False # currently does nothing (consider FiLM-style conditioning in the future)
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
 
 # PROBABLY DON'T WANT TO CHANGE ANYTHING BELOW BESIDES, PERHAPS, THE LEARNING_RATE, FOR NOW
