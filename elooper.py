@@ -253,6 +253,250 @@ class Context:
 
 # ============================================================================================
 
+# taken from snake's minilib
+def str2dict(str):
+  spl = str.split("_")
+  assert len(spl) >= 3
+  res = {}
+
+  # hack in long versions of saturation algorithm names (convert from the 3letter ones used in the decode string)
+  sa_longs = {"lrs" : "lrs", "dis" : "discount", "ott" : "otter", "fmb" : "fmb"}
+  res["sa"] = sa_longs[spl[0][:3]]
+
+  res["s"] = int(spl[0][3:])
+  res["awr"] = spl[1]
+  res["t"] = spl[-1]
+
+  rest = "_".join(spl[2:-1])
+  if rest:
+    for optpair in rest.split(":"):
+      opt,val = optpair.split("=")
+      res[opt] = val
+
+  return res
+
+def dict2str(dict):
+  middle = ":".join("{}={}".format(opt,val) for opt,val in dict.items() if opt not in ["sa","s","awr","t"])
+  return "{}{}{}_{}_{}_{}".format(dict["sa"][:3],"+" if int(dict["s"])>=0 else "", dict["s"],dict["awr"],middle,dict["t"])
+
+def sorted_dict2str(dict):
+  middle = ":".join("{}={}".format(opt,val) for opt,val in sorted(dict.items()) if opt not in ["sa","s","awr","t"])
+  return "{}{}{}_{}_{}_{}".format(dict["sa"][:3],"+" if int(dict["s"])>=0 else "",dict["s"],dict["awr"],middle,dict["t"])
+
+def load_starts_from_folders(folders):
+  strats = {}
+  for folder in folders:
+    root, dirs, files = next(os.walk(folder))
+    for pklfile in files:
+      if not pklfile.endswith(".pkl"):
+        continue
+
+      pklpath = os.path.join(folder, pklfile)
+      spl = pklfile.split("_")
+      stamp = int(spl[-2])
+
+      with open(pklpath,"rb") as f:
+        meta,results = pickle.load(f)
+        eval_instr = int(meta[-1])
+        strat = meta[2]
+        perf_vec = []
+
+        for longname,instr_parse,instr,res in results:
+          if res == "uns":
+            perf_vec.append((1+instr,longname))
+
+        strats[(pklpath,strat)] = sorted(perf_vec)
+
+  print("Loaded",len(strats),"strats")
+  return strats
+
+GREED_FACTOR = 1.3
+
+def contrib_fla(len_covered_prob):
+  return 0.5**len_covered_prob
+
+def accum_contrib_fla(len_covered_prob):
+  accum = 0.0
+  for i in range(len_covered_prob):
+    accum += contrib_fla(i)
+  return accum
+
+def get_best_contrib(perf_vec,base,covered):
+  new_perf_vec = []
+  best_weight = 0.0
+  best_instr = 0
+
+  contributing = 0
+  for instr,prob in perf_vec:
+    len_covered_prob = len(covered[prob])
+    if len_covered_prob >= HP.SNAKE_MAX_TRACES_PER_PROBLEM:
+      continue
+
+    new_perf_vec.append((instr,prob))
+    contributing += contrib_fla(len_covered_prob)
+    weight = math.pow(contributing,GREED_FACTOR)/(instr-base)
+
+    if weight > best_weight:
+      best_weight = weight
+      best_instr = instr
+
+  return new_perf_vec,best_weight,best_instr
+
+def prune_contributing_strat(perf_vec,strat,newbase,covered):
+  new_perf_vec = []
+  added = 0.0
+  for instr,prob in perf_vec:
+    if instr <= newbase:
+      added += contrib_fla(len(covered[prob]))
+      covered[prob].append((strat,instr))
+    else:
+      new_perf_vec.append((instr,prob))
+  return new_perf_vec,added
+
+def construct_schedule(strats):
+  covered = defaultdict(list) # allow problems to be covered up to HP.SNAKE_MAX_TRACES_PER_PROBLEM many times (with exponentially diminishing rewards)
+  total_budget = 0
+
+  cur_sched = { strat : 0 for strat in strats }
+
+  while True:
+    best_weight = 0.0
+    best_strat = None
+    best_instr = None
+    for strat in strats:
+      strats[strat],weight,instr = get_best_contrib(strats[strat],cur_sched[strat],covered)
+      if (weight > best_weight):
+        best_weight = weight
+        best_strat = strat
+        best_instr = instr
+
+    if best_strat == None:
+      break
+
+    print("Ext from",cur_sched[best_strat],"to",best_instr,"weigth",best_weight,"with",best_strat)
+
+    cost = best_instr - cur_sched[best_strat]
+    total_budget += cost
+    cur_sched[best_strat] = best_instr
+
+    strats[best_strat],added = prune_contributing_strat(strats[best_strat],best_strat,best_instr,covered)
+    print("Added",added,"problems for a cost of",cost,"instructions")
+
+    print("Now covering",sum(accum_contrib_fla(len(cover)) for prob,cover in covered.items()),"for a budget of",total_budget)
+
+  return covered
+
+def collect_trace(task):
+  prob,trace_id,strat,instr,script_model_file_path = task
+  stratstr = strat[1]
+  print("collect_trace for",prob,instr,stratstr)
+
+  # make the strategy limitless!
+  strdict = str2dict(stratstr)
+  # this is needed at least because of the order in which we present our explicit "-i <ilim>" and the "--decode strat"
+  # (normally the -i as a documentation, showing us the value with which minimizer finished on the witness problem)
+  if "i" in strdict:
+    del strdict["i"]
+  stratstr = sorted_dict2str(strdict)
+
+  # if expected to take too long, don't even bother reproving
+  if instr > HP.SNAKE_MAX_INSTRUCTIONS:
+    return None
+
+  result = None
+
+  # add 10% extra (and don't be a Scrooge)
+  ilim = max(int(1.1*instr),125)
+
+  # try reprove under shuffling
+  lrs_trace_file = None
+  for i in range(HP.SNAKE_MAX_TRIES):
+    if i == HP.SNAKE_MAX_TRIES-1:
+      # print("      will try unshuffled one")
+      opt_random = ""
+    else:
+      seed = random.randint(1,0x7fffff)
+      opt_random = f"{HP.SHUFFLING_OPTIONS} --random_seed {seed}"
+
+    # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
+    opts1 = f"-t {HP.SNAKE_RECONSTRUCT_TIMEOUT_SECOND} -i {ilim}"
+    opts2 = f" -p off --parsing_does_not_count on {opt_random} --decode {stratstr}"
+    if stratstr.startswith("lrs"):
+      lrs_trace_file = os.path.join(HP.SCRATCH,"{}_{}.lrs".format(prob.replace("/","_"),os.getpid()))
+      opts1 += f" -lstf {lrs_trace_file}"
+
+    if W.vampire_perfrom(prob,opts1+opts2,None).status == "uns":
+      trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),trace_id))
+      ilim = max(10*ilim,5000) # to have enough instructions/time to load a model
+      lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
+      opts1 = f"-t {HP.SNAKE_RECONSTRUCT_TIMEOUT_SECOND} -i {ilim} {lrs_trace_str} -ncem {script_model_file_path} -nar {trace_file_path} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+
+      vamp_res = W.vampire_perfrom(prob,opts1+opts2,None) # since opts2 comes second, the ncem from a neural strategy will overrule our ncem=random_script_model_file_path
+      # print("      gather",opts1+opts2)
+
+      try:
+        if vamp_res.status != "uns":
+          raise AssertionError(f"Gather failed to reproduce for {prob} {opts1+opts2}")
+
+        non_trivial, passes_limits, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path,W.train_log)
+        if non_trivial and passes_limits:
+          result = (prob,trace_id,trace_file_path)
+          break
+        else:
+          raise ValueError(f"Trace was either trivial or too big for {prob} {opts1+opts2}")
+      except Exception as e:
+        print(e)
+        if os.path.isfile(trace_file_path):
+          os.remove(trace_file_path)
+
+      # if the trace was too ugly, don't even try again with this strategy
+      break
+    else:
+      print("      Iter",i,"failed to reprove",prob,opts1+opts2)
+      pass
+
+  if lrs_trace_file and os.path.isfile(lrs_trace_file):
+    os.remove(lrs_trace_file)
+
+  sys.stdout.flush()
+  return result
+
+def collect_traces_POOL(tasks):
+  if True:
+    pool = multiprocessing.Pool(processes=parallelism) # number of cores to use
+    results = pool.map(collect_trace, tasks, chunksize = 1)
+    pool.close()
+    pool.join()
+    del pool
+  else:
+    results = []
+    for task in tasks:
+      results.append(collect_trace(task))
+  return results
+
+def stage_snake_gather(ctx):
+  strats = load_starts_from_folders(HP.SNAKE_INPUT_DIRS)
+  covered = construct_schedule(strats)
+
+  script_model_file_path = os.path.join(ctx.cur_dir,"script-model.pt")
+  IC.export_model(ctx.model.state_dict(),script_model_file_path)
+
+  results = collect_traces_POOL([(prob,i,strat,instr,script_model_file_path) for prob,cover in covered.items() for i,(strat,instr) in enumerate(cover) ])
+
+  for result in results:
+    if result is not None:
+      prob,trace_id,trace_file_path = result
+      ctx.trace_index.add_prob_trace(ctx.loop,prob,trace_file_path)
+
+  ctx.trace_index.update_scores(ctx.loop)
+  ctx.trace_index.report()
+  save_trace_index(ctx.cur_dir,ctx.trace_index)
+
+  print()
+  sys.stdout.flush()
+
+# ============================================================================================
+
 def stage_perf_gather(ctx):
   stage_start_time = time.time()
 
@@ -947,14 +1191,17 @@ if __name__ == "__main__":
     sys.stdout.flush()
 
     if not skip_first_stage:
-      stage_perf_gather(ctx)
+      if HP.SNAKE_STYLE_GATHER:
+        stage_snake_gather(ctx)
+      else:
+        stage_perf_gather(ctx)
 
     skip_first_stage = False # only possibly skipped for the first loop
 
     # ===========================================================================
 
     # don't run the full last loop - otherwise, we are training a model nobody will see evaluated
-    if loop_count == 0:
+    if loop_count == 0 and not HP.SNAKE_STYLE_GATHER:
       break
 
     print()

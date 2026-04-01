@@ -2,35 +2,18 @@
 
 from typing import Final, List
 
-SNAKE_INPUT_DIRS = ["../snake/mtpa2025/evals",
-                    "../snake/mtpa2025/evals74",
-                    "../snake/mtpa2025/evals79",
-                    "../snake/mtpa2025/evals_2",
-                    "../snake/mtpa2025/evals74_2",
-                    "../snake/mtpa2025/evals79_2",
-                    "../snake/mtpa2025/evals74_3",
-                    "../snake/mtpa2025/evals79_3",
-                    "../snake/mtpa2025/evals74_4",
-                    "../snake/mtpa2025/evals79_4",
-                    "../snake/mtpa2025/evals79_5",
-                    "../snake/mtpa2025/evals76_neural1",
-                    "../snake/mtpa2025/evals76_neural2",
-                    "../snake/mtpa2025/evals74_neural3",
-                    "../snake/mtpa2025/evals76_neural4",
-                    "../snake/mtpa2025/evals74_neural5",
-                    "../snake/mtpa2025/evals76_neural6",
-                    "../snake/mtpa2025/evals79_neural7",]
+# this is a non-default path in which we create/updat our trace index by looking into SNAKE_INPUT_DIRS and extracting runs from there
+SNAKE_STYLE_GATHER = True
 
-SNAKE_PREFER_STRATS = "ncem=models/fstrat10es48-1.pt"
-SNAKE_KICK_OUT_NON_PREFER_NEURALS = True
+SNAKE_INPUT_DIRS = ["../snake/casc2026/evals_1",
+                    ]
 
-SNAKE_SORT_BY_INSTR: Final[bool] = True # instead of random strat, let's prefer strats that solve the problem fastests
-SNAKE_SHUFFLE_THE_EASY: Final[bool] = False # do the sorting above, but then look at the part of the list that is below 10000K Mi and shuffle these anyway
-SNAKE_MAX_TRACES_PER_PROBLEM = 1
+SNAKE_MAX_TRACES_PER_PROBLEM = 4
+
 # don't even try to look for a solution that originally took longer than this
-SNAKE_MAX_INSTRUCTIONS = 50000
+SNAKE_MAX_INSTRUCTIONS = 129000
+SNAKE_RECONSTRUCT_TIMEOUT_SECOND = 90
 
-SNAKE_MAX_FAULS = 5 # how many strategies to try per problem, if they seem to be failing for "Too big or trivial" reason
 SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and the last one will be unshuffled)
 
 
