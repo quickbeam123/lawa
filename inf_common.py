@@ -202,11 +202,7 @@ class MonsterModules(torch.nn.Module):
       torch.nn.RMSNorm([HP.GWEIGHT_EMBEDDING_SIZE]) if HP.USE_RMS else torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
 
-    self.final_static_embedder = torch.nn.Sequential(
-      torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE),
-      torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU(),
-      torch.nn.Linear(HP.INTERAL_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE)
-    )
+    self.final_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE,bias=False)
     self.clause_valuator_fst, self.clause_valuator_snd = get_clause_valuator_pair()
 
     # by default our MonsterModules carry just one tweak
@@ -310,7 +306,7 @@ class MonsterNN(torch.nn.Module):
     self.gnn_nodes = {}
     self.gnn_edges = []
     self.gnn_init_clause_nums = [] # will be set from Vampire later anyway
-    self.gnn_static_tweak = torch.zeros(HP.GNN_INTERNAL_SIZE) # dummy, overwritten by set_static_features
+    self.gnn_static_tweak = torch.zeros(HP.GNN_INTERNAL_SIZE) # dummy, may get overwritten by set_static_features
 
     # modules
     self.gage_rule_embed = gage_rule_embed
@@ -349,11 +345,11 @@ class MonsterNN(torch.nn.Module):
     self.clause_valuator_snd = clause_valuator_snd
 
     # records
-    self.static_features = torch.zeros(0) # dummy, overwritten by set_static_features
+    self.static_features = torch.zeros(0) # dummy, may get overwritten by set_static_features
     self.clause_simple_features = {} # filled up gradually, only when recording
     self.journal = [] # filled up gradually, only when recording
     self.proof_units = []
-    self.final_static_tweak = torch.zeros(CLAUSE_EMBEDDER_INPUT_SIZE) # dummy, overwritten by set_static_features
+    self.final_static_tweak = torch.zeros(0) # dummy, may get overwritten by set_static_features
 
     # modules/parameters:
     self.tweaky = tweaky
@@ -675,8 +671,10 @@ class MonsterNN(torch.nn.Module):
     if HP.USE_GWEIGHT:
       feature_parts.append(gweight_embeds)
 
-    all_features = torch.cat(feature_parts, dim=1) + self.final_static_tweak # broadcasting for every clause
-    return self.clause_valuator_fst(all_features)
+    res = self.clause_valuator_fst(torch.cat(feature_parts, dim=1))
+    if HP.FEED_STATIC_FEATURES_FINAL_MLP: # otherwise, final_static_tweak is not initialized
+      res = res + self.final_static_tweak # broadcasting for every clause
+    return res
 
   @torch.jit.export
   def eval_clauses(self, clause_nums: List[int], clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
