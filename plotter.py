@@ -75,7 +75,7 @@ if __name__ == "__main__":
         sample_record = next(iter(results.values()))[0]
         if len(sample_record) == 3:
           if isinstance(sample_record[2],W.VampResult):
-            covered = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns") }
+            covered = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns" and i == 0) }
             ever_seen |= covered
             fractional = len(covered)
             if len(covered) > len(best_covered):
