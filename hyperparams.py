@@ -158,13 +158,13 @@ USE_GWEIGHT : Final[bool] = True
 FINAL_LAYER_DROPOUT : Final[float] = 0.0
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = False
+USE_STRATEGY_FEATURES : Final[bool] = True
 USE_PROBLEM_FEATURES : Final[bool] = False
 USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = False
-FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = False # additionally feed these features already to the GNN
+USE_STATIC_FEATURES : Final[bool] = True
+FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = True # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = False # currently does nothing (consider FiLM-style conditioning in the future)
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
 
