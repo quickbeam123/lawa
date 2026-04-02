@@ -98,7 +98,7 @@ TWEAKS_TO_PICK = 0
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
 # EVAL_PARALLELISM = 16 # should be TRAINING_PARALLELISM / NUM_GSD_FEATURES, but I think I can afford a bit leeway
-TRAINING_PARALLELISM = 64
+TRAINING_PARALLELISM = 16
 WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
 # also in elooper:
