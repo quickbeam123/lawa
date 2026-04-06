@@ -5,10 +5,12 @@ from typing import Final, List
 # this is a non-default path in which we create/updat our trace index by looking into SNAKE_INPUT_DIRS and extracting runs from there
 SNAKE_STYLE_GATHER = True
 
-SNAKE_INPUT_DIRS = ["../snake/casc2026/evals_1",
-                    ]
+SNAKE_INPUT_DIRS = [
+    ["../snake/casc2026/evalsN_1","../snake/casc2026/evalsN_2"], # primary
+    ["../snake/casc2026/evals_1"],                               # secondary
+                   ]
 
-SNAKE_MAX_TRACES_PER_PROBLEM = 4
+SNAKE_MAX_TRACES_PER_PROBLEM = 8
 
 # don't even try to look for a solution that originally took longer than this
 SNAKE_MAX_INSTRUCTIONS = 129000

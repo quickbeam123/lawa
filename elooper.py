@@ -353,8 +353,7 @@ def prune_contributing_strat(perf_vec,strat,newbase,covered):
       new_perf_vec.append((instr,prob))
   return new_perf_vec,added
 
-def construct_schedule(strats):
-  covered = defaultdict(list) # allow problems to be covered up to HP.SNAKE_MAX_TRACES_PER_PROBLEM many times (with exponentially diminishing rewards)
+def construct_schedule(strats,covered):
   total_budget = 0
 
   cur_sched = { strat : 0 for strat in strats }
@@ -475,8 +474,11 @@ def collect_traces_POOL(tasks):
   return results
 
 def stage_snake_gather(ctx):
-  strats = load_starts_from_folders(HP.SNAKE_INPUT_DIRS)
-  covered = construct_schedule(strats)
+  covered = defaultdict(list) # allow problems to be covered up to HP.SNAKE_MAX_TRACES_PER_PROBLEM many times (with exponentially diminishing rewards)
+  for dirs in HP.SNAKE_INPUT_DIRS:
+    strats = load_starts_from_folders(dirs)
+    covered = construct_schedule(strats,covered)
+    print("Num problems covered",len(covered))
 
   script_model_file_path = os.path.join(ctx.cur_dir,"script-model.pt")
   IC.export_model(ctx.model.state_dict(),script_model_file_path)
