@@ -37,12 +37,12 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-hol_6943"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-hol_6946"
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
 # only if RANDOMIZED_STRATEGIES is None does the SATURATION_ALGORITHM below kick in!
-SATURATION_ALGORITHM = "lrs" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
+SATURATION_ALGORITHM = "lrs --decode lrs+1002_3:2_acc=on:add=off:au=on:av=off:bd=all:br=off:bsr=unit_only:c=on:cbe=off:cnfonf=off:drc=off:e2e=on:er=known:fde=unused:fe=axiom:fsr=off:hflw=0:hfsq=on:hfsqc=1:hfsqr=16,1:kws=precedence:lma=off:nm=4:ntd=on:nwc=5.0:prag=on:s2a=on:s2agt=32:sac=on:sfv=off:slsq=on:slsqr=1,8:updr=off_0" # can also be "discount" or "otter" (lrs needs special treatment, to save traces for reproducibility)
 
 PROBLEM_LIST = "deeper.A4.shuf35000.txt" # newly, we don't want to run on SAT
 NUM_TRAIN_PROBLEMS = 30000
@@ -55,7 +55,7 @@ NON_IMIT_EXTRA = " "
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 16000
+INSTRUCTION_LIMIT = 32000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
