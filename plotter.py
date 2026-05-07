@@ -24,6 +24,17 @@ def get_status(info):
 SPLIT_MULTI = False
 
 GREEDY_START_GREEDY_END = True # to compare a greedy sequence of champs before and after they get boosted. Only don't on the 0-th slice; i.e. as if temp==0.0
+GREEDY_FROM_TEST = True
+COMMONNIFY_NAMES = True
+SAVE_TO_FILES = False
+
+def common_name(name):
+  if not COMMONNIFY_NAMES:
+    return name
+  # e.g. "../deeper/B-mesh-tf0-out/HOL-MicroJava/0050_BVSpecTypeSafe/prob_01238_041871.p"
+  new_name = "/".join(name.split("/")[3:])
+  # print(new_name)
+  return new_name
 
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
@@ -92,14 +103,14 @@ if __name__ == "__main__":
                     if not file.startswith(m): # on purpose (ab)use "the other mission"
                       local_plottables[m][0].append(loop) # NOTE: add -1 here to get the plots starting at 0, like for CADE
                       local_plottables[m][1].append(local_factional)
-            if GREEDY_START_GREEDY_END:
-              covered0 = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns" and i == 0) }
+            if GREEDY_START_GREEDY_END and (not GREEDY_FROM_TEST or file == "test_res.pt"):
+              covered0 = {common_name(prob) for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns" and i == 0) }
               if loop == 1:
                 start_sets[exper_dir] = covered0
-                # print(f"start_sets[{exper_dir}] = {len(covered0)}")
+                print(f"start_sets[{exper_dir}] = {len(covered0)}")
               if exper_dir not in best_sets or len(best_sets[exper_dir]) < len(covered0):
                 best_sets[exper_dir] = covered0
-                # print(f"best_sets[{exper_dir}] = {len(covered0)}")
+                print(f"best_sets[{exper_dir}] = {len(covered0)}")
           else:
             fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
         else:
@@ -121,7 +132,7 @@ if __name__ == "__main__":
         for m in MISSIONS:
           if file.startswith(m):
             plottables[m][0].append(loop -1 ) # NOTE: add -1 here to get the plots starting at 0, like for CADE
-            plottables[m][1].append(fractional)
+            plottables[m][1].append(fractional*100)
 
       loop += 1
 
@@ -144,6 +155,11 @@ if __name__ == "__main__":
     covered_1_boosted = None
     for exper_dir, covered0 in start_sets.items():
       covered_boost = best_sets[exper_dir]
+      if SAVE_TO_FILES:
+        new_name = exper_dir.split("/")[-1]+".best.txt"
+        with open(new_name,"w") as f:
+          for prob in covered_boost:
+            f.write(prob+"\n")
       if iter == 0:
         covered_1_plain = covered0
         covered_1_boosted = covered_boost
@@ -189,7 +205,7 @@ if __name__ == "__main__":
   from matplotlib.ticker import MaxNLocator
 
   # fig, ax1 = plt.subplots(figsize=(3.2,3))
-  fig, ax1 = plt.subplots(figsize=(6,5))
+  fig, ax1 = plt.subplots(figsize=(3.5,2.8))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
@@ -213,12 +229,15 @@ if __name__ == "__main__":
              "/home/sudamar2/mtpa-gnn/newbase10k-cumul-gl16": "k=16",
              "/home/sudamar2/ijcar2026/newDefaults_i32K": "default",
              "/home/sudamar2/ijcar2026/newDefaults_smartAgain_i32K": "smartAgain",
-             "/home/sudamar2/holawa/a1shuf65k_6944_defaults_theA1CompletishChamp_i16K": "Deepire TH0 (train / test)",
-             "/home/sudamar2/holawa/a1shuf65k2a4_6944_defaults_theA4CompletishChamp_i16K": "Deepire TH1 (train / test)"
+             "/home/sudamar2/holawa/all192516shuffled_10730_defaults_theTF0CompletishChamp_i32K-B": "TF0",
+             "/home/sudamar2/holawa/all192516shuffled_6946_defaults_theTH0CompletishChamp_i32K": "TH0",
+             "/home/sudamar2/holawa/all192516shuffled_6946_defaults_theTH1CompletishChamp_i32K": "TH1"
              }
 
   for exper_dir,plottables in expers.items():
     col = next(color_cycle)['color']
+
+    print(col)
 
     for m,(Xs,Ys) in plottables.items():
       if Xs:
@@ -228,7 +247,7 @@ if __name__ == "__main__":
         else:
           lab = exper_dir[len(common_prefix)-2:]+"_"+m
 
-        h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1, label = lab, color=col)
+        h, = ax1.plot(Xs, Ys, STYLES[m], linewidth = 1.5, label = lab, color=col)
         if m == "train":
           handles.append(h)
 
@@ -249,14 +268,14 @@ if __name__ == "__main__":
   ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
 
   # ax1.set_xlim(xmin=0,xmax=24)
-  # ax1.set_ylim(ymin=0.0) #,ymax=0.54)
+  ax1.set_ylim(ymin=20 ,ymax=70)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
   # ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
 
   plt.xlabel("improvement loop iteration")
-  plt.ylabel(f"percentage problems proven")
+  plt.ylabel(f"percentage problems solved")
 
-  plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
+  plt.legend(handles = handles, loc='lower center', ncols = 3) # loc = 'best' is rumored to be unpredictable
   plt.savefig("current_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
   plt.close(fig)
 
