@@ -6,15 +6,22 @@ from typing import Final, List
 SNAKE_STYLE_GATHER = True
 
 SNAKE_INPUT_DIRS = [
-    ["../snake/casc2026/evalsN_1","../snake/casc2026/evalsN_2"], # primary
-    ["../snake/casc2026/evals_1"],                               # secondary
+    ["../snake/casc2026/evalsN_14","../snake/casc2026/evalsN_15"],
+    ["../snake/casc2026/evalsN_11","../snake/casc2026/evalsN_12","../snake/casc2026/evalsN_13"], # loop 6
+    ["../snake/casc2026/evalsN_10"],                                                             # loop 5
+    ["../snake/casc2026/evalsN_9"],                                                              # loop 4
+    ["../snake/casc2026/evalsN_8"],                                                              # loop 3
+    ["../snake/casc2026/evalsN_7"],                                                              # all5champsBiggishL14
+    ["../snake/casc2026/evalsN_3","../snake/casc2026/evalsN_4","../snake/casc2026/evalsN_5"],    # loop 2
+    ["../snake/casc2026/evalsN_1","../snake/casc2026/evalsN_2"],                                 # loop 1
+    ["../snake/casc2026/evals_1"],                                                               # plain
                    ]
 
-SNAKE_MAX_TRACES_PER_PROBLEM = 8
+SNAKE_MAX_TRACES_PER_PROBLEM = 12
 
 # don't even try to look for a solution that originally took longer than this
-SNAKE_MAX_INSTRUCTIONS = 129000
-SNAKE_RECONSTRUCT_TIMEOUT_SECOND = 90
+SNAKE_MAX_INSTRUCTIONS = 150000
+SNAKE_RECONSTRUCT_TIMEOUT_SECOND = 120
 
 SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and the last one will be unshuffled)
 
@@ -95,7 +102,7 @@ WORTH_REPORTING = 120 # more than this many seconds and a new line goes into det
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)
 # for higher values, we wait until the oldest valid-eval loss value out of TEST_IMPROVE_WINDOW many
 # is the best, retrieve that model (unless it's the first and we would not progress), and finish the loop there
-TEST_IMPROVE_WINDOW = 5
+TEST_IMPROVE_WINDOW = 8
 
 NUM_EARLY_STOP_ROUNDS = 2
 
@@ -180,10 +187,10 @@ LABEL_SMOOTHING = 0.0
 ONLY_LEARN_FROM_EVER_SELECTED = True
 
 # traces bigger than these will be considered "failed" (and not learned from)
-MAX_GAGE_HEIGHT = 500
-MAX_GWEIGHT_HEIGHT = 500
-MAX_BOX_SIZE = 95000
-MAX_KBSIZE = 50000 # "big" is 100000
+MAX_GAGE_HEIGHT = 1000
+MAX_GWEIGHT_HEIGHT = 1000
+MAX_BOX_SIZE = 200000
+MAX_KBSIZE = 150000 # "big" is 100000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
