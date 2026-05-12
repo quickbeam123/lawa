@@ -145,7 +145,6 @@ GNN_SAGE_PROJECT = False # rather experiment with different Convs
 GNN_SAGE_AGGREG = "mean"
 
 GNN_NUM_LAYERS : Final[int] = 5 # "big" is 8
-GNN_MULTIPLIER : Final[int] = 1
 GNN_INTERNAL_SIZE : Final[int] = 32 # "big" is 48
 
 GNN_DROPOUT : Final[float] = 0.1
