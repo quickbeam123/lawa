@@ -2,8 +2,8 @@
 
 from typing import Final, List
 
-# this is a non-default path in which we create/updat our trace index by looking into SNAKE_INPUT_DIRS and extracting runs from there
-SNAKE_STYLE_GATHER = True
+# this is a non-default path in which we create/update our trace index by looking into SNAKE_INPUT_DIRS and extracting runs from there
+SNAKE_STYLE_GATHER = False
 
 SNAKE_INPUT_DIRS = [
     ["../snake/casc2026/evalsN_14","../snake/casc2026/evalsN_15"],
@@ -29,9 +29,9 @@ SNAKE_MAX_TRIES = 6 # for particular strategy, try this many times shuffled (and
 # TODO: clean this folder when not running an experiment from time to time
 SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /raid/. for dgx
 
-RANDOM_SEED: Final[int] = 42
+RANDOM_SEED: Final[int] = 42 # TODO: don't forget about this one when starting an "indepenent rerun"!
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10730"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10736"
 
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
 
@@ -50,7 +50,7 @@ NON_IMIT_EXTRA = " -lpd off"
 
 # Data gathering - this luby-iterates between MIN and MAX and then repeats, if (INITIAL_)NUM_PERFORMS needs more
 # typically, one does the luby thing only under RANDOMIZED_STRATEGIES != None
-INSTRUCTION_LIMIT = 16000
+INSTRUCTION_LIMIT = 32000
 INSTRUCTION_LIMIT_MIN = INSTRUCTION_LIMIT
 INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # use the same value, to just have one value
@@ -166,13 +166,13 @@ USE_GWEIGHT : Final[bool] = True
 FINAL_LAYER_DROPOUT : Final[float] = 0.0
 
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
-USE_STRATEGY_FEATURES : Final[bool] = True
+USE_STRATEGY_FEATURES : Final[bool] = False
 USE_PROBLEM_FEATURES : Final[bool] = False
 USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
-USE_STATIC_FEATURES : Final[bool] = True
-FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = True # additionally feed these features already to the GNN
+USE_STATIC_FEATURES : Final[bool] = False
+FEED_STATIC_FEAUTURES_TO_GNN: Final[bool] = False # additionally feed these features already to the GNN
 FEED_STATIC_FEAUTURES_TO_THE_TREES: Final[bool] = False # currently does nothing (consider FiLM-style conditioning in the future)
 FEED_STATIC_FEATURES_FINAL_MLP: Final[bool] = USE_STATIC_FEATURES
 
