@@ -875,9 +875,12 @@ def precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered):
   return (n_terms, term_layers, clause_agg, gather_idxs)
 
 
-def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_combine):
+def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_combine, verbose):
   n_total, layers, gather_idxs = gage_data
   D = initial_clause_gage.shape[1]
+
+  if verbose:
+    print("Gage-height:",len(layers))
 
   zero_embed = initial_clause_gage.new_zeros(1, D)
   all_embeds = torch.cat([zero_embed, initial_clause_gage], dim=0)
@@ -898,9 +901,12 @@ def run_vectorized_gage(initial_clause_gage, gage_data, gage_rule_embed, gage_co
   return all_embeds[gather_idxs]
 
 
-def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_data,gweight_term_combine):
+def run_vectorized_gweight(gweight_symbol_embeds, gweight_var_embed, gweight_data,gweight_term_combine, verbose):
   n_terms, term_layers, clause_agg, gather_idxs = gweight_data
   D = gweight_symbol_embeds.shape[1]
+
+  if verbose:
+    print("Gweight-height:",len(term_layers))
 
   zero_embed = gweight_symbol_embeds.new_zeros(1, D)
   var_embed = gweight_var_embed(torch.tensor(0.0)).unsqueeze(0)
@@ -1076,6 +1082,9 @@ class LearningModel(torch.nn.Module):
     (static_features, simple_features_stacked, _journal, _num_good_selections,
      num2idx, gnn_data, gage_data, gweight_data) = self.trace_tuple[:8]
 
+    if self.verbose:
+      print("Box:",len(num2idx))
+
     init_gnn_nodes, gnn_edges, gnn_init_clause_nums = gnn_data
 
     self.nn.computing = True
@@ -1088,12 +1097,16 @@ class LearningModel(torch.nn.Module):
       self.nn.gnn_edges = gnn_edges
       initial_clause_gage, gweight_symbol_embeds = self.nn.gnn_perform(gnn_init_clause_nums)
 
+    if self.verbose:
+      for key,_embedder in self.nn.gnn_node_init:
+        print(key,self.nn.gnn_nodes[key].shape[0])
+
     gage_features = run_vectorized_gage(
-      initial_clause_gage, gage_data, self.nn.gage_rule_embed, self.nn.gage_combine
+      initial_clause_gage, gage_data, self.nn.gage_rule_embed, self.nn.gage_combine, self.verbose
     ) if HP.USE_GAGE else None
 
     gweight_features = run_vectorized_gweight(
-      gweight_symbol_embeds, self.nn.gweight_var_embed, gweight_data, self.nn.gweight_term_combine
+      gweight_symbol_embeds, self.nn.gweight_var_embed, gweight_data, self.nn.gweight_term_combine, self.verbose
     ) if HP.USE_GWEIGHT else None
 
     # Verification: run old dict-based path and compare

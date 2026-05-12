@@ -188,8 +188,8 @@ ONLY_LEARN_FROM_EVER_SELECTED = True
 # traces bigger than these will be considered "failed" (and not learned from)
 MAX_GAGE_HEIGHT = 1000
 MAX_GWEIGHT_HEIGHT = 1000
-MAX_BOX_SIZE = 200000
-MAX_KBSIZE = 150000 # "big" is 100000
+MAX_BOX_SIZE = 175000
+MAX_KBSIZE = 150000
 
 # True means the "original" learning setup in which all good clause seletions are rewarded at each step
 # False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)

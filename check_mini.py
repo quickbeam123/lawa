@@ -98,7 +98,7 @@ if __name__ == "__main__":
   fig, ax1 = plt.subplots(figsize=(6,6))
 
   # cond = lambda d: d.memMb > 15000 or d.took > 800
-  cond = lambda d: d.sizeKb > 150000 or d.box > 200000
+  cond = lambda d: d.box > 175000 or d.sizeKb > 150000
 
   # scatter "took" against "memMb"
   if True:
@@ -111,9 +111,6 @@ if __name__ == "__main__":
         X2s.append(d.took)
         Y2s.append(d.memMb)
       else:
-        if d.took > 600:
-          print(prob,d)
-
         X1s.append(d.took)
         Y1s.append(d.memMb)
 
@@ -178,7 +175,7 @@ if __name__ == "__main__":
       Xs.append(d.took)
       Ys.append(d.box)
 
-      if d.box > 95000:
+      if d.box > 175000:
         print(prob,d)
       else:
         max_took = max(max_took,d.took)
@@ -192,8 +189,6 @@ if __name__ == "__main__":
     # ax1.set_ylim([1, 510])
 
     print("Clipped max_took",max_took)
-
-
 
   if False:
     # Prepare the data for linear regression
