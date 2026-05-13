@@ -758,7 +758,7 @@ def stage_eval_train_eval(ctx,trace_problems,with_early_stopping,with_tweaks):
   optimizer = torch.optim.Adam(ctx.model.parameters(),
       lr=lr_wish, weight_decay=HP.WEIGHT_DECAY)
 
-  TIW = HP.TEST_IMPROVE_WINDOW
+  TIW = HP.TEST_IMPROVE_WINDOW if with_early_stopping else HP.NUM_ALL_STEPS
   assert TIW > 0
   eval_models = [None]*TIW
   eval_criters = [None]*TIW
