@@ -153,8 +153,7 @@ def eval_one_trace(trace_file_path,local_model,local_fact,stat_dict):
   learn_model.eval()
 
   with torch.no_grad():
-    just_before_final,num2idx = learn_model.pre_forward()
-    loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final,num2idx)
+    loss,selection_hit_rate,dist_to_good = learn_model.forward()
 
   stat_dict["loss"] += local_fact*loss.item()
   stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
@@ -207,9 +206,7 @@ def train_one_trace(trace_file_path,local_model,local_fact,stat_dict):
   learn_model = IC.LearningModel(False,local_model,trace_tuple)
   learn_model.train()
 
-  just_before_final,num2idx = learn_model.pre_forward()
-
-  loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final, num2idx)
+  loss,selection_hit_rate,dist_to_good = learn_model.forward()
 
   stat_dict["loss"] += local_fact*loss.item()
   stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate

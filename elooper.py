@@ -240,14 +240,7 @@ class Context:
     loop_model_state_file_path = os.path.join(adir,"loop-model-and-optimizer.tar")
     aloop,amodel_state_dict,_an_optim_dict = torch.load(loop_model_state_file_path)
     assert aloop == self.loop
-    remapped_state_dict = {}
-    for name,val in amodel_state_dict.items():
-      if name == "clause_valuator_snd.2.weight":
-        remapped_state_dict["clause_valuator_snd.weight"] = val.squeeze(0)
-      else:
-        remapped_state_dict[name] = val
-
-    self.model.load_state_dict(remapped_state_dict,strict=False)
+    self.model.load_state_dict(amodel_state_dict,strict=False)
 
 
 # ============================================================================================

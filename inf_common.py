@@ -63,42 +63,17 @@ CLAUSE_EMBEDDER_INPUT_SIZE : Final[int] = ((HP.NUM_CLAUSE_FEATURES if HP.USE_SIM
                             + (HP.GAGE_EMBEDDING_SIZE if HP.USE_GAGE else 0)
                             + (HP.GWEIGHT_EMBEDDING_SIZE if HP.USE_GWEIGHT else 0))
 
-class MyFinal(torch.nn.Module):
-    def __init__(self, size):
-        super().__init__()
-        self.weight = torch.nn.Parameter(torch.empty(size))
-        torch.nn.init.kaiming_uniform_(self.weight.unsqueeze(0),a=math.sqrt(5))
-        self.maybe_dropout = torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT) if HP.FINAL_LAYER_DROPOUT > 0.0 else torch.nn.Identity()
-
-    def forward(self, x : Tensor):
-      if HP.USE_SILU:
-        x = torch.nn.functional.silu(x)
-      else:
-        x = torch.nn.functional.relu(x)
-
-      x = self.maybe_dropout(x)
-
-      # Actually, newly, let's try a setup in which this is never called from python directly
-      """
-      # TODO: maybe save some cycles for Vampire by making this conditional on training?
-      if self.training:
-        w_hat = self.weight / (self.weight.norm() + 1e-8)
-      else: # saves some cycles for Vampire, but eval loss will be a bit weird?
-      """
-      w_hat = self.weight
-
-      return torch.matmul(x, w_hat)
-
-
-def get_clause_valuator_pair():
-  layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
-
-  # so far, we never used multiple layers here
+def get_clause_valuator():
+  layers = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
   for _ in range(HP.CLAUSE_EMBEDDER_LAYERS-1):
-    layer_list.append(torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU())
-    layer_list.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
-
-  return torch.nn.Sequential(*layer_list),MyFinal(HP.INTERAL_SIZE)
+    layers.append(torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU())
+    layers.append(torch.nn.Linear(HP.INTERAL_SIZE,HP.INTERAL_SIZE))
+  # final scoring (replaces MyFinal)
+  layers.append(torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU())
+  if HP.FINAL_LAYER_DROPOUT > 0.0:
+    layers.append(torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT))
+  layers.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
+  return torch.nn.Sequential(*layers)
 
 
 class MonsterModules(torch.nn.Module):
@@ -166,8 +141,8 @@ class MonsterModules(torch.nn.Module):
       torch.nn.RMSNorm([HP.GWEIGHT_EMBEDDING_SIZE]) if HP.USE_RMS else torch.nn.LayerNorm(HP.GAGE_EMBEDDING_SIZE)
     )
 
-    self.final_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE,bias=False)
-    self.clause_valuator_fst, self.clause_valuator_snd = get_clause_valuator_pair()
+    self.final_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,CLAUSE_EMBEDDER_INPUT_SIZE,bias=False)
+    self.clause_valuator = get_clause_valuator()
 
 
 def get_initial_model():
@@ -238,7 +213,7 @@ class MonsterNN(torch.nn.Module):
   def __init__(self,
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
               gage_rule_embed, gage_combine, gweight_var_embed, gweight_term_combine,
-              final_static_embedder, clause_valuator_fst, clause_valuator_snd):
+              final_static_embedder, clause_valuator):
     super().__init__()
 
     self.recording = False
@@ -298,8 +273,7 @@ class MonsterNN(torch.nn.Module):
 
     # modules
     self.final_static_embedder = final_static_embedder
-    self.clause_valuator_fst = clause_valuator_fst
-    self.clause_valuator_snd = clause_valuator_snd
+    self.clause_valuator = clause_valuator
 
     # records
     self.static_features = torch.zeros(0) # dummy, may get overwritten by set_static_features
@@ -607,7 +581,7 @@ class MonsterNN(torch.nn.Module):
     if HP.USE_GWEIGHT:
       self.gweight_embed_pending()
 
-  def pre_eval_clauses(self, clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
+  def eval_clauses_logits(self, clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
     feature_parts = []
     if HP.USE_SIMPLE_FEATURES:
       feature_parts.append(clause_features)
@@ -616,10 +590,10 @@ class MonsterNN(torch.nn.Module):
     if HP.USE_GWEIGHT:
       feature_parts.append(gweight_embeds)
 
-    res = self.clause_valuator_fst(torch.cat(feature_parts, dim=1))
-    if HP.FEED_STATIC_FEATURES_FINAL_MLP: # otherwise, final_static_tweak is not initialized
-      res = res + self.final_static_tweak # broadcasting for every clause
-    return res
+    features = torch.cat(feature_parts, dim=1)
+    if HP.FEED_STATIC_FEATURES_FINAL_MLP:
+      features = features + self.final_static_tweak # broadcasting for every clause
+    return self.clause_valuator(features).squeeze(-1)
 
   @torch.jit.export
   def eval_clauses(self, clause_nums: List[int], clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
@@ -628,8 +602,7 @@ class MonsterNN(torch.nn.Module):
         self.clause_simple_features[cl_num] = clause_features[i].clone()
 
     if self.computing:
-      just_before_final = self.pre_eval_clauses(clause_features,gage_embeds,gweight_embeds)
-      return self.clause_valuator_snd(just_before_final)
+      return self.eval_clauses_logits(clause_features,gage_embeds,gweight_embeds)
 
     return torch.zeros(0)
 
@@ -654,7 +627,7 @@ def export_model(model_state_dict,name):
 
   module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                      m.gage_rule_embed,m.gage_combine,m.gweight_var_embed,m.gweight_term_combine,
-                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd)
+                     m.final_static_embedder,m.clause_valuator)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -978,7 +951,7 @@ class LearningModel(torch.nn.Module):
     self.nn = MonsterNN(
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                     m.gage_rule_embed,m.gage_combine,m.gweight_var_embed,m.gweight_term_combine,
-                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd)
+                    m.final_static_embedder,m.clause_valuator)
     self.verbose = verbose
     if verbose:
       print("Got verbose")
@@ -1029,8 +1002,8 @@ class LearningModel(torch.nn.Module):
 
     return old_gage, old_gweight
 
-  def pre_forward(self):
-    (static_features, simple_features_stacked, _journal, _num_good_selections,
+  def forward(self):
+    (static_features, simple_features_stacked, journal, num_good_selections,
      num2idx, gnn_data, gage_data, gweight_data) = self.trace_tuple[:8]
 
     if self.verbose:
@@ -1072,16 +1045,8 @@ class LearningModel(torch.nn.Module):
         diff = (gweight_features - old_gweight).abs().max().item()
         assert diff < eps, f"GWEIGHT verification failed: max diff = {diff}"
 
-    just_before_final = self.nn.pre_eval_clauses(
+    logits = self.nn.eval_clauses_logits(
       simple_features_stacked, gage_features, gweight_features)
-
-    return just_before_final, num2idx
-
-  def forward(self,just_before_final,num2idx):
-    journal = self.trace_tuple[2]
-    num_good_selections = self.trace_tuple[3]
-
-    logits = self.nn.clause_valuator_snd.forward(just_before_final)
 
     good_action_reward_loss = torch.zeros(1)
     num_good_steps = 0
