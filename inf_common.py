@@ -72,7 +72,7 @@ def get_clause_valuator():
   layers.append(torch.nn.SiLU() if HP.USE_SILU else torch.nn.ReLU())
   if HP.FINAL_LAYER_DROPOUT > 0.0:
     layers.append(torch.nn.Dropout(HP.FINAL_LAYER_DROPOUT))
-  layers.append(torch.nn.Linear(HP.INTERAL_SIZE,1,bias=False))
+  layers.append(torch.nn.Linear(HP.INTERAL_SIZE,2,bias=False))
   return torch.nn.Sequential(*layers)
 
 
@@ -593,7 +593,7 @@ class MonsterNN(torch.nn.Module):
     features = torch.cat(feature_parts, dim=1)
     if HP.FEED_STATIC_FEATURES_FINAL_MLP:
       features = features + self.final_static_tweak # broadcasting for every clause
-    return self.clause_valuator(features).squeeze(-1)
+    return self.clause_valuator(features)
 
   @torch.jit.export
   def eval_clauses(self, clause_nums: List[int], clause_features: Tensor, gage_embeds: Tensor, gweight_embeds: Tensor) -> Tensor:
@@ -1048,6 +1048,8 @@ class LearningModel(torch.nn.Module):
     logits = self.nn.eval_clauses_logits(
       simple_features_stacked, gage_features, gweight_features)
 
+    N = len(gnn_init_clause_nums) # switchover: use col 0 for first N selections, col 1 after
+
     good_action_reward_loss = torch.zeros(1)
     num_good_steps = 0
 
@@ -1055,21 +1057,26 @@ class LearningModel(torch.nn.Module):
     passive_good = set()
 
     # to compute our metric (as opposed the loss)
-    sorted_passive = SortedList(key=lambda cl_idx : -logits[cl_idx].item())
+    sorted_passive_0 = SortedList(key=lambda cl_idx : -logits[cl_idx, 0].item())
+    sorted_passive_1 = SortedList(key=lambda cl_idx : -logits[cl_idx, 1].item())
 
     num_sels = 0
     selection_hits = 0
     dist_to_good = 0.0
+    total_selection_count = 0
 
     for tag,cl_num,isGood in journal:
       if cl_num not in num2idx:
         # ignoring clauses we never even had to evaluate in the run
+        if tag == EVENT_SEL:
+          total_selection_count += 1
         continue
 
       idx = num2idx[cl_num]
       if tag == EVENT_ADD:
         passive.add(idx)
-        sorted_passive.add(idx)
+        sorted_passive_0.add(idx)
+        sorted_passive_1.add(idx)
         if isGood:
           passive_good.add(idx)
         continue
@@ -1079,14 +1086,17 @@ class LearningModel(torch.nn.Module):
         # don't learn from every selection for traces with many-many of them (but go and learn at least once)
         if (num_good_steps==0 or random.uniform(0.0, 1.0) < HP.MAX_TRAINS_PER_TRACE / num_good_selections): # is randomized
 
+          col = 0 if total_selection_count < N else 1
+          sorted_passive_active = sorted_passive_0 if col == 0 else sorted_passive_1
+
           # computing the "ML statistics" about how close the good clauses would be to the beginning of our queue here
           num_sels += 1
           first_good = 0
-          for first_good,ith_idx in enumerate(sorted_passive):
+          for first_good,ith_idx in enumerate(sorted_passive_active):
             if ith_idx in passive_good:
               break
           if first_good>0:
-            dist_to_good += first_good / (len(sorted_passive)-1) # make it span <0,1>
+            dist_to_good += first_good / (len(sorted_passive_active)-1) # make it span <0,1>
           else:
             selection_hits += 1
 
@@ -1097,7 +1107,7 @@ class LearningModel(torch.nn.Module):
           passive_good_l = [c if idx in passive_good else 0.0 for idx in passive_l]
           passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype)
 
-          gathered_logits = logits[passive_t]
+          gathered_logits = logits[passive_t, col]
 
           good_action_reward_loss += torch.nn.functional.cross_entropy(
             gathered_logits.unsqueeze(0),
@@ -1106,8 +1116,11 @@ class LearningModel(torch.nn.Module):
 
           num_good_steps += 1
 
+      if tag == EVENT_SEL:
+        total_selection_count += 1
       passive.remove(idx)
-      sorted_passive.remove(idx)
+      sorted_passive_0.remove(idx)
+      sorted_passive_1.remove(idx)
 
       if isGood:
         passive_good.remove(idx)
