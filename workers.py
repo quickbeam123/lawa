@@ -123,17 +123,11 @@ JK_PERFORM = 0 # runs vampire in "real-time" mode to assess its performance
 JK_GATHER = 1  # runs vampire in "show passive traffic" to gather a training trace
   # input:     (mission,prob,counter,opts,eval_opts - just for reporting purposes,gather_log)
   # output:    filename where got saved if got a non-degenerate trace; or None
-JK_EVAL_TWEAK_MATRIX = 2  # construct our network to get the loss of this trace (no training to do);
-  # if tweak_file_path specified, go load the tweak from there an also find a good tweak for the given record by local gradient descent; extend the stat_dict further and save the resulting tweak back to the file
-  # input:     (record: ProbRecord,model_file_path,tweak_file_path or None,compute_matrix: bool)
+JK_EVAL = 2  # construct our network to get the loss of this trace (no training to do)
+  # input:     (record: ProbRecord,model_file_path)
   # output:    stat_dict
-  #   contains the computed loss - for the
-  #   further ML statistics - for each trace separately, a) for the initial tweak, b) for the final tweak
-  #        - selection_hit_rate: percentage of time moments, in which a proof clause has minimial logit
-  #        - dist_to_good: average (over time moments) distance to a future proof clauase (in the logit-sorted order)
-  #        (selection_hit_rate == 1.0 => dist_to_good == 0.0)
 JK_TRAIN = 3   # construct our network to get the loss of this trace and do one training step
-  # input:     (record: ProbRecord,train_model_file_path,tw_pref)
+  # input:     (record: ProbRecord,train_model_file_path)
   # output:    stat_dict
 
 def job_perform(input):
@@ -153,88 +147,18 @@ def job_gather(input):
     print("Failed to reproduce success for",prob,opts)
     return False, False, 0, 0
 
-def look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in):
-  local_optimizer = torch.optim.Adam([tweak_in], lr=HP.TWEAKS_LEARNING_RATE)
-
-  last_loss = float('inf')
-
-  timed_out = 0.0
-  to_perfection = 0.0
-
-  numiter = 0
-  start_time = time.time()
-  while True:
-    numiter += 1
-
-    local_optimizer.zero_grad()
-    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final,num2idx,
-                                                                   tweak_in.unsqueeze(0))
-
-    loss = losses[0]
-    loss.backward()
-    local_optimizer.step()
-
-    now_loss = loss.item()
-    if now_loss > last_loss:
-      break
-
-    last_loss = now_loss
-    last_shr = selection_hit_rates[0]
-    last_dtg = dists_to_good[0]
-    last_norm = torch.norm(tweak_in).item()
-    tweak_out = tweak_in.clone()
-
-    if dists_to_good[0] < 0.000001:
-      to_perfection = 1.0
-      break
-
-    telapsed = time.time() - start_time
-    if telapsed > HP.TWEAK_SEARCH_MAX_TIME: # TODO: make a HP
-      timed_out = 1.0
-      break
-
-  return tweak_out, {"tweaked_loss": last_loss,
-          "tweaked_selection_hit_rate": last_shr,
-          "tweaked_dist_to_good": last_dtg,
-          "tweaks_norm": last_norm,
-          "tweakings_timed_out": timed_out,
-          "tweakings_to_perfection": to_perfection,
-          "tweakings_numiter": numiter}
-
-def eval_tweak_matrix_one_trace(trace_file_path,local_model,local_fact,stat_dict):
+def eval_one_trace(trace_file_path,local_model,local_fact,stat_dict):
   trace_tuple = torch.load(trace_file_path)
   learn_model = IC.LearningModel(False,local_model,trace_tuple)
   learn_model.eval()
 
   with torch.no_grad():
     just_before_final,num2idx = learn_model.pre_forward()
+    loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final,num2idx)
 
-  """
-  if compute_matrix:
-    with torch.no_grad():
-      assert len(record.prob_traces) == 1
-      # TODO: should I tell learn_model I don't need the metrics?
-      losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,torch.stack(active_tweak_selection))
-  else:
-  """
-
-  with torch.no_grad():
-    notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
-    losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final,num2idx,notweaks)
-
-  stat_dict["loss"] += local_fact*losses[0].item()
-  stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-  stat_dict["dist_to_good"] += local_fact*dist_to_goods[0]
-
-  # CAREFUL: this gets a bit weird if there is more than one trace for a problem
-  """
-  if tweak_file_path is not None and not compute_matrix:
-    tweak_in = torch.load(tweak_file_path)
-    tweak_out, tweaked_stats = look_for_a_tweak(learn_model,just_before_final,num2idx,tweak_in)
-    for k,v in tweaked_stats.items():
-      stat_dict[k] += local_fact*v
-    torch.save(tweak_out, tweak_file_path)
-  """
+  stat_dict["loss"] += local_fact*loss.item()
+  stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
+  stat_dict["dist_to_good"] += local_fact*dist_to_good
 
 def compute_local_fact(len_prob_traces):
   local_fact = 1.0/len_prob_traces
@@ -248,22 +172,13 @@ def compute_local_fact(len_prob_traces):
     local_fact *= correct_fact
   return local_fact
 
-def job_eval_tweak_matrix(input):
-  (record,model_file_path,tweak_file_path,compute_matrix) = input
-
-  assert tweak_file_path is None  # no longer supperted (under multi-trace per problem inputs)
-  assert not compute_matrix       # no longer supperted (under multi-trace per problem inputs)
+def job_eval(input):
+  (record,model_file_path) = input
 
   eval_begin = time.time()
 
   local_model = IC.get_initial_model()
   local_model.load_state_dict(torch.load(model_file_path))
-
-  if tweak_file_path is not None and compute_matrix:
-    active_tweak_selection = torch.load(tweak_file_path)
-    active_tweak_selection = active_tweak_selection
-
-  # print("EVAL on",prob,fact,trace_file_paths)
 
   local_fact = compute_local_fact(len(record.prob_traces))
 
@@ -271,69 +186,41 @@ def job_eval_tweak_matrix(input):
 
   for trace_file_path in record.prob_traces:
     try:
-      eval_tweak_matrix_one_trace(trace_file_path,local_model,local_fact,stat_dict)
+      eval_one_trace(trace_file_path,local_model,local_fact,stat_dict)
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
-        f.write(f"{type(e).__name__}: {e} occurred in EVAL/TWEAK\n")
-        f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {model_file_path}, tweak_file_path {tweak_file_path})")
+        f.write(f"{type(e).__name__}: {e} occurred in EVAL\n")
+        f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {model_file_path})")
       raise
 
   took = time.time()-eval_begin
   if took > HP.WORTH_REPORTING:
-    train_log.write(f"EVAL/TWEAK of {record} took {took}\n")
+    train_log.write(f"EVAL of {record} took {took}\n")
 
-  """
-  if compute_matrix:
-    return [loss.item() for loss in losses], selection_hit_rates, dist_to_goods, took
-  else:
-  """
-  # print("EVAL on",prob,fact,trace_file_paths,loss.item())
   for k in stat_dict.keys():
     stat_dict[k] *= record.prob_fact
 
   return stat_dict
 
-def train_one_trace(trace_file_path,local_model,local_fact,stat_dict,tw_pref):
+def train_one_trace(trace_file_path,local_model,local_fact,stat_dict):
   trace_tuple = torch.load(trace_file_path)
   learn_model = IC.LearningModel(False,local_model,trace_tuple)
   learn_model.train()
 
   just_before_final,num2idx = learn_model.pre_forward()
 
-  if tw_pref > 0.0:
-    mytweak = local_model.tweaky
-    notweak = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False)
-    both_tweaks = torch.stack([notweak,mytweak])
+  loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final, num2idx)
 
-    losses,selection_hit_rates,dists_to_good = learn_model.forward(just_before_final, num2idx, both_tweaks)
+  stat_dict["loss"] += local_fact*loss.item()
+  stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
+  stat_dict["dist_to_good"] += local_fact*dist_to_good
 
-    loss = local_fact*((1.0-tw_pref)*losses[0] + tw_pref*losses[1]) # mixing the generalist's loss with the tweaked one
-
-    # the generalist's stats
-    stat_dict["loss"] += local_fact*losses[0].item()
-    stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-    stat_dict["dist_to_good"] += local_fact*dists_to_good[0]
-    # the tweaked stats
-    stat_dict["tweaked_loss"] += local_fact*losses[1].item()
-    stat_dict["tweaked_selection_hit_rate"] += local_fact*selection_hit_rates[1]
-    stat_dict["tweaked_dist_to_good"] += local_fact*dists_to_good[1]
-
-  else:
-    notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
-    losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final, num2idx, notweaks)
-
-    loss = local_fact*losses[0]
-
-    # the generalist's stats
-    stat_dict["loss"] += local_fact*losses[0].item()
-    stat_dict["selection_hit_rate"] += local_fact*selection_hit_rates[0]
-    stat_dict["dist_to_good"] += local_fact*dist_to_goods[0]
-
-  loss.backward() # is OK to call once per trace, it anyway accummulates
-  return loss.item() # just the float goes back for statistics
+  scaled_loss = local_fact*loss
+  scaled_loss.backward() # is OK to call once per trace, it anyway accummulates
+  return scaled_loss.item() # just the float goes back for statistics
 
 def job_train(input):
-  (record,train_model_file_path,tw_pref) = input
+  (record,train_model_file_path) = input
 
   train_begin = time.time()
 
@@ -350,7 +237,7 @@ def job_train(input):
 
   for trace_file_path in record.prob_traces:
     try:
-      loss += train_one_trace(trace_file_path,local_model,local_fact,stat_dict,tw_pref)
+      loss += train_one_trace(trace_file_path,local_model,local_fact,stat_dict)
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{type(e).__name__}: {e} occurred in TRAIN\n")
@@ -381,7 +268,7 @@ def job_train(input):
 
 JOB_DISPATCH = {JK_PERFORM : job_perform,
                 JK_GATHER: job_gather,
-                JK_EVAL_TWEAK_MATRIX: job_eval_tweak_matrix,
+                JK_EVAL: job_eval,
                 JK_TRAIN: job_train}
 
 def worker(q_in, q_out, worker_id):
