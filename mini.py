@@ -79,8 +79,7 @@ if __name__ == "__main__":
     learn_model.train()
 
     fwd_start = time.time()
-    just_before_final,num2idx = learn_model.pre_forward()
-    loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final, num2idx)
+    loss,selection_hit_rate,dist_to_good = learn_model.forward()
     bwd_start = time.time()
     loss.backward()
     print("FwdTook",bwd_start-fwd_start)

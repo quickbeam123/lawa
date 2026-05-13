@@ -25,8 +25,8 @@ if __name__ == "__main__":
 
   '''
   with torch.no_grad():
-    model.clause_valuator_snd[-1].weight.mul_(0.01)
-    print("Norm reduced to ",torch.norm(model.clause_valuator_snd[-1].weight).item())
+    model.clause_valuator[-1].weight.mul_(0.01)
+    print("Norm reduced to ",torch.norm(model.clause_valuator[-1].weight).item())
   '''
 
   IC.export_model(model.state_dict(),out_name)
