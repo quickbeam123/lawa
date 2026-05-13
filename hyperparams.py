@@ -82,12 +82,6 @@ USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
-TWEAKS_AS_BIAS = False
-
-USE_TWEAKING = False # instead of looking things up in PERFORMS_SPECIAL, we just keep increasing an argument to ncem_gsd
-
-TWEAK_MATRIX_SIZE = 256
-TWEAKS_TO_PICK = 0
 
 TRAIN_MINIBATCH_SIZE : Final[int] = 1 # accumulate gradients from this many workers before one optimizer step
 
@@ -213,13 +207,8 @@ GSD_TEMP_MIN = 0.001  # 0.005 reached this temp in ~ 50 iters when starting from
 # (this is quite low, because the logits start all zero and never get too far with our default LR)
 GUMBEL_STRENGTH : Final[float] = 0.001 # divided by 2.5 further; divided by two since last time -> earlier commitement
 
-GSD_TWEAK_LEARNING_SPEEDUP = 100
-
 LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
 LEARNING_RATE_DECAY = 0.933 # 0.87055 = (0.5)^(1/5) = halving every five epochs
-
-TWEAKS_LEARNING_RATE = 0.05
-TWEAK_SEARCH_MAX_TIME = 30.0 # in seconds
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
 

@@ -89,25 +89,6 @@ class MyFinal(torch.nn.Module):
 
       return torch.matmul(x, w_hat)
 
-    def forward_with_tweaks(self, x : Tensor, tweaks : Tensor):
-      if HP.TWEAKS_AS_BIAS:
-        x = x + tweaks.unsqueeze(1)
-
-      if HP.USE_SILU:
-        x = torch.nn.functional.silu(x)
-      else:
-        x = torch.nn.functional.relu(x)
-      x = self.maybe_dropout(x)
-
-      if HP.TWEAKS_AS_BIAS:
-        w_hat = self.weight / (torch.linalg.vector_norm(self.weight) + 1e-8)
-
-        return torch.matmul(x, w_hat)
-      else:
-        # we completely ignore self.weight here; assuming it comes as one of the tweaks
-        ws_hat = tweaks / (torch.linalg.vector_norm(tweaks,dim=1,keepdim=True) + 1e-8)
-
-        return torch.matmul(ws_hat, x.T)
 
 def get_clause_valuator_pair():
   layer_list = [torch.nn.Linear(CLAUSE_EMBEDDER_INPUT_SIZE,HP.INTERAL_SIZE)]
@@ -119,17 +100,6 @@ def get_clause_valuator_pair():
 
   return torch.nn.Sequential(*layer_list),MyFinal(HP.INTERAL_SIZE)
 
-def get_new_tweak():
-  return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
-
-def get_neutral_tweak(myFinalToStealFrom: MyFinal, detached):
-  if HP.TWEAKS_AS_BIAS:
-    return torch.nn.Parameter(torch.zeros(HP.INTERAL_SIZE))
-  else: # tweaks as the final dotter (init from "model")
-    if detached:
-      return torch.nn.Parameter(myFinalToStealFrom.weight.detach().clone())
-    else:
-      return myFinalToStealFrom.weight
 
 class MonsterModules(torch.nn.Module):
   # this class only stores all the necessary modules, but does no actual work
@@ -198,13 +168,6 @@ class MonsterModules(torch.nn.Module):
 
     self.final_static_embedder = torch.nn.Linear(STATIC_FEATURES_SIZE,HP.INTERAL_SIZE,bias=False)
     self.clause_valuator_fst, self.clause_valuator_snd = get_clause_valuator_pair()
-
-    # by default our MonsterModules carry just one tweak
-    self.tweaky = get_new_tweak()
-
-    # while tweaky was for training individual tweaks per problem to go for a nice spread,
-    # tweaks are a small set that should stay in and define the generalize search directions to use in strategies by vampire
-    self.tweaks = torch.nn.ParameterList([get_new_tweak() for _ in range(HP.TWEAKS_TO_PICK)])
 
 
 def get_initial_model():
@@ -275,7 +238,7 @@ class MonsterNN(torch.nn.Module):
   def __init__(self,
               gnn_node_init,gnn_layers,gnn_clause_final,gnn_symbol_final,gnn_sort_final,gnn_static_embedder,
               gage_rule_embed, gage_combine, gweight_var_embed, gweight_term_combine,
-              final_static_embedder, clause_valuator_fst, clause_valuator_snd, tweaky, tweaks):
+              final_static_embedder, clause_valuator_fst, clause_valuator_snd):
     super().__init__()
 
     self.recording = False
@@ -345,10 +308,6 @@ class MonsterNN(torch.nn.Module):
     self.proof_units = []
     self.final_static_tweak = torch.zeros(0) # dummy, may get overwritten by set_static_features
 
-    # modules/parameters:
-    self.tweaky = tweaky
-    self.tweaks = tweaks
-
   @torch.jit.export
   def use_problem_features(self) -> bool:
     return HP.USE_PROBLEM_FEATURES
@@ -388,14 +347,6 @@ class MonsterNN(torch.nn.Module):
   @torch.jit.export
   def set_computing(self):
     self.computing = True
-
-  @torch.jit.export
-  def bake_tweak(self, tweak): # because it actually adds, it only makes sense to call this once!
-    with torch.no_grad():
-      if HP.TWEAKS_AS_BIAS:
-        self.clause_valuator_fst[-1].bias.add_(tweak)
-      else:
-        self.clause_valuator_snd.weight.copy_(tweak)
 
   @torch.jit.export
   def set_static_features(self, features: Tensor):
@@ -703,7 +654,7 @@ def export_model(model_state_dict,name):
 
   module = MonsterNN(m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                      m.gage_rule_embed,m.gage_combine,m.gweight_var_embed,m.gweight_term_combine,
-                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
+                     m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd)
   script = torch.jit.script(module)
   script.save(name)
 
@@ -1027,7 +978,7 @@ class LearningModel(torch.nn.Module):
     self.nn = MonsterNN(
                     m.gnn_node_init,m.gnn_layers,m.gnn_clause_final,m.gnn_symbol_final,m.gnn_sort_final,m.gnn_static_embedder,
                     m.gage_rule_embed,m.gage_combine,m.gweight_var_embed,m.gweight_term_combine,
-                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd,m.tweaky,m.tweaks)
+                    m.final_static_embedder,m.clause_valuator_fst,m.clause_valuator_snd)
     self.verbose = verbose
     if verbose:
       print("Got verbose")
@@ -1126,33 +1077,24 @@ class LearningModel(torch.nn.Module):
 
     return just_before_final, num2idx
 
-  def forward(self,just_before_final,num2idx,tweaks):
+  def forward(self,just_before_final,num2idx):
     journal = self.trace_tuple[2]
     num_good_selections = self.trace_tuple[3]
 
-    # print("just_before_final",just_before_final.shape)
-    if tweaks is not None:
-      logits = self.nn.clause_valuator_snd.forward_with_tweaks(just_before_final,tweaks)
-      squeeze_back = False
-    else:
-      logits = self.nn.clause_valuator_snd.forward(just_before_final).unsqueeze(0)
-      squeeze_back = True
+    logits = self.nn.clause_valuator_snd.forward(just_before_final)
 
-    num_loss_channels = logits.shape[0]
-    # num_clauses = logits.shape[1]
-
-    good_action_reward_loss = torch.zeros(num_loss_channels)
+    good_action_reward_loss = torch.zeros(1)
     num_good_steps = 0
 
     passive = set()
     passive_good = set()
 
     # to compute our metric (as opposed the loss)
-    sorted_passive = [SortedList(key=lambda cl_idx, channel=chan : -logits[channel,cl_idx].item()) for chan in range(num_loss_channels)]
+    sorted_passive = SortedList(key=lambda cl_idx : -logits[cl_idx].item())
 
     num_sels = 0
-    selection_hits = [0]*num_loss_channels
-    dists_to_good = [0.0]*num_loss_channels
+    selection_hits = 0
+    dist_to_good = 0.0
 
     for tag,cl_num,isGood in journal:
       if cl_num not in num2idx:
@@ -1162,8 +1104,7 @@ class LearningModel(torch.nn.Module):
       idx = num2idx[cl_num]
       if tag == EVENT_ADD:
         passive.add(idx)
-        for chan in range(num_loss_channels):
-          sorted_passive[chan].add(idx)
+        sorted_passive.add(idx)
         if isGood:
           passive_good.add(idx)
         continue
@@ -1175,45 +1116,37 @@ class LearningModel(torch.nn.Module):
 
           # computing the "ML statistics" about how close the good clauses would be to the beginning of our queue here
           num_sels += 1
-          for chan in range(num_loss_channels):
-            first_good = 0
-            for first_good,ith_idx in enumerate(sorted_passive[chan]):
-              if ith_idx in passive_good:
-                break
-            if first_good>0:
-              dists_to_good[chan] += first_good / (len(sorted_passive[chan])-1) # make it span <0,1>
-            else:
-              selection_hits[chan] += 1
+          first_good = 0
+          for first_good,ith_idx in enumerate(sorted_passive):
+            if ith_idx in passive_good:
+              break
+          if first_good>0:
+            dist_to_good += first_good / (len(sorted_passive)-1) # make it span <0,1>
+          else:
+            selection_hits += 1
 
           # computing the loss
           passive_l = sorted(passive)
           passive_t = torch.tensor(passive_l, dtype=torch.long)
           c = 1/len(passive_good)
           passive_good_l = [c if idx in passive_good else 0.0 for idx in passive_l]
-          passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype).unsqueeze(0).expand(num_loss_channels,-1)
+          passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype)
 
-          gathered_logits = logits[:,passive_t]
+          gathered_logits = logits[passive_t]
 
           good_action_reward_loss += torch.nn.functional.cross_entropy(
-            gathered_logits,
-            passive_good_t,
-            reduction="none",
+            gathered_logits.unsqueeze(0),
+            passive_good_t.unsqueeze(0),
             label_smoothing=HP.LABEL_SMOOTHING)
 
           num_good_steps += 1
 
       passive.remove(idx)
-      for chan in range(num_loss_channels):
-        sorted_passive[chan].remove(idx)
+      sorted_passive.remove(idx)
 
       if isGood:
         passive_good.remove(idx)
 
     assert num_good_steps, "The training example was still degenerate!"
-    for chan in range(num_loss_channels):
-      selection_hits[chan] /= num_sels
-      dists_to_good[chan] /= num_sels
 
-    if squeeze_back:
-      return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits[0], dists_to_good[0]
-    return good_action_reward_loss/num_good_steps, selection_hits, dists_to_good
+    return good_action_reward_loss.squeeze(0)/num_good_steps, selection_hits/num_sels, dist_to_good/num_sels

@@ -80,9 +80,7 @@ if __name__ == "__main__":
 
     fwd_start = time.time()
     just_before_final,num2idx = learn_model.pre_forward()
-    notweaks = IC.get_neutral_tweak(local_model.clause_valuator_snd, detached = False).unsqueeze(0)
-    losses,selection_hit_rates,dist_to_goods = learn_model.forward(just_before_final, num2idx, notweaks)
-    loss = losses[0]
+    loss,selection_hit_rate,dist_to_good = learn_model.forward(just_before_final, num2idx)
     bwd_start = time.time()
     loss.backward()
     print("FwdTook",bwd_start-fwd_start)
