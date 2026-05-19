@@ -21,6 +21,15 @@ def get_status(info):
   else:
     return info[0]
 
+
+DEEPER = True
+
+COLLECT_DEEPER_TEST_PERF = False
+AT_INDEX = 11 # translates to 10 in the rendered plot
+NUM_CHARS_TO_CUT = len("../deeper/B-mesh-tf0-out/")
+def normalize_prob_name(str):
+  return str[NUM_CHARS_TO_CUT:]
+
 SPLIT_MULTI = False
 
 GREEDY_START_GREEDY_END = True # to compare a greedy sequence of champs before and after they get boosted. Only don't on the 0-th slice; i.e. as if temp==0.0
@@ -47,6 +56,9 @@ if __name__ == "__main__":
 
   ever_seen = set()
   covereds = {} # experdir -> last loop's covered problem set
+
+  if COLLECT_DEEPER_TEST_PERF:
+    test_perf = defaultdict(set) # experdir -> largest set of test problems solved
 
   if GREEDY_START_GREEDY_END:
     start_sets = {} # exper -> set of problems solved by slice 0 at iter 0
@@ -111,6 +123,14 @@ if __name__ == "__main__":
               if exper_dir not in best_sets or len(best_sets[exper_dir]) < len(covered0):
                 best_sets[exper_dir] = covered0
                 print(f"best_sets[{exper_dir}] = {len(covered0)}")
+                # print(f"best_sets[{exper_dir}] = {len(covered0)}")
+
+            if COLLECT_DEEPER_TEST_PERF and file == "test_res.pt":
+              cur_norm_set = {normalize_prob_name(prob) for prob,runs in results.items() for (i,ilim,info) in runs if (info.status == "uns" and i == 0) }
+              if loop == AT_INDEX: # len(cur_norm_set) > len(test_perf[exper_dir]):
+                print(exper_dir,"test-perf snapshot at",loop,"scoring",len(cur_norm_set))
+                test_perf[exper_dir] = cur_norm_set
+
           else:
             fractional = sum(1/len(runs) for prob,runs in results.items() for (status,instructions,activations) in runs if status == "uns")
         else:
@@ -118,6 +138,9 @@ if __name__ == "__main__":
           fractional = sum(1.0 for prob,runs in results.items() for (i,info) in runs if (i == 0 and get_status(info) == "uns"))
 
         fractional /= len(results) # divide by number of problems in results (includes the ones on whic we failed)
+
+        if DEEPER:
+          fractional *= 100 # to go "percent" as a unit
 
         print(fractional)
 
@@ -132,7 +155,7 @@ if __name__ == "__main__":
         for m in MISSIONS:
           if file.startswith(m):
             plottables[m][0].append(loop -1 ) # NOTE: add -1 here to get the plots starting at 0, like for CADE
-            plottables[m][1].append(fractional*100)
+            plottables[m][1].append(fractional)
 
       loop += 1
 
@@ -179,6 +202,18 @@ if __name__ == "__main__":
 
     print()
 
+  if COLLECT_DEEPER_TEST_PERF:
+    print("Collected Deeper test perf")
+    total = set()
+    for exper_dir, covered0 in test_perf.items():
+      with open(exper_dir.split("/")[-1]+"atLoop10.txt","w") as f:
+        for prob in covered0:
+          print(prob,file=f)
+      print(exper_dir,len(covered0))
+      total |= covered0
+    print("Total",len(total))
+
+
   if True:
     print("Greedy cover of best sets from each exper:")
     total = set()
@@ -205,7 +240,10 @@ if __name__ == "__main__":
   from matplotlib.ticker import MaxNLocator
 
   # fig, ax1 = plt.subplots(figsize=(3.2,3))
-  fig, ax1 = plt.subplots(figsize=(3.5,2.8))
+  if DEEPER:
+    fig, ax1 = plt.subplots(figsize=(3.5, 2.8))
+  else:
+    fig, ax1 = plt.subplots(figsize=(6,5))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
@@ -231,7 +269,10 @@ if __name__ == "__main__":
              "/home/sudamar2/ijcar2026/newDefaults_smartAgain_i32K": "smartAgain",
              "/home/sudamar2/holawa/all192516shuffled_10730_defaults_theTF0CompletishChamp_i32K-B": "TF0",
              "/home/sudamar2/holawa/all192516shuffled_6946_defaults_theTH0CompletishChamp_i32K": "TH0",
-             "/home/sudamar2/holawa/all192516shuffled_6946_defaults_theTH1CompletishChamp_i32K": "TH1"
+             "/home/sudamar2/holawa/all192516shuffled_6946_defaults_theTH1CompletishChamp_i32K": "TH1",
+             "/home/sudamar2/holawa/all246277shuffled120K-tf0_6946_defaults_tf0Champ1_i16K": "TF0",
+             "/home/sudamar2/holawa/all246277shuffled120K-th0_6946_defaults_th0Champ1_i16K": "TH0",
+             "/home/sudamar2/holawa/all246277shuffled120K-th1_6946_defaults_th1Champ1_i16K": "TH1",
              }
 
   for exper_dir,plottables in expers.items():
@@ -241,6 +282,10 @@ if __name__ == "__main__":
 
     for m,(Xs,Ys) in plottables.items():
       if Xs:
+        if DEEPER:
+          Xs = Xs[:12]
+          Ys = Ys[:12]
+
         print(exper_dir)
         if exper_dir in REPLACE:
           lab = REPLACE[exper_dir]
@@ -268,14 +313,20 @@ if __name__ == "__main__":
   ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
 
   # ax1.set_xlim(xmin=0,xmax=24)
-  ax1.set_ylim(ymin=20 ,ymax=70)
+  # ax1.set_ylim(ymin=20 ,ymax=70)
+  if DEEPER:
+    # ax1.set_xlim(xmin=0,xmax=11)
+    ax1.set_ylim(ymin=20,ymax= 70)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
   # ax1.axhline(y=0.5294, color='gray', linestyle='--', linewidth=0.5) # for freshFull
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"percentage problems solved")
 
-  plt.legend(handles = handles, loc='lower center', ncols = 3) # loc = 'best' is rumored to be unpredictable
+  if DEEPER:
+    plt.legend(handles = handles,loc="lower center",ncols=3)
+  else:
+    plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
   plt.savefig("current_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
   plt.close(fig)
 
