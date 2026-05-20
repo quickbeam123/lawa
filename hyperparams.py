@@ -82,13 +82,11 @@ USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
 
-
 TRAIN_MINIBATCH_SIZE : Final[int] = 1 # accumulate gradients from this many workers before one optimizer step
 
 # in elooper, maybe we don't want to parallelize too much
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
-# EVAL_PARALLELISM = 16 # should be TRAINING_PARALLELISM / NUM_GSD_FEATURES, but I think I can afford a bit leeway
 TRAINING_PARALLELISM = 16
 WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
 
@@ -122,7 +120,6 @@ NUM_CLAUSE_FEATURES : Final[int] = 12
 # these two together are the STATIC features for a particular vampire run
 NUM_PROBLEM_FEATURES : Final[int] = 15
 NUM_STRATEGY_FEATURES : Final[int] = 30
-NUM_GSD_FEATURES : Final[int] = 8
 
 # non-linearity
 USE_SILU : Final[bool] = True
@@ -147,7 +144,6 @@ NUM_INFERENCE_RULES : Final[int] = 202
 GAGE_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
 
 GWEIGHT_EMBEDDING_SIZE : Final[int] = 32 # "big" is 48
-# GWEIGHT_NUM_VAR_EMBEDS : Final[int] = 1  # THIS is now actually hard-coded on the cpp side!
 
 LIT_TO_CLAUSE_AGGREG = "sum"
 
@@ -162,7 +158,6 @@ FINAL_LAYER_DROPOUT : Final[float] = 0.0
 # these are kind of more or less ignored (vampire will always tell the model everything), but the model may decide to ignore (see below)
 USE_STRATEGY_FEATURES : Final[bool] = False
 USE_PROBLEM_FEATURES : Final[bool] = False
-USE_GSD : Final[bool] = False
 
 # this is the main flag for STRATEGY and PROBLEM usage, if set to true, all the three below will trigger and start producing tweeks in the respective part of the network
 USE_STATIC_FEATURES : Final[bool] = False
@@ -185,32 +180,7 @@ MAX_GWEIGHT_HEIGHT = 1000
 MAX_BOX_SIZE = 175000
 MAX_KBSIZE = 150000
 
-# True means the "original" learning setup in which all good clause seletions are rewarded at each step
-# False was called "principled" and is more RL-like (whereas the above looks a bit more like training a classfier)
-# LEARN_FROM_ALL_GOOD = True
-# Time penalty mixing makes more conceptual sense only with "principled" (false)
-
-# a coeff of how much the entropy regularization term should influence the overall loss
-# ENTROPY_COEF = 0.0
-# next time I play with the entropy regularization, let me try the normalized one
-# ENTROPY_NORMALIZED = True
-
-# all the GSD hyperparams only make sense with inf_common_GSD.py (parked in lawa-devel for now)
-
-GSD_NEGENTROPY_COEF = 0.0
-
-GSD_TEMP_INIT = 0.1   # maybe the thing to tune could be THIS (so that we lower it and bring the commitment phase closer to the beginning)
-GSD_TEMP_FACT = 0.9   # 0.87055 = (0.5)^(1/5) = halving every five epochs
-GSD_TEMP_MIN = 0.001  # 0.005 reached this temp in ~ 50 iters when starting from 2.0
-
-# relative streght of the gumbel noise towards the logits
-# (this is quite low, because the logits start all zero and never get too far with our default LR)
-GUMBEL_STRENGTH : Final[float] = 0.001 # divided by 2.5 further; divided by two since last time -> earlier commitement
-
 LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
 LEARNING_RATE_DECAY = 0.933 # 0.87055 = (0.5)^(1/5) = halving every five epochs
 
 WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
-
-# TODO: To be experimented with later
-DISCOUNT_FACTOR = 1.0
