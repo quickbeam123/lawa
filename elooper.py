@@ -693,7 +693,7 @@ def stage_perf_gather(ctx):
 def stage_eval_train_eval(ctx,trace_problems,with_early_stopping):
   # newly only lives one iter, so no need to save it
   optimizer = torch.optim.Adam(ctx.model.parameters(),
-      lr=lr_wish, weight_decay=HP.WEIGHT_DECAY)
+      lr=lr_wish, weight_decay=HP.WEIGHT_DECAY, decoupled_weight_decay=True)
 
   TIW = HP.TEST_IMPROVE_WINDOW if with_early_stopping else HP.NUM_ALL_STEPS
   assert TIW > 0

@@ -183,4 +183,4 @@ MAX_KBSIZE = 150000
 LEARNING_RATE : Final[float] = 0.0002 # 0.0002 seemed a tad better and could become the default for the official experiments
 LEARNING_RATE_DECAY = 0.933 # 0.87055 = (0.5)^(1/5) = halving every five epochs
 
-WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization
+WEIGHT_DECAY : Final[float] = 0.0 # Corresponds to L2 regularization (we use Adam in the decoupled mode, i.e. AdamW, essentially)
