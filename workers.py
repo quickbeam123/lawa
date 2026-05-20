@@ -159,18 +159,6 @@ def eval_one_trace(trace_file_path,local_model,local_fact,stat_dict):
   stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
   stat_dict["dist_to_good"] += local_fact*dist_to_good
 
-def compute_local_fact(len_prob_traces):
-  local_fact = 1.0/len_prob_traces
-  if HP.SKEW_LOCAL_FACT and HP.MAX_TRACES_TO_KEEP > 1:
-    # if MAX_TRACES_TO_KEEP > 1 then let's linearly interpolate an extra factor,
-    # under which a single-trace-solved problem gets twice the leverage compared to all-trace-solved problem,
-    # while avarage-trace-solved problem stays with the original local_facts (i.e., gets multiplied by 1.0)
-    correct_fact = 2.0/3.0
-    correct_fact *= 1.0 + (HP.MAX_TRACES_TO_KEEP-len_prob_traces)/(HP.MAX_TRACES_TO_KEEP-1)
-    # print("with",len_prob_traces,"traces will multiply local_fact by",correct_fact)
-    local_fact *= correct_fact
-  return local_fact
-
 def job_eval(input):
   (record,model_file_path) = input
 
@@ -179,7 +167,7 @@ def job_eval(input):
   local_model = IC.get_initial_model()
   local_model.load_state_dict(torch.load(model_file_path))
 
-  local_fact = compute_local_fact(len(record.prob_traces))
+  local_fact = 1.0/len(record.prob_traces)
 
   stat_dict = defaultdict(float)
 
@@ -224,7 +212,7 @@ def job_train(input):
   local_model = IC.get_initial_model()
   local_model.load_state_dict(torch.load(train_model_file_path))
 
-  local_fact = compute_local_fact(len(record.prob_traces))
+  local_fact = 1.0/len(record.prob_traces)
 
   # print("TRAIN on",prob,fact,trace_file_paths)
 
