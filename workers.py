@@ -100,18 +100,18 @@ def vampire_perfrom(prob,opts,log):
 class ProbRecord:
   szs: int
   prob: str
-  prob_fact: float
+  norm_factor: float   # used to normalize statistics (basically, compute the average on the fly)
+  scale_factor: float  # used to act on the loss (e.g. easy problems pull less)
   prob_traces: list[str]
 
 def create_prob_records(trace_problems,trace_index):
-  fact = 1/len(trace_problems)
+  norm_fact = 1/len(trace_problems)
   prob_records = []
   for prob in trace_problems:
     prob_traces = trace_index.prob_traces(prob)
-    # prob_fact = trace_index.prob_factor(prob)*fact # TODO: careful, if even if we do CUMUL, this will not affect the loss!
-    prob_fact = fact
+    scale_fact = trace_index.prob_factor(prob) if HP.CUMULATIVE_LOSS_SCALING else 1.0
     prob_trace_size_sum = sum(os.path.getsize(trace_file) for trace_file in prob_traces)
-    prob_records.append(ProbRecord(prob_trace_size_sum,prob,prob_fact,prob_traces))
+    prob_records.append(ProbRecord(prob_trace_size_sum,prob,norm_fact,scale_fact,prob_traces))
   return prob_records
 
 train_log = None
@@ -177,7 +177,7 @@ def job_eval(input):
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{type(e).__name__}: {e} occurred in EVAL\n")
-        f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {model_file_path})")
+        f.write(f"(prob {record.prob}, fact {record.norm_factor}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {model_file_path})")
       raise
 
   took = time.time()-eval_begin
@@ -185,11 +185,11 @@ def job_eval(input):
     train_log.write(f"EVAL of {record} took {took}\n")
 
   for k in stat_dict.keys():
-    stat_dict[k] *= record.prob_fact
+    stat_dict[k] *= record.norm_factor
 
   return stat_dict
 
-def train_one_trace(trace_file_path,local_model,local_fact,stat_dict):
+def train_one_trace(trace_file_path,local_model,local_fact,scale_fact,stat_dict):
   trace_tuple = torch.load(trace_file_path)
   learn_model = IC.LearningModel(False,local_model,trace_tuple)
   learn_model.train()
@@ -200,7 +200,7 @@ def train_one_trace(trace_file_path,local_model,local_fact,stat_dict):
   stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
   stat_dict["dist_to_good"] += local_fact*dist_to_good
 
-  scaled_loss = local_fact*loss
+  scaled_loss = scale_fact*local_fact*loss
   scaled_loss.backward() # is OK to call once per trace, it anyway accummulates
   return scaled_loss.item() # just the float goes back for statistics
 
@@ -222,11 +222,11 @@ def job_train(input):
 
   for trace_file_path in record.prob_traces:
     try:
-      loss += train_one_trace(trace_file_path,local_model,local_fact,stat_dict)
+      loss += train_one_trace(trace_file_path,local_model,local_fact,record.scale_factor,stat_dict)
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{type(e).__name__}: {e} occurred in TRAIN\n")
-        f.write(f"(prob {record.prob}, fact {record.prob_fact}*{local_fact}, trace_file_path {trace_file_path}, model_file_path {train_model_file_path})")
+        f.write(f"(prob {record.prob}, fact {record.norm_factor}*{local_fact}*{record.scale_factor}, trace_file_path {trace_file_path}, model_file_path {train_model_file_path})")
       raise
 
   # print("TRAIN on",prob,fact,trace_file_paths,loss.item())
@@ -247,9 +247,9 @@ def job_train(input):
     train_log.write(f"TRAIN of {record} took {took}\n")
 
   for k in stat_dict.keys():
-    stat_dict[k] *= record.prob_fact
+    stat_dict[k] *= record.norm_factor
 
-  return record.prob_fact*loss, stat_dict
+  return record.norm_factor*loss, stat_dict
 
 JOB_DISPATCH = {JK_PERFORM : job_perform,
                 JK_GATHER: job_gather,

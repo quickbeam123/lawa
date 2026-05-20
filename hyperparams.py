@@ -60,6 +60,7 @@ INSTRUCTION_LIMIT_MAX = INSTRUCTION_LIMIT
 # - such traces, however, are weirdly out of sync with the current model, so some off-policy theory might/should be applied here
 # - when set to True, elooper will keep traces of problems not solved in the last loop and still try to learn from them (sometimes)
 CUMULATIVE : Final[bool] = True
+CUMULATIVE_LOSS_SCALING : Final[bool] = False
 CUM_STALE_AFTER = 5 # if we can't solve a problem for this many loops, let's give up on it
 CUM_MAX_STRENGTH = 2.0
 # - a problem is born (when first solved) with a score=0 and natural strength 1.0 = BASE^(score=0)
