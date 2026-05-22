@@ -927,8 +927,8 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     simple_features_stacked = torch.stack([clause_simple_features[cn] for cn in cl_nums_ordered])
 
     gnn_data = (init_gnn_nodes, gnn_edges, gnn_init_clause_nums)
-    gage_data = precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered)
-    gweight_data = precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered)
+    gage_data = precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered) if HP.USE_GAGE else None
+    gweight_data = precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered) if HP.USE_GWEIGHT else None
 
     to_save = (static_features, simple_features_stacked, newjournal, num_good_selections,
                 num2idx, gnn_data, gage_data, gweight_data)
