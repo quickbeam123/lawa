@@ -16,7 +16,19 @@ from collections import defaultdict
 # (so computing fractions would be tricky!)
 EXPERS_TO_CONSIDER = lambda i : i == 0
 
+def rowwise_mean(lol):
+  """Mean of each row in a (possibly ragged) list of lists."""
+  return [sum(row) / len(row) for row in lol]
+
+def rowwise_std(lol):
+  """Population std-dev of each row in a (possibly ragged) list of lists."""
+  means = rowwise_mean(lol)
+  return [(sum((x - m) ** 2 for x in row) / len(row)) ** 0.5
+          for row, m in zip(lol, means)]
+
 STYLES = { "train" : "-", "test" : "--"}
+
+UPDATE_LOOP_IDX_BY = -1 # so that the plots start at 0 (instead of 1)
 
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
@@ -48,7 +60,8 @@ if __name__ == "__main__":
         # results is like {"ProblemName" -> [(0, 16000, VampResult(status='uns', instructions=1200, activations=30, nn_warmup=495, nn_gnn=356, nn_bulks=137, strategy=None))]}
         solveds = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (EXPERS_TO_CONSIDER(i) and info.status == "uns") }
 
-        sub_exper[loop_idx] = [len(solveds)/len(results)] # starting a singleton list, to be compatible with the optional group-by phase
+        sub_exper[loop_idx+UPDATE_LOOP_IDX_BY] = [len(solveds)/len(results)] # starting a singleton list, to be compatible with the optional group-by phase
+    print("  read",len(expers[exper_dir]["train"]),"train and",len(expers[exper_dir]["test"]),"result entries")
 
   if True: # group by the first segment ("_"-delimited) of the exper_dir name
     orig_expers = copy.deepcopy(expers)
@@ -64,7 +77,6 @@ if __name__ == "__main__":
           else:
             red_mission_results[loop_idx] += values
 
-  import numpy as np
   import matplotlib.pyplot as plt
   from matplotlib.ticker import MaxNLocator
 
@@ -81,16 +93,15 @@ if __name__ == "__main__":
       #  continue
 
       Xs,Ys = zip(*sorted(mission_results.items()))
-      Ys = np.array(Ys)
-
-      mean_Ys = np.mean(Ys, axis=1)
-      std_Ys  = np.std(Ys, axis=1)
-      stderr_Ys = std_Ys / np.sqrt(Ys.shape[1])
-      ci95 = 1.96 * stderr_Ys
+      mean_Ys = rowwise_mean(Ys)
+      std_Ys  = rowwise_std(Ys)
+      counts  = [len(row) for row in Ys]
+      stderr_Ys = [s / c**0.5 for s, c in zip(std_Ys, counts)]
+      ci95 = [1.96 * se for se in stderr_Ys]
 
       h, = ax1.plot(Xs, mean_Ys, STYLES[mission], linewidth = 1, label = exper_dir, color=col)
       if mission == "train":
-        ax1.fill_between(Xs,mean_Ys - ci95,mean_Ys + ci95,color=col,alpha=0.25,linewidth=0)
+        ax1.fill_between(Xs,[m - c for m, c in zip(mean_Ys, ci95)],[m + c for m, c in zip(mean_Ys, ci95)],color=col,alpha=0.25,linewidth=0)
 
       if mission == "train":
         handles.append(h)
