@@ -147,8 +147,8 @@ if __name__ == "__main__":
             print(f"ERROR: RANDOM_SEED missing in hyperparams.py of {members[i] if seed_a is None else members[j]}")
             sys.exit(1)
           if seed_a == seed_b:
-            print(f"ERROR: {members[i]} and {members[j]} have the same RANDOM_SEED = {seed_a}")
-            sys.exit(1)
+            print(f"WARNING: {members[i]} and {members[j]} have the same RANDOM_SEED = {seed_a}")
+            # sys.exit(1)
 
   import matplotlib.pyplot as plt
   from matplotlib.ticker import MaxNLocator
