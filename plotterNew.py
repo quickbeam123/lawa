@@ -182,6 +182,12 @@ if __name__ == "__main__":
       h, = ax1.plot(Xs, mean_Ys, STYLES[mission], linewidth = 1, label = exper_dir, color=col)
       if mission == "train":
         ax1.fill_between(Xs,[m - c for m, c in zip(mean_Ys, ci95)],[m + c for m, c in zip(mean_Ys, ci95)],color=col,alpha=0.25,linewidth=0)
+        # individual contribution lines
+        n_runs = max(len(row) for row in Ys)
+        for r in range(n_runs):
+          indiv_Xs = [x for x, row in zip(Xs, Ys) if r < len(row)]
+          indiv_Ys = [row[r] for row in Ys if r < len(row)]
+          ax1.plot(indiv_Xs, indiv_Ys, ':', linewidth=0.5, color=col, alpha=0.4)
 
       if mission == "train":
         handles.append(h)
