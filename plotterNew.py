@@ -54,9 +54,9 @@ def rowwise_mean(lol):
   """Mean of each row in a (possibly ragged) list of lists."""
   return [sum(row) / len(row) for row in lol]
 
-def rowwise_std(lol):
+def rowwise_std(lol, means):
   """Population std-dev of each row in a (possibly ragged) list of lists."""
-  means = rowwise_mean(lol)
+  # means = rowwise_mean(lol)
   return [(sum((x - m) ** 2 for x in row) / len(row)) ** 0.5
           for row, m in zip(lol, means)]
 
@@ -167,7 +167,7 @@ if __name__ == "__main__":
 
       Xs,Ys = zip(*sorted(mission_results.items()))
       mean_Ys = rowwise_mean(Ys)
-      std_Ys  = rowwise_std(Ys)
+      std_Ys  = rowwise_std(Ys, mean_Ys)
       counts  = [len(row) for row in Ys]
       stderr_Ys = [s / c**0.5 for s, c in zip(std_Ys, counts)]
       ci95 = [1.96 * se for se in stderr_Ys]
