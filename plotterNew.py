@@ -159,6 +159,7 @@ if __name__ == "__main__":
   handles = []
 
   for exper_dir,data in expers.items():
+    print(exper_dir)
     col = next(color_cycle)['color']
 
     for mission, mission_results in data.items():
@@ -171,6 +172,12 @@ if __name__ == "__main__":
       counts  = [len(row) for row in Ys]
       stderr_Ys = [s / c**0.5 for s, c in zip(std_Ys, counts)]
       ci95 = [1.96 * se for se in stderr_Ys]
+
+      first_val = mean_Ys[0]
+      best_idx = max(range(len(mean_Ys)), key=lambda i: mean_Ys[i])
+      best_val = mean_Ys[best_idx]
+      pct_gain = (best_val - first_val) / first_val * 100
+      print(f"  {mission}: start={first_val:.4f}, best={best_val:.4f} (at {Xs[best_idx]}), gain={pct_gain:.2f}%")
 
       h, = ax1.plot(Xs, mean_Ys, STYLES[mission], linewidth = 1, label = exper_dir, color=col)
       if mission == "train":
