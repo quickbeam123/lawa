@@ -76,7 +76,8 @@ def filter_trace_file_names(task):
 class TraceIndex:
   def __init__(self):
     self.traces = {} # problem -> [trace_file_name]  # a list to support more than one sample per problem per loop (c.f. HP.NUM_PERFORMS)
-    self.last_solved = {}
+    self.last_solved = {}   # loop when problem was last solved (any trace quality)
+    self.trace_loop = {}    # loop when current traces were produced (good traces only)
     self.prob_scores = {}
 
     if HP.CUMULATIVE:
@@ -103,30 +104,43 @@ class TraceIndex:
         # idea: if we solve the problem now, we throw its old traces away
         (HP.CUMULATIVE and prob in self.last_solved and self.last_solved[prob] < loop)):
       self.traces[prob] = [trace_file_path]
+      self.trace_loop[prob] = loop
     else:
       self.traces[prob].append(trace_file_path)
+      # MS: think throug the case with CUMULATIVE and MAX_TRACES_TO_KEEP
+      # is there a danger of mixing traces from different loops?
 
     self.last_solved[prob] = loop
 
-  def report_bad_trace(self,loop,prob):
-    if (HP.CUMULATIVE and prob in self.last_solved and self.last_solved[prob] < loop):
-      # we didn't solve it this loop yet
-      if prob in self.traces:
-        del self.traces[prob]
-
+  def report_solved_no_trace(self,loop,prob):
+    # problem was solved, but trace is not learnable; keep existing traces and trace_loop as-is
     self.last_solved[prob] = loop
 
   def update_scores(self,loop):
     if not HP.CUMULATIVE:
       return
+
+    # expire stale traces (based on when the trace was produced, not when the problem was last solved)
+    num_stale_traces = 0
+    for prob,born in list(self.trace_loop.items()):
+      if loop-born > HP.CUM_STALE_AFTER:
+        if prob in self.traces:
+          del self.traces[prob]
+        del self.trace_loop[prob]
+        num_stale_traces += 1
+
+    # update scores (based on when the problem was last solved)
     num_stale = 0
     num_new = 0
     num_routine = 0
     num_losing = 0
-    for prob,last in self.last_solved.items():
+    for prob,last in list(self.last_solved.items()):
       if loop-last > HP.CUM_STALE_AFTER:
+        # problem itself is stale (not solved for a long time) -- full cleanup
         if prob in self.traces:
           del self.traces[prob]
+        if prob in self.trace_loop:
+          del self.trace_loop[prob]
         if prob in self.prob_scores:
           del self.prob_scores[prob]
         num_stale += 1
@@ -144,6 +158,7 @@ class TraceIndex:
         self.prob_scores[prob] += 2
         num_losing += 1
     print("trace index score update:")
+    print("  stale traces:",num_stale_traces)
     print("  new   :",num_new)
     print("  easing:",num_routine)
     print("  losing:",num_losing)
@@ -617,7 +632,7 @@ def stage_perf_gather(ctx):
         except FileNotFoundError:
           # TODO: think; how could it be that the file does not exists? (It happened though)
           pass
-        ctx.trace_index.report_bad_trace(ctx.loop,prob)
+        ctx.trace_index.report_solved_no_trace(ctx.loop,prob)
 
       workers_freed = 1
       if lrs_trace_file and os.path.isfile(lrs_trace_file):
