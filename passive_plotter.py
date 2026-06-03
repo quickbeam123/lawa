@@ -75,7 +75,7 @@ def replay_journal(journal, num2idx, logits):
       passive.add(idx)
       sorted_passive.add(idx)
       if isGood:
-        passive_good.add(idx)
+        passive_good.add(cl_num)
         # print("  which is a good clause")
       continue
 
@@ -86,9 +86,9 @@ def replay_journal(journal, num2idx, logits):
       if sorted_passive[0] != idx:
         print("Warning: EVENT_SEL for a clause not considered the best - perhaps running with a wrong model?")
         print(f"  logit selected {logits[idx].item()}, logit best {logits[sorted_passive[0]].item()}")
-      for good_idx in passive_good:
-        pos = sorted_passive.index(good_idx)
-        good_traces[good_idx].append((sel_step, pos+1)) # starting from 1, for a better visual rendering
+      for good_num in passive_good:
+        pos = sorted_passive.index(num2idx[good_num])
+        good_traces[good_num].append((sel_step, pos+1)) # starting from 1, for a better visual rendering
         # print(f"    good_idx = {good_idx} is at {pos}")
 
       # print(f"  passive_sizes = {len(sorted_passive)}, selected_logit = {logits[idx].item()}")
@@ -100,7 +100,7 @@ def replay_journal(journal, num2idx, logits):
     passive.remove(idx)
     sorted_passive.remove(idx)
     if isGood:
-      passive_good.remove(idx)
+      passive_good.remove(cl_num)
 
   return good_traces, passive_sizes, selected_logits
 
@@ -147,7 +147,7 @@ def plot_passive_evolution(good_traces, passive_sizes, selected_logits, plot_pat
                  label=f'clause {cl_idx}' if si == 0 else None)
 
   ax1.set_xlabel('selection step')
-  ax1.set_ylabel('position in passive (0 = top)')
+  ax1.set_ylabel('position in passive (1 = top)')
   ax1.set_ylim(bottom=0)
 
   # selected logit on second y-axis
