@@ -140,10 +140,10 @@ def plot_passive_evolution(good_traces, passive_sizes, selected_logits, plot_pat
     segments.append((seg_steps, seg_pos))
     for si, (ss, sp) in enumerate(segments):
       if len(ss) == 1:
-        ax1.plot(ss, sp, marker='o', markersize=4, color=color, linestyle='None', alpha=0.7,
+        ax1.plot(ss, sp, marker='o', markersize=3, color=color, linestyle='None', alpha=0.7,
                  label=f'clause {cl_idx}' if si == 0 else None)
       else:
-        ax1.plot(ss, sp, color=color, linewidth=3.0, alpha=0.7,
+        ax1.plot(ss, sp, color=color, linewidth=2.0, alpha=0.7,
                  label=f'clause {cl_idx}' if si == 0 else None)
 
   ax1.set_xlabel('selection step')
