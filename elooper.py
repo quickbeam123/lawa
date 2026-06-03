@@ -576,6 +576,7 @@ def stage_perf_gather(ctx):
         # print("Gather for",prob,"counter:",counter,"ncp:",trace_index.num_contemporary_traces(loop,prob))
 
         trace_file_path = os.path.join(traces_dir,"{}_{}.pt".format(prob.replace("/","_"),counter))
+        raw_trace_file_path = trace_file_path + ".raw"
 
         ilim *= 10
         lrs_trace_str = f" -lltf {lrs_trace_file}" if lrs_trace_file else ""
@@ -592,8 +593,8 @@ def stage_perf_gather(ctx):
 
         gather_log = perf_log+".gather" if perf_log else None
 
-        task = (W.JK_GATHER,(mission,prob,lrs_trace_file,trace_file_path,
-                            f"-t {ilim2tlim(ilim)} {insert_decode} -i {ilim} {model_for_imitation} -nar {trace_file_path} {lrs_trace_str}"+opts2,opts1+opts2,gather_log))
+        task = (W.JK_GATHER,(mission,prob,lrs_trace_file,raw_trace_file_path,
+                            f"-t {ilim2tlim(ilim)} {insert_decode} -i {ilim} {model_for_imitation} -nar {raw_trace_file_path} {lrs_trace_str}"+opts2,opts1+opts2,gather_log))
         # print("PUT:",task)
         perf_and_gather[0].put(task)
       else:
@@ -601,18 +602,18 @@ def stage_perf_gather(ctx):
         if lrs_trace_file and os.path.isfile(lrs_trace_file):
           os.remove(lrs_trace_file)
     elif job_kind == W.JK_GATHER:
-      (mission,prob,lrs_trace_file,trace_file_path,opts,eval_opts,gather_log) = input
+      (mission,prob,lrs_trace_file,raw_trace_file_path,opts,eval_opts,gather_log) = input
       non_trivial, passes_limits, gage_stats, gweight_stats = result
       stats[prob].append((gage_stats, gweight_stats))
       if non_trivial and passes_limits:
+        # trace_good_for_learning has preprocessed raw_trace_file_path in place; promote it to the final path
+        trace_file_path = raw_trace_file_path.removesuffix(".raw")
+        os.replace(raw_trace_file_path, trace_file_path)
         ctx.trace_index.add_prob_trace(ctx.loop,prob,trace_file_path)
       else:
-        # TODO: in a future version, we shouldn't first overwrite the old trace file with the new raw one
-        # not until trace_good_for_learning decides what the new one looks like
-        #
-        # but now that the old is overwritten and the new one cannot be learned from for one of the reasons, let's just delete the file
+        # the new trace is not learnable; delete the raw file, keeping any previous good trace intact
         try:
-          os.remove(trace_file_path)
+          os.remove(raw_trace_file_path)
         except FileNotFoundError:
           # TODO: think; how could it be that the file does not exists? (It happened though)
           pass
