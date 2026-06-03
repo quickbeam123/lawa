@@ -876,6 +876,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
   newjournal = []
   passive = set() # just for consistency checking in the loop below
   good_in_passive = 0
+  num_selections = 0
   num_good_selections = 0
   for tag,cl_num in journal:
     if tag == EVENT_ADD:
@@ -889,6 +890,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
       passive.remove(cl_num)
 
       if tag == EVENT_SEL:
+        num_selections += 1
         if good_in_passive > 0:
           num_good_selections += 1
 
@@ -936,7 +938,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
       to_save = to_save + (gage_infers, gweight_terms, gweight_clauses)
     torch.save(to_save, trace_file_path)
 
-  return non_trivial, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w)
+  return num_good_selections, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w), num_selections
 
 
 class LearningModel(torch.nn.Module):

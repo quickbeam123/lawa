@@ -444,8 +444,8 @@ def collect_trace(task):
         if vamp_res.status != "uns":
           raise AssertionError(f"Gather failed to reproduce for {prob} {opts1+opts2}")
 
-        non_trivial, passes_limits, gage_stats, gweight_stats = IC.trace_good_for_learning(trace_file_path,W.train_log)
-        if non_trivial and passes_limits:
+        num_good_selections, passes_limits, gage_stats, gweight_stats, num_selections = IC.trace_good_for_learning(trace_file_path,W.train_log)
+        if num_good_selections > 0 and passes_limits:
           result = (prob,trace_id,trace_file_path)
           break
         else:
@@ -618,9 +618,9 @@ def stage_perf_gather(ctx):
           os.remove(lrs_trace_file)
     elif job_kind == W.JK_GATHER:
       (mission,prob,lrs_trace_file,raw_trace_file_path,opts,eval_opts,gather_log) = input
-      non_trivial, passes_limits, gage_stats, gweight_stats = result
-      stats[prob].append((gage_stats, gweight_stats))
-      if non_trivial and passes_limits:
+      num_good_selections, passes_limits, gage_stats, gweight_stats, num_selections = result
+      stats[prob].append((num_selections, num_good_selections, gage_stats, gweight_stats))
+      if num_good_selections > 0 and passes_limits:
         # trace_good_for_learning has preprocessed raw_trace_file_path in place; promote it to the final path
         trace_file_path = raw_trace_file_path.removesuffix(".raw")
         os.replace(raw_trace_file_path, trace_file_path)

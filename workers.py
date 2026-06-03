@@ -145,7 +145,7 @@ def job_gather(input):
     return IC.trace_good_for_learning(trace_file_path,train_log)
   else:
     print("Failed to reproduce success for",prob,opts)
-    return False, False, 0, 0
+    return 0, False, 0, 0, 0
 
 def eval_one_trace(trace_file_path,local_model,local_fact,stat_dict):
   trace_tuple = torch.load(trace_file_path)
