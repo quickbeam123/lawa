@@ -28,7 +28,46 @@ if __name__ == "__main__":
   PLOT_WHATS = [(0,"height"),(1,"width")]
   PLOT_WHAT = 1
 
-  stats = torch.load(sys.argv[1])
+  stats = torch.load(sys.argv[1],weights_only=False)
+
+  total = 0
+  trivial = 0
+  full = 0
+  degenerate = 0
+  partial = 0
+
+  total_num_selections = 0
+  total_num_good_selections = 0
+
+  for prob, records in stats.items():
+    assert len(records) == 1
+    num_selections, num_good_selections, gage_stats, gweight_stats = records[0]
+
+    total += 1
+    if num_selections == 0:
+      trivial += 1
+    elif num_selections == num_good_selections:
+      full += 1
+    elif num_good_selections == 0:
+      degenerate += 1
+    else:
+      partial += 1
+
+    total_num_selections += num_selections
+    total_num_good_selections += num_good_selections
+
+  print("total",total)
+  print("trivial",trivial)
+  print("full",full)
+  print("degenerate",degenerate)
+  print("partial",partial)
+  print()
+
+  print("total_num_good_selections",total_num_good_selections)
+  print("total_num_selections",total_num_selections)
+  print("ratio",total_num_good_selections/total_num_selections)
+
+  exit(0)
 
   Xs = []
   Ys = []
@@ -45,7 +84,7 @@ if __name__ == "__main__":
 
   for prob, records in stats.items():
     assert len(records) == 1
-    gage_stats, gweight_stats = records[0]
+    num_selections, num_good_selections, gage_stats, gweight_stats = records[0]
 
     gage_height = gage_stats[0]
     gage_width = gage_stats[1]
