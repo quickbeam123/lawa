@@ -80,8 +80,10 @@ class TraceIndex:
     self.trace_loop = {}    # loop when current traces were produced (good traces only)
     self.prob_scores = {}
 
+    self.max_score = 0
+
     if HP.CUMULATIVE:
-      self.BASE = math.pow(HP.CUM_MAX_STRENGTH,1/(2*HP.CUM_STALE_AFTER))
+      self.BASE = HP.CUM_MAX_STRENGTH
       print("trace index establish a factor base of",self.BASE)
 
   def loop_finished(self):
@@ -95,9 +97,9 @@ class TraceIndex:
     return self.traces[prob]
 
   def prob_factor(self,prob):
-    if not HP.CUMULATIVE:
+    if not HP.CUMULATIVE or self.max_score == 0:
       return 1.0
-    return math.pow(self.BASE,self.prob_scores[prob])
+    return math.pow(self.BASE,self.prob_scores[prob]/self.max_score)
 
   def add_prob_trace(self,loop,prob,trace_file_path):
     if (prob not in self.traces or
@@ -163,10 +165,14 @@ class TraceIndex:
     print("  easing:",num_routine)
     print("  losing:",num_losing)
     print("  staled:",num_stale)
-    print("  score hist")
     hist = defaultdict(int)
     for _,score in self.prob_scores.items():
       hist[score] += 1
+      abs_score = abs(score)
+      if abs_score > self.max_score:
+        self.max_score = abs_score
+    print("  max_score:",self.max_score)
+    print("  score hist")
     for score,val in sorted(hist.items()):
       print("    {:>6} {:>6}".format(score, val))
     print()
