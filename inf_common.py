@@ -398,11 +398,10 @@ class MonsterNN(torch.nn.Module):
             out_dict[tgt] = out
 
         for key, out in out_dict.items():
-          temp = out + self.gnn_nodes[key] # the residual connection here
           if HP.USE_SILU:
-            self.gnn_nodes[key] = torch.nn.functional.silu(temp)
+            self.gnn_nodes[key] = torch.nn.functional.silu(out) + self.gnn_nodes[key] # with a residual connection
           else:
-            self.gnn_nodes[key] = torch.nn.functional.relu(temp)
+            self.gnn_nodes[key] = torch.nn.functional.relu(out) + self.gnn_nodes[key] # with a residual connection
         out_dict = {}
 
       # TODO: in the future could also pool things and extract a (more refined) problem embedding to use
