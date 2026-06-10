@@ -87,7 +87,8 @@ TRAIN_MINIBATCH_SIZE : Final[int] = 1 # accumulate gradients from this many work
 # (after all, all the workers are modifying the same model so maybe, let's not be too "hogwild"?)
 # specifies the number of cores used while training a model
 TRAINING_PARALLELISM = 16
-WORTH_REPORTING = 120 # more than this many seconds and a new line goes into detailed.log file in exper_dir
+WORTH_REPORTING = 120     # more than this many seconds and a new line goes into detailed.log file in exper_dir
+WORTH_REPORTING_LOSS = 10 # more than this and we report this prob/trace into detailed.log too
 
 # also in elooper:
 # for value of 1, we don't repeat eval after first train (that's the old way of doing things, very reinforced)

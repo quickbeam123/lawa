@@ -147,13 +147,16 @@ def job_gather(input):
     print("Failed to reproduce success for",prob,opts)
     return 0, False, 0, 0, 0
 
-def eval_one_trace(trace_file_path,local_model,local_fact,stat_dict):
+def eval_one_trace(trace_file_path,local_model,local_fact,stat_dict,prob):
   trace_tuple = torch.load(trace_file_path)
   learn_model = IC.LearningModel(False,local_model,trace_tuple)
   learn_model.eval()
 
   with torch.no_grad():
     loss,selection_hit_rate,dist_to_good = learn_model.forward()
+
+  if loss.item() > HP.WORTH_REPORTING_LOSS:
+    train_log.write(f"EVAL of {prob} found loss {loss.item()}; trace_file_path {trace_file_path}, local_fact {local_fact}\n")
 
   stat_dict["loss"] += local_fact*loss.item()
   stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
@@ -173,7 +176,7 @@ def job_eval(input):
 
   for trace_file_path in record.prob_traces:
     try:
-      eval_one_trace(trace_file_path,local_model,local_fact,stat_dict)
+      eval_one_trace(trace_file_path,local_model,local_fact,stat_dict,record.prob)
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{type(e).__name__}: {e} occurred in EVAL\n")
@@ -189,12 +192,15 @@ def job_eval(input):
 
   return stat_dict
 
-def train_one_trace(trace_file_path,local_model,local_fact,scale_fact,stat_dict):
+def train_one_trace(trace_file_path,local_model,local_fact,scale_fact,stat_dict,prob):
   trace_tuple = torch.load(trace_file_path)
   learn_model = IC.LearningModel(False,local_model,trace_tuple)
   learn_model.train()
 
   loss,selection_hit_rate,dist_to_good = learn_model.forward()
+
+  if loss.item() > HP.WORTH_REPORTING_LOSS:
+    train_log.write(f"TRAIN of {prob} found loss {loss.item()}; trace_file_path {trace_file_path}, local_fact {local_fact}, scale_fact {scale_fact}\n")
 
   stat_dict["loss"] += local_fact*loss.item()
   stat_dict["selection_hit_rate"] += local_fact*selection_hit_rate
@@ -222,7 +228,7 @@ def job_train(input):
 
   for trace_file_path in record.prob_traces:
     try:
-      loss += train_one_trace(trace_file_path,local_model,local_fact,record.scale_factor,stat_dict)
+      loss += train_one_trace(trace_file_path,local_model,local_fact,record.scale_factor,stat_dict,record.prob)
     except Exception as e:
       with open(f"exception{os.getpid()}.log", "w") as f:
         f.write(f"{type(e).__name__}: {e} occurred in TRAIN\n")
