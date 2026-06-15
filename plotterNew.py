@@ -76,6 +76,8 @@ if __name__ == "__main__":
   first_hyperparams = None
   first_exper_dir = None
 
+  solveds = defaultdict(lambda : defaultdict(dict))
+
   for exper_dir in sys.argv[1:]:
     print(exper_dir)
     root, dirs, files = next(os.walk(exper_dir))
@@ -90,17 +92,21 @@ if __name__ == "__main__":
       for file in files:
         if file == "train_res.pt":
           sub_exper = expers[exper_dir]["train"]
+          sub_solveds = solveds[exper_dir]["train"]
         elif file == "test_res.pt":
           sub_exper = expers[exper_dir]["test"]
+          sub_solveds = solveds[exper_dir]["train"]
         else:
           continue
 
         (_meta,results) = torch.load(os.path.join(cur_dir,file),weights_only=False)
         # results is like {"ProblemName" -> [(0, 16000, VampResult(status='uns', instructions=1200, activations=30, nn_warmup=495, nn_gnn=356, nn_bulks=137, strategy=None))]}
-        solveds = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (EXPERS_TO_CONSIDER(i) and info.status == "uns") }
+        solved = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (EXPERS_TO_CONSIDER(i) and info.status == "uns") }
 
-        sub_exper[loop_idx+UPDATE_LOOP_IDX_BY] = [len(solveds)/len(results)] # starting a singleton list, to be compatible with the optional group-by phase
-    print("  read",len(expers[exper_dir]["train"]),"train and",len(expers[exper_dir]["test"]),"result entries")
+        sub_solveds[loop_idx] = solved
+
+        sub_exper[loop_idx+UPDATE_LOOP_IDX_BY] = [len(solved)/len(results)] # starting a singleton list, to be compatible with the optional group-by phase
+    print("  read",len(expers[exper_dir]["train"]),"train and",len(expers[exper_dir]["test"]),"test result entries")
 
     hp = load_py_assignments(os.path.join(exper_dir, HYPERPARAMS_FILE_NAME))
     hyperparams_store[exper_dir] = hp
@@ -120,6 +126,44 @@ if __name__ == "__main__":
         for key, v_ref, v_cur in differing:
           if key != "RANDOM_SEED":
             print(f"    changed hp {key}: {v_ref} -> {v_cur}")
+
+  if False: # looking at solveds as they evolve in time
+    with open("/nfs/sudamar2/TPTP-v9.1.0/probinfo9.1.0.pkl",'rb') as f:
+      probinfo = pickle.load(f)
+
+    for exper_dir,data in solveds.items():
+      for mission, mission_solveds in data.items():
+        print(exper_dir,mission)
+        num_iters =len(mission_solveds)
+        prob_solve_vecs = {} # prob -> [0,1,1,0,1,0,1] ...
+        for loop_idx, solved in sorted(mission_solveds.items(),key = lambda x : x[0]):
+          for prob in solved:
+            if prob not in prob_solve_vecs:
+              prob_solve_vecs[prob] = [0]*num_iters
+            prob_solve_vecs[prob][loop_idx-1] = 1
+
+        hist = defaultdict(set)
+        for prob,vec in prob_solve_vecs.items():
+          hist[tuple(vec)].add(prob)
+
+        for vec,probs in sorted(hist.items(),key = lambda x : -len(x[1])):
+          srcs = ""
+          rates = 0.0
+          for prob in probs:
+            prob_short = prob.split("/")[-1]
+            info = probinfo[prob_short]
+            # print(prob,info)
+            rate = info[0]
+            src = info[-1]
+            short_src = src[:src.find("]") + 1]
+
+            srcs += short_src
+            rates += rate
+
+          probs_text = [prob.split("/")[-1] for prob in probs][:10]
+          print(f"{vec} {len(probs): 5d} {rates / len(probs):.2f} {probs_text}")  # {srcs[:150]}
+
+    exit(0)
 
   if True: # group by the first segment ("_"-delimited) of the exper_dir name
     orig_expers = copy.deepcopy(expers)
@@ -165,6 +209,9 @@ if __name__ == "__main__":
     for mission, mission_results in data.items():
       # if mission == "test":
       #  continue
+
+      if len(mission_results) == 0:
+        continue
 
       Xs,Ys = zip(*sorted(mission_results.items()))
       mean_Ys = rowwise_mean(Ys)
