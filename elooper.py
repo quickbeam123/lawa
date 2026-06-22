@@ -558,6 +558,9 @@ def stage_perf_gather(ctx):
         if HP.USE_SPECIAL:
           opts2_base += HP.PERFORMS_SPECIAL[i]
 
+        if HP.AUGMENT_TRAINING and mission == "train":
+          opts2_base += HP.AUGMENT_TRAINING
+
         for prob in prob_lists:
           if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
             # print("Skipping for",prob,"who already has enough")
