@@ -80,7 +80,7 @@ MAX_TRACES_TO_KEEP = 1 # should be at least 1!
 USE_SPECIAL = True
 # each subsequent "PERFORM" shall be fed with these given extra options
 PERFORMS_SPECIAL = ["", " -npcct 0.037", " -npcct 0.111", " -npcct 0.333", " -npcct 1.0"]
-AUGMENT_TRAINING = "" # --sample_strategy preprocess.smp (capitalising on random seed that's anyway being varied)
+AUGMENT_TRAINING = " --sample_strategy preprocess.smp" # --sample_strategy preprocess.smp (capitalising on random seed that's anyway being varied); the random strategy is captured and transferred to the gather run
 
 TRAIN_MINIBATCH_SIZE : Final[int] = 1 # accumulate gradients from this many workers before one optimizer step
 

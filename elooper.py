@@ -547,6 +547,9 @@ def stage_perf_gather(ctx):
         else:
           saturation_algorithm = f"-sa {HP.SATURATION_ALGORITHM}"
 
+        if HP.AUGMENT_TRAINING and mission == "train":
+          opts1_base += HP.AUGMENT_TRAINING
+
         # will stay the same
         opts2_base = f" {HP.SHUFFLING_OPTIONS} {saturation_algorithm} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
 
@@ -557,9 +560,6 @@ def stage_perf_gather(ctx):
 
         if HP.USE_SPECIAL:
           opts2_base += HP.PERFORMS_SPECIAL[i]
-
-        if HP.AUGMENT_TRAINING and mission == "train":
-          opts2_base += HP.AUGMENT_TRAINING
 
         for prob in prob_lists:
           if per_prob_trace_cnt[prob] >= HP.MAX_TRACES_TO_KEEP:
@@ -601,7 +601,7 @@ def stage_perf_gather(ctx):
         # -nar needs a model, and with imitation it's not added to the JK_PERFORM options
         model_for_imitation = f"-ncem {script_model_file_path}" if HP.IMITATE and ctx.loop == 1 else ""
 
-        if HP.RANDOMIZED_STRATEGIES:
+        if HP.RANDOMIZED_STRATEGIES or HP.AUGMENT_TRAINING:
           strat_str = result.strategy
           # kick out the implicit time limit at the end after the last _
           strat_str = "_".join(strat_str.split("_")[:-1] + ["0"])
