@@ -4,6 +4,7 @@ import workers as W
 import inf_common as IC
 import hyperparams as HP
 
+import numpy as np
 import torch
 
 import os, sys, shutil, pickle, random, atexit, time, copy
@@ -11,6 +12,9 @@ import os, sys, shutil, pickle, random, atexit, time, copy
 from collections import defaultdict
 
 import ast
+import matplotlib.pyplot as plt
+
+PAPER = False
 
 def load_py_assignments(path):
   with open(path, "r") as f:
@@ -64,7 +68,7 @@ HYPERPARAMS_FILE_NAME = "hyperparams.py"
 
 STYLES = { "train" : "-", "test" : "--"}
 
-UPDATE_LOOP_IDX_BY = -1 # so that the plots start at 0 (instead of 1)
+UPDATE_LOOP_IDX_BY = 0 # -1 so that the plots start at 0 (instead of 1)
 
 if __name__ == "__main__":
   # Plotting some training curves, automatically getting the data from the exper directories left behind by looper
@@ -77,6 +81,7 @@ if __name__ == "__main__":
   first_exper_dir = None
 
   solveds = defaultdict(lambda : defaultdict(dict))
+  all_results = defaultdict(lambda : defaultdict(dict))
 
   for exper_dir in sys.argv[1:]:
     print(exper_dir)
@@ -93,13 +98,16 @@ if __name__ == "__main__":
         if file == "train_res.pt":
           sub_exper = expers[exper_dir]["train"]
           sub_solveds = solveds[exper_dir]["train"]
+          sub_results = all_results[exper_dir]["train"]
         elif file == "test_res.pt":
           sub_exper = expers[exper_dir]["test"]
-          sub_solveds = solveds[exper_dir]["train"]
+          sub_solveds = solveds[exper_dir]["test"]
+          sub_results = all_results[exper_dir]["test"]
         else:
           continue
 
         (_meta,results) = torch.load(os.path.join(cur_dir,file),weights_only=False)
+        sub_results[loop_idx] = results
         # results is like {"ProblemName" -> [(0, 16000, VampResult(status='uns', instructions=1200, activations=30, nn_warmup=495, nn_gnn=356, nn_bulks=137, strategy=None))]}
         solved = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (EXPERS_TO_CONSIDER(i) and info.status == "uns") }
 
@@ -165,6 +173,114 @@ if __name__ == "__main__":
 
     exit(0)
 
+  if True:
+    MAIN_PART = 10
+    QUANTILE = 0.5
+
+    for exper_dir,data in solveds.items():
+      for mission, mission_solveds in data.items():
+        sub_results = all_results[exper_dir][mission]
+        print(exper_dir,mission)
+        by_index = {}
+        covered = set()
+        idx_list, newly_list, mean_acts_list, median_acts_list = [], [], [], []
+        for loop_idx, solved in sorted(mission_solveds.items(),key = lambda x : x[0]):
+          results = sub_results[loop_idx]
+          newly = solved - covered
+          by_index[loop_idx] = newly
+          covered |= newly
+          act_cnts = []
+          for prob in newly:
+            for (i,ilim,info) in results[prob]:
+              if info.status == "uns":
+                act_cnts.append(info.activations)
+
+                # if info.activations > 80000:
+                #  print("Many act!",loop_idx,prob,(i,ilim,info))
+
+                break
+            else:
+              assert False, f"Did not find succcess for {prob} reported as newly in iter {loop_idx}"
+
+          mean_acts = np.mean(act_cnts)
+          median_acts = np.quantile(act_cnts, QUANTILE)
+          print(loop_idx,"adds",len(newly),"mean acts",mean_acts,f"q{QUANTILE} acts",median_acts)
+          if loop_idx <= MAIN_PART:
+            idx_list.append(loop_idx)
+            newly_list.append(len(newly))
+            mean_acts_list.append(mean_acts)
+            median_acts_list.append(median_acts)
+
+        # let's now go backwards and report on problems that will not be solved anymore
+        if False:
+          bnewly = set()
+          bcovered = set()
+          for loop_idx, solved in sorted(mission_solveds.items(),key = lambda x : -x[0]):
+            bnewly = solved - bcovered
+            print(loop_idx,"badds",len(bnewly))
+            bcovered |= bnewly
+
+          for prob in bnewly:
+            print(prob)
+            for (i,ilim,info) in sub_results[2][prob]:
+              print("  ",(i,ilim,info))
+
+          exit(0)
+
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=(8, 8))
+        ax1.plot(idx_list, newly_list, 'o-')
+        ax1.set_ylabel("newly solved")
+        ax1.set_yscale('log')
+        ax1.set_ylim(bottom=1)
+        ax2.plot(idx_list, mean_acts_list, 'o-')
+        ax2.set_ylabel("mean acts")
+        ax3.plot(idx_list, median_acts_list, 'o-')
+        ax3.set_ylabel(f"q{QUANTILE} acts")
+        ax3.set_xlabel("loop index")
+        fig.suptitle(f"{exper_dir} {mission}")
+        safe_name = exper_dir.replace("/", "_")
+        plt.savefig(f"acts_{safe_name}_{mission}.pdf", format="pdf", bbox_inches="tight")
+        plt.close(fig)
+
+      if True:
+        # Track median activations of groups 1..10 across subsequent iterations
+        all_indices = sorted(mission_solveds.keys())
+        DUMMY_ACT = 1000000
+        fig_g, ax_g = plt.subplots(figsize=(8, 5))
+        for gi in range(1, MAIN_PART+1):
+          if gi not in by_index or len(by_index[gi]) == 0:
+            continue
+          group_probs = by_index[gi]
+          js, medians = [], []
+          for j in all_indices:
+            if j < gi:
+              continue
+            results_j = sub_results[j]
+            acts = []
+            for prob in group_probs:
+              if prob in results_j:
+                act = DUMMY_ACT
+                for (ei, ilim, info) in results_j[prob]:
+                  if info.status == "uns":
+                    act = info.activations
+                    break
+                acts.append(act)
+              else:
+                acts.append(DUMMY_ACT)
+            js.append(j)
+            # print(gi,j,acts)
+            medians.append(np.quantile(acts, QUANTILE))
+          ax_g.plot(js, medians, 'o-', label=f"group {gi} ({len(group_probs)} probs)")
+        ax_g.set_yscale('log')
+        ax_g.set_xlabel("loop index")
+        ax_g.set_ylabel(f"q{QUANTILE} activations")
+        ax_g.set_title(f"{exper_dir} {mission} — group q{QUANTILE} acts over time")
+        ax_g.legend(fontsize='small')
+        plt.savefig(f"group_acts_{safe_name}_{mission}.pdf", format="pdf", bbox_inches="tight")
+        plt.close(fig_g)
+
+    exit(0)
+
   if True: # group by the first segment ("_"-delimited) of the exper_dir name
     orig_expers = copy.deepcopy(expers)
     expers = defaultdict(lambda : defaultdict(dict))
@@ -197,8 +313,10 @@ if __name__ == "__main__":
   import matplotlib.pyplot as plt
   from matplotlib.ticker import MaxNLocator
 
-  # fig, ax1 = plt.subplots(figsize=(3.2,3))
-  fig, ax1 = plt.subplots(figsize=(6,5))
+  if PAPER:
+    fig, ax1 = plt.subplots(figsize=(3.2,3))
+  else:
+    fig, ax1 = plt.subplots(figsize=(6,5))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
@@ -244,11 +362,10 @@ if __name__ == "__main__":
 
   # ax1.set_xlim(xmin=0,xmax=24)
   ax1.set_ylim(ymin=0.5)
-  # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
-  # ax1.axhline(y=0.5493, color='gray', linestyle='--', linewidth=0.5) # for rms_baseTraceSet_i16K
+  ax1.axhline(y=0.5314, color='gray', linestyle='--', linewidth=0.5) # ~/jar2026/seed4?_nd test performance
 
   plt.xlabel("improvement loop iteration")
-  plt.ylabel(f"percentage problems proven")
+  plt.ylabel(f"success rate")
 
   plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
   plt.savefig("current_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
