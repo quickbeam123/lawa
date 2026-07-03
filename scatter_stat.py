@@ -102,7 +102,7 @@ if __name__ == "__main__":
     gweight_height_max = max(gweight_height_max, gweight_height)
     count += 1
 
-    if gage_stats[PLOT_WHATS[0][0]] > 500 or gweight_stats[PLOT_WHATS[0][0]] > 500:
+    if gage_stats[PLOT_WHATS[PLOT_WHAT][0]] > 500 or gweight_stats[PLOT_WHATS[PLOT_WHAT][0]] > 500:
       print(f"Skipping extreme {prob} with {(gage_stats, gweight_stats)}")
     else:
       Xs.append(gage_stats[PLOT_WHATS[PLOT_WHAT][0]])
