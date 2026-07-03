@@ -23,6 +23,8 @@ def get_status(info):
 
 SPLIT_MULTI = False
 
+GREED_MISSION_FILE = "test_res.pt"
+
 GREEDY_START_GREEDY_END = False # to compare a greedy sequence of champs before and after they get boosted. Only don't on the 0-th slice; i.e. as if temp==0.0
 
 if __name__ == "__main__":
@@ -78,7 +80,7 @@ if __name__ == "__main__":
             covered = {prob for prob,runs in results.items() for (i,ilim,info) in runs if (i == 0 and info.status == "uns") }
             ever_seen |= covered
             fractional = len(covered)
-            if len(covered) > len(best_covered):
+            if len(covered) > len(best_covered) and file == GREED_MISSION_FILE:
               best_covered = covered
 
             if SPLIT_MULTI:
@@ -164,7 +166,7 @@ if __name__ == "__main__":
     print()
 
   if True:
-    print("Greedy cover of best sets from each exper:")
+    print(f"Greedy cover of best sets (from {GREED_MISSION_FILE}) from each exper:")
     total = set()
     while True:
       best_dir = None
@@ -249,6 +251,7 @@ if __name__ == "__main__":
   # ax1.set_xlim(xmin=0,xmax=24)
   # ax1.set_ylim(ymin=0.42,ymax=0.54)
   # ax1.axhline(y=0.5386, color='gray', linestyle='--', linewidth=0.5) # for freshQuarter
+  ax1.set_ylim(ymin=0.5)
   ax1.axhline(y=0.5493, color='gray', linestyle='--', linewidth=0.5) # for rms_baseTraceSet_i16K
 
   plt.xlabel("improvement loop iteration")
