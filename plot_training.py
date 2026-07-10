@@ -89,8 +89,20 @@ def main():
     if best_handle is not None:
         handles.append(best_handle)
 
-    h = plot_segments(ax2, segments["t_dist"], "o--", "train d2g", color="tab:red"); handles.append(h)
-    h = plot_segments(ax1, segments["t_loss"], "s--", "train loss", color="tab:red", alpha=0.5); handles.append(h)
+    h = plot_segments(ax2, segments["t_dist"], "o--", "training d2g", color="tab:red"); handles.append(h)
+    h = plot_segments(ax1, segments["t_loss"], "s--", "training loss", color="tab:red", alpha=0.5); handles.append(h)
+
+    # highlight the minimum training d2g in segments with index > 2
+    best_handle2 = None
+    for seg_i, (offset, vals) in enumerate(segments["t_dist"][:MAX_SEGMENTS]):
+        if seg_i > 1 and vals:
+            best_i = min(range(len(vals)), key=lambda i: vals[i])
+            h, = ax2.plot(offset + best_i, vals[best_i], "+", markersize=8, color="black", zorder=5,
+                          label="best model (Mode II)" if best_handle2 is None else None)
+            if best_handle2 is None:
+                best_handle2 = h
+    if best_handle2 is not None:
+        handles.append(best_handle2)
 
     ax1.set_xlabel("training round")
     ax1.set_ylabel("loss")
@@ -101,7 +113,7 @@ def main():
     # ax2.set_ylim(bottom=0.02)
 
     handles = [h for h in handles if h is not None]
-    ax1.legend(handles=handles, loc="best", ncol=2)
+    ax1.legend(handles=handles, loc="best", ncol=2, columnspacing=0.5)
 
     plt.savefig("training_metrics.pdf", format="pdf", bbox_inches="tight")
     plt.close(fig)
