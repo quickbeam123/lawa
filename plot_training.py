@@ -67,7 +67,7 @@ def main():
     paths = sys.argv[1:]
     segments = parse_logs(paths)
 
-    fig, ax1 = plt.subplots(figsize=(6, 3))
+    fig, ax1 = plt.subplots(figsize=(8, 3))
 
     handles = []
 
@@ -76,8 +76,6 @@ def main():
     # h = plot_segments(ax2, segments["e_hit"], "o-", "e_selection_hit_rate"); handles.append(h)
     h = plot_segments(ax2, segments["e_dist"], "o-", "validation d2g", color="tab:blue"); handles.append(h)
     h = plot_segments(ax1, segments["e_loss"], "s-", "validation loss", color="tab:blue", alpha=0.5); handles.append(h)
-    h = plot_segments(ax2, segments["t_dist"], "o--", "train d2g", color="tab:red"); handles.append(h)
-    h = plot_segments(ax1, segments["t_loss"], "s--", "train loss", color="tab:red", alpha=0.5); handles.append(h)
 
     # highlight the minimum validation d2g in each segment
     best_handle = None
@@ -91,16 +89,19 @@ def main():
     if best_handle is not None:
         handles.append(best_handle)
 
+    h = plot_segments(ax2, segments["t_dist"], "o--", "train d2g", color="tab:red"); handles.append(h)
+    h = plot_segments(ax1, segments["t_loss"], "s--", "train loss", color="tab:red", alpha=0.5); handles.append(h)
+
     ax1.set_xlabel("training round")
     ax1.set_ylabel("loss")
-    ax1.set_ylim(top=4.5)
+    ax1.set_ylim(top=4.2)
     # ax1.set_ylim(bottom=2.5)
     ax2.set_ylabel("distance to good (d2g)")
     ax2.set_ylim(top=0.08)
     # ax2.set_ylim(bottom=0.02)
 
     handles = [h for h in handles if h is not None]
-    ax1.legend(handles=handles, loc="best")
+    ax1.legend(handles=handles, loc="best", ncol=2)
 
     plt.savefig("training_metrics.pdf", format="pdf", bbox_inches="tight")
     plt.close(fig)
