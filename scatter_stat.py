@@ -85,6 +85,8 @@ if __name__ == "__main__":
   gweight_widths = []
   gweight_depth_max = 0
   gweight_width_max = 0
+  gage_width_max_prob = None
+  gweight_width_max_prob = None
   count = 0
 
   for prob, records in stats.items():
@@ -113,12 +115,16 @@ if __name__ == "__main__":
     gage_width_sum += gage_width
     gage_widths.append(gage_width)
     gage_depth_max = max(gage_depth_max, gage_depth)
-    gage_width_max = max(gage_width_max, gage_width)
+    if gage_width > gage_width_max:
+      gage_width_max = gage_width
+      gage_width_max_prob = prob
     gweight_depth_sum += gweight_depth
     gweight_width_sum += gweight_width
     gweight_widths.append(gweight_width)
     gweight_depth_max = max(gweight_depth_max, gweight_depth)
-    gweight_width_max = max(gweight_width_max, gweight_width)
+    if gweight_width > gweight_width_max:
+      gweight_width_max = gweight_width
+      gweight_width_max_prob = prob
     count += 1
 
   print(f"gage_depth_avg: {gage_depth_sum/count}")
@@ -127,7 +133,7 @@ if __name__ == "__main__":
 
   print(f"gage_width_avg: {gage_width_sum/count}")
   print(f"gage_width_median: {sorted(gage_widths)[len(gage_widths)//2]}")
-  print(f"gage_width_max: {gage_width_max}")
+  print(f"gage_width_max: {gage_width_max} ({gage_width_max_prob})")
 
   print(f"gweight_depth_avg: {gweight_depth_sum/count}")
   print(f"gweight_depth_median: {sorted(gweight_depths)[len(gweight_depths)//2]}")
@@ -135,18 +141,20 @@ if __name__ == "__main__":
 
   print(f"gweight_width_avg: {gweight_width_sum/count}")
   print(f"gweight_width_median: {sorted(gweight_widths)[len(gweight_widths)//2]}")
-  print(f"gweight_width_max: {gweight_width_max}")
+  print(f"gweight_width_max: {gweight_width_max} ({gweight_width_max_prob})")
 
-  # exit(0)
+  exit(0)
 
   import matplotlib.pyplot as plt
   import numpy as np
 
-  if True:
+  if False:
     TITLE = "neurally-guided (iter. 2)"
+    SUFFIX = "neural"
     COLORS = ["red", "red", "red", "red"]
   else:
     TITLE = "default strategy (iter. 1)"
+    SUFFIX = "default"
     COLORS = ["blue", "blue", "blue", "blue"]
 
   COLOR_THEMES = {
@@ -154,7 +162,7 @@ if __name__ == "__main__":
     "red":  {"edge": "#d62728", "face": "#f4a582", "median": "#8b0000"},
   }
 
-  fig, axes = plt.subplots(2, 2, figsize=(3.5, 3.5))
+  fig, axes = plt.subplots(2, 2, figsize=(3.5, 4.5))
 
   for ax, data, title, max_exp, color in zip(axes.flat,
       [gage_depths, gage_widths, gweight_depths, gweight_widths],
@@ -178,6 +186,6 @@ if __name__ == "__main__":
 
   fig.suptitle(TITLE)
   plt.tight_layout()
-  plt.savefig("stat_violin.pdf", format="pdf", bbox_inches="tight")
+  plt.savefig(f"stat_violin_{SUFFIX}.pdf", format="pdf", bbox_inches="tight")
   plt.close(fig)
 
