@@ -74,8 +74,8 @@ def main():
     ax2 = ax1.twinx()
 
     # h = plot_segments(ax2, segments["e_hit"], "o-", "e_selection_hit_rate"); handles.append(h)
-    h = plot_segments(ax2, segments["e_dist"], "o-", "validation d2g", color="tab:blue"); handles.append(h)
     h = plot_segments(ax1, segments["e_loss"], "s-", "validation loss", color="tab:blue", alpha=0.5); handles.append(h)
+    h = plot_segments(ax2, segments["e_dist"], "o-", "validation d2g", color="tab:blue"); handles.append(h)
 
     # highlight the minimum validation d2g in each segment
     best_handle = None
@@ -89,8 +89,8 @@ def main():
     if best_handle is not None:
         handles.append(best_handle)
 
-    h = plot_segments(ax2, segments["t_dist"], "o--", "training d2g", color="tab:red"); handles.append(h)
     h = plot_segments(ax1, segments["t_loss"], "s--", "training loss", color="tab:red", alpha=0.5); handles.append(h)
+    h = plot_segments(ax2, segments["t_dist"], "o--", "training d2g", color="tab:red"); handles.append(h)
 
     # highlight the minimum training d2g in segments with index > 2
     best_handle2 = None
