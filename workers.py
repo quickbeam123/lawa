@@ -32,7 +32,9 @@ class VampResult:
   status: str
   instructions: int
   activations: int
+  nn_warmup_start: int
   nn_warmup: int
+  nn_gnn_start: int
   nn_gnn: int
   nn_bulks: int
   strategy: str
@@ -53,7 +55,9 @@ def vampire_perfrom(prob,opts,log):
     status = None
     instructions = 0
     activations = 0
+    nn_warmup_start = 0
     nn_warmup = 0
+    nn_gnn_start = 0
     nn_gnn = 0
     nn_bulks = 0
     strategy = None
@@ -73,8 +77,14 @@ def vampire_perfrom(prob,opts,log):
           activations = int(line.split()[-1])
         if line.startswith("% Instructions burned:"):
           instructions = int(line.split()[-2])
+
+        if line.startswith("% Neural warmup startat"):
+          nn_warmup_start = int(line.split()[-1])
         if line.startswith("% Neural model warmup"):
           nn_warmup = int(line.split()[-1])
+
+        if line.startswith("% Gnn startat"):
+          nn_gnn_start = int(line.split()[-1])
         if line.startswith("% Gnn eval"):
           nn_gnn = int(line.split()[-1])
         if line.startswith("% Bulk evals"):
@@ -93,7 +103,9 @@ def vampire_perfrom(prob,opts,log):
   if f and f != sys.stdout:
     f.close()
   # print(status,instructions,activations)
-  return VampResult(status,instructions,activations,nn_warmup,nn_gnn,nn_bulks,strategy)
+  return VampResult(status,instructions,activations,
+                    nn_warmup_start,nn_warmup,
+                    nn_gnn_start,nn_gnn,nn_bulks,strategy)
 
 
 @dataclass
