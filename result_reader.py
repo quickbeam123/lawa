@@ -19,6 +19,7 @@ if __name__ == "__main__":
   # first group does not even get to nn_warmup_start
 
   tot = 0
+  solved_in_preprocess = 0
   failed_to_preprocess = 0
   killed_during_warmup = 0
   warmuppers = 0
@@ -48,8 +49,12 @@ if __name__ == "__main__":
         # print(prob,info)
         tot += 1
 
-        if info.nn_warmup_start == 0:
-          failed_to_preprocess += 1
+        if info.nn_warmup_start == 0 and info.nn_warmup == 0:
+          if info.status == "uns":
+            print("There is THIS problem solved in preprocessing:",prob,info)
+            solved_in_preprocess += 1
+          else:
+            failed_to_preprocess += 1
         elif info.nn_warmup == 0:
           killed_during_warmup += 1
         else:
@@ -91,6 +96,7 @@ if __name__ == "__main__":
                 spent_in_nn_rate_values_succ.append(info.nn_bulks/satur_instrs)
 
   print("tot",tot)
+  assert solved_in_preprocess == 0
   print("failed_to_preprocess",failed_to_preprocess,"which is",failed_to_preprocess/tot)
   print("killed_during_warmup",killed_during_warmup,"which is",killed_during_warmup/tot)
   print("warmup takes",warmup_sum/warmuppers)
@@ -112,10 +118,10 @@ if __name__ == "__main__":
 
   for suffix, title, ymax, nn_rate_vals, nn_bulk_vals in [
     ("fail", "From failed runs", 420, spent_in_nn_rate_values_fail, spent_in_nn_values_fail),
-    ("succ", "From successful runs", 5600, spent_in_nn_rate_values_succ, spent_in_nn_values_succ),
+    ("succ", "From successful runs", 6500, spent_in_nn_rate_values_succ, spent_in_nn_values_succ),
   ]:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7, 2.5))
-    fig.suptitle(title)
+    fig.suptitle(title, y=1.02)
 
     ax1.hist(nn_bulk_vals, bins=30, edgecolor='black')
     ax1.set_xlabel('NN eval instructions')
@@ -130,24 +136,28 @@ if __name__ == "__main__":
     ax2.set_ylim(0, ymax)
     ax2.ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
 
-    fig.tight_layout()
-    fig.savefig(os.path.splitext(res_file_path)[0] + f"_nn_hist_{suffix}.pdf")
+    # fig.tight_layout()
+    fig.savefig(os.path.splitext(res_file_path)[0] + f"_nn_hist_{suffix}.pdf", bbox_inches='tight')
 
   # Stacked bar: problem set breakdown by pipeline stage
   labels = ['Killed in preprocessing', 'Killed in GNN computation',
-            'Success filling up passive', 'Killed filling up passive',
-            'Saturation ran (failed)', 'Saturation ran (solved)']
+            'Solved filling up passive', 'Killed filling up passive',
+            'Saturation ran (solved)', 'Saturation ran (failed)', ]
   counts = [failed_to_preprocess + killed_during_warmup + warm_but_never_gnn, killed_during_gnn,
             filling_up_passive_success, filling_up_passive_failed,
-            proper_saturators_failed, proper_saturators_success]
+            proper_saturators_success, proper_saturators_failed]
   colors = ['#d62728', '#ff7f0e', '#bcbd22', '#17becf', '#aec7e8','#2ca02c']
 
-  fig, ax = plt.subplots(figsize=(9, 0.6))
+  fig, ax = plt.subplots(figsize=(8.5, 0.6))
   left = 0
   for label, count, color in zip(labels, counts, colors):
     bar = ax.barh(0, count, height=0.35, left=left, color=color, edgecolor='white', label=f'{label} ({count})')
     left += count
   ax.set_xlim(0, tot)
+  ax.set_xticks(list(range(0, tot, 5000)[:-1]) + [tot])
+  ax.set_xticks(range(0, tot + 1, 1000), minor=True)
+  tick_labels = ax.get_xticklabels()
+  # tick_labels[-1].set_ha('right')
   # ax.set_ylim(-1.0, 1.0)
   ax.set_yticks([])
   # ax.spines['top'].set_visible(False)
