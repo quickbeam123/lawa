@@ -52,7 +52,8 @@ def diff_dicts(ref, other):
 # elooper may run more, but usually not for "test" and
 # even with "train" the subsequent onces are not "full"
 # (so computing fractions would be tricky!)
-EXPERS_TO_CONSIDER = lambda i : i == 0
+# EXPERS_TO_CONSIDER = lambda i : True
+EXPERS_TO_CONSIDER = lambda i : lambda i : i == 0
 
 def rowwise_mean(lol):
   """Mean of each row in a (possibly ragged) list of lists."""
@@ -91,6 +92,9 @@ if __name__ == "__main__":
         loop_idx = int(dir[4:])
       else:
         continue
+
+      # if loop_idx > 25:
+      #  continue
 
       cur_dir = os.path.join(exper_dir,dir)
       root, dirs, files = next(os.walk(cur_dir))
@@ -173,8 +177,8 @@ if __name__ == "__main__":
 
     exit(0)
 
-  if True:
-    MAIN_PART = 10
+  if False:
+    MAIN_PART = 5
     QUANTILE = 0.5
 
     for exper_dir,data in solveds.items():
@@ -236,7 +240,7 @@ if __name__ == "__main__":
         ax2.set_ylabel("mean acts")
         ax3.plot(idx_list, median_acts_list, 'o-')
         ax3.set_ylabel(f"q{QUANTILE} acts")
-        ax3.set_xlabel("loop index")
+        ax3.set_xlabel("iteration")
         fig.suptitle(f"{exper_dir} {mission}")
         safe_name = exper_dir.replace("/", "_")
         plt.savefig(f"acts_{safe_name}_{mission}.pdf", format="pdf", bbox_inches="tight")
@@ -246,7 +250,7 @@ if __name__ == "__main__":
         # Track median activations of groups 1..10 across subsequent iterations
         all_indices = sorted(mission_solveds.keys())
         DUMMY_ACT = 1000000
-        fig_g, ax_g = plt.subplots(figsize=(8, 5))
+        fig_g, ax_g = plt.subplots(figsize=(8, 3.5))
         for gi in range(1, MAIN_PART+1):
           if gi not in by_index or len(by_index[gi]) == 0:
             continue
@@ -271,11 +275,16 @@ if __name__ == "__main__":
             # print(gi,j,acts)
             medians.append(np.quantile(acts, QUANTILE))
           ax_g.plot(js, medians, 'o-', label=f"group {gi} ({len(group_probs)} probs)")
+          print("Medians",gi, medians, "factor", medians[0]/medians[-1])
         ax_g.set_yscale('log')
-        ax_g.set_xlabel("loop index")
-        ax_g.set_ylabel(f"q{QUANTILE} activations")
-        ax_g.set_title(f"{exper_dir} {mission} — group q{QUANTILE} acts over time")
-        ax_g.legend(fontsize='small')
+        ax_g.set_ylim(ymax=1000)
+        ax_g.set_xlabel("iteration")
+        if QUANTILE == 0.5:
+          ax_g.set_ylabel(f"median # activations (log scale)")
+        else:
+          ax_g.set_ylabel(f"q{QUANTILE} activations")
+        # ax_g.set_title(f"{exper_dir} {mission} — group q{QUANTILE} acts over time")
+        ax_g.legend() #fontsize='small') # ncol=2
         plt.savefig(f"group_acts_{safe_name}_{mission}.pdf", format="pdf", bbox_inches="tight")
         plt.close(fig_g)
 
