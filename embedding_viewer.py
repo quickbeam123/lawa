@@ -15,11 +15,11 @@ import torch
 from sklearn.decomposition import PCA
 import plotly.graph_objects as go
 
-# Toggle between two visualization modes:
-#   False = plain 3D PCA
-#   True  = X axis is the logit direction (projection onto final_weight),
-#           Y/Z axes are 2D PCA of the null space (orthogonal complement)
-LOGIT_NULLSPACE_MODE = True
+# Visualization mode:
+#   "pca"        — plain 3D PCA on raw embeddings
+#   "logit_null" — X = logit direction, Y/Z = 2D PCA of null space
+#   "null"       — 3D PCA on null space only (logit direction removed)
+MODE = "null"
 
 if __name__ == "__main__":
   if len(sys.argv) < 3 or len(sys.argv) > 4:
@@ -41,18 +41,30 @@ if __name__ == "__main__":
   all_embeddings = np.concatenate(all_arrays, axis=0)
   print(f"Total clauses: {all_embeddings.shape[0]} across {len(all_traces)} traces, dim {all_embeddings.shape[1]}")
 
-  if LOGIT_NULLSPACE_MODE:
-    # Logit direction = unit vector along final_weight
+  # Shared null-space projection for "logit_null" and "null" modes
+  if MODE in ("logit_null", "null"):
     w = final_weight.squeeze(0)            # [D]
     w_unit = w / np.linalg.norm(w)         # [D]
-
-    # Project all embeddings onto logit direction (scalar per clause)
-    logit_proj = all_embeddings @ w_unit   # [N] — proportional to logit, just without the norm factor
-
-    # Null space: subtract the logit-direction component
+    logit_proj = all_embeddings @ w_unit   # [N]
     nullspace = all_embeddings - np.outer(logit_proj, w_unit)  # [N, D]
 
-    # 2D PCA on the null space
+  if MODE == "pca":
+    pca = PCA(n_components=3)
+    pca.fit(all_embeddings)
+    print(f"PCA explained variance ratios: {pca.explained_variance_ratio_}")
+
+    def project(emb):
+      xyz = pca.transform(emb)
+      return xyz[:, 0], xyz[:, 1:]
+
+    axis_labels = dict(
+      xaxis_title=f"PC1 ({pca.explained_variance_ratio_[0]:.1%})",
+      yaxis_title=f"PC2 ({pca.explained_variance_ratio_[1]:.1%})",
+      zaxis_title=f"PC3 ({pca.explained_variance_ratio_[2]:.1%})",
+    )
+    mode_label = "3D PCA"
+
+  elif MODE == "logit_null":
     pca_null = PCA(n_components=2)
     pca_null.fit(nullspace)
     print(f"Null-space PCA explained variance ratios: {pca_null.explained_variance_ratio_}")
@@ -69,21 +81,27 @@ if __name__ == "__main__":
       zaxis_title=f"null PC2 ({pca_null.explained_variance_ratio_[1]:.1%})",
     )
     mode_label = "logit + null-space PCA"
-  else:
-    pca = PCA(n_components=3)
-    pca.fit(all_embeddings)
-    print(f"PCA explained variance ratios: {pca.explained_variance_ratio_}")
+
+  elif MODE == "null":
+    pca_null = PCA(n_components=3)
+    pca_null.fit(nullspace)
+    print(f"Null-space PCA explained variance ratios: {pca_null.explained_variance_ratio_}")
 
     def project(emb):
-      xyz = pca.transform(emb)
+      ns = emb - np.outer(emb @ w_unit, w_unit)
+      xyz = pca_null.transform(ns)
       return xyz[:, 0], xyz[:, 1:]
 
     axis_labels = dict(
-      xaxis_title=f"PC1 ({pca.explained_variance_ratio_[0]:.1%})",
-      yaxis_title=f"PC2 ({pca.explained_variance_ratio_[1]:.1%})",
-      zaxis_title=f"PC3 ({pca.explained_variance_ratio_[2]:.1%})",
+      xaxis_title=f"null PC1 ({pca_null.explained_variance_ratio_[0]:.1%})",
+      yaxis_title=f"null PC2 ({pca_null.explained_variance_ratio_[1]:.1%})",
+      zaxis_title=f"null PC3 ({pca_null.explained_variance_ratio_[2]:.1%})",
     )
-    mode_label = "3D PCA"
+    mode_label = "null-space 3D PCA"
+
+  else:
+    print(f"Unknown MODE: {MODE}")
+    sys.exit(1)
 
   # Sample a random subset of traces for display
   if num_traces >= len(all_traces):
