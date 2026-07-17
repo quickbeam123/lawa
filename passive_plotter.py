@@ -63,8 +63,25 @@ def replay_journal(journal, num2idx, logits):
   passive_sizes = []
   selected_logits = []
   good_traces = defaultdict(list)  # idx -> list of (sel_step, position)
+  branch_steps = []    # sel_steps where EVENT_AVATAR_BRANCH occurred
+  refuted_step = None  # sel_step where EVENT_AVATAR_REFUTED occurred (at most once)
+
+  goods = {cl_num for tag, cl_num, isGood in journal if isGood}
+  sels = {cl_num for tag, cl_num, isGood in journal if tag == EVENT_SEL}
+
+  if len(goods - sels) > 0:
+    print("WARNING: Had a good clause that never got selected.")
+
+  no_good_on_passive_sel = False
 
   for tag, cl_num, isGood in journal:
+    if tag == IC.EVENT_AVATAR_BRANCH:
+      branch_steps.append(sel_step)
+      continue
+    if tag == IC.EVENT_AVATAR_REFUTED:
+      refuted_step = sel_step
+      continue
+
     if cl_num not in num2idx:
       # print(f"sel_step = {sel_step}: skipping {cl_num} with no index")
       continue
@@ -83,13 +100,16 @@ def replay_journal(journal, num2idx, logits):
       # print(f"sel_step = {sel_step}: about to select a clause {idx}")
       passive_sizes.append(len(sorted_passive)+0.5) # +0.5 to better "cover" all the clauses inside visually
       selected_logits.append(logits[idx].item())
-      if sorted_passive[0] != idx:
+      if False and sorted_passive[0] != idx:
         print("Warning: EVENT_SEL for a clause not considered the best - perhaps running with a wrong model?")
         print(f"  logit selected {logits[idx].item()}, logit best {logits[sorted_passive[0]].item()}")
       for good_num in passive_good:
         pos = sorted_passive.index(num2idx[good_num])
         good_traces[good_num].append((sel_step, pos+1)) # starting from 1, for a better visual rendering
         # print(f"    good_idx = {good_idx} is at {pos}")
+
+      if not passive_good:
+        no_good_on_passive_sel = True
 
       # print(f"  passive_sizes = {len(sorted_passive)}, selected_logit = {logits[idx].item()}")
       sel_step += 1
@@ -102,9 +122,12 @@ def replay_journal(journal, num2idx, logits):
     if isGood:
       passive_good.remove(cl_num)
 
-  return good_traces, passive_sizes, selected_logits
+  if no_good_on_passive_sel:
+    print("WARNING: had 'no good on passive' at a selection moment")
 
-def plot_passive_evolution(good_traces, passive_sizes, selected_logits, plot_path):
+  return good_traces, passive_sizes, selected_logits, branch_steps, refuted_step
+
+def plot_passive_evolution(good_traces, passive_sizes, selected_logits, branch_steps, refuted_step, plot_path):
   """Create and save the passive set evolution plot."""
   import matplotlib
   matplotlib.use('Agg')
@@ -112,7 +135,7 @@ def plot_passive_evolution(good_traces, passive_sizes, selected_logits, plot_pat
 
   steps = list(range(len(passive_sizes)))
 
-  fig, ax1 = plt.subplots(figsize=(14, 7))
+  fig, ax1 = plt.subplots(figsize=(8, 4))
   ax2 = ax1.twinx()
 
   # shaded area for total passive set size
@@ -156,13 +179,21 @@ def plot_passive_evolution(good_traces, passive_sizes, selected_logits, plot_pat
     ax2.set_ylabel('logit of selected clause', color='green')
     ax2.tick_params(axis='y', labelcolor='green')
 
+  # avatar event vertical lines
+  for bs in branch_steps:
+    ax1.axvline(x=bs, color='gray', linewidth=0.5, alpha=0.6,
+                label='avatar branch' if bs == branch_steps[0] else None)
+  if refuted_step is not None:
+    ax1.axvline(x=refuted_step, color='red', linewidth=0.5, alpha=0.8,
+                label='avatar refuted')
+
   # combined legend
   h1, l1 = ax1.get_legend_handles_labels()
   h2, l2 = ax2.get_legend_handles_labels()
-  max_legend = 25
+  max_legend = 26
   if len(h1) > max_legend:
-    h1, l1 = h1[:max_legend], l1[:max_legend]
-  ax1.legend(h1 + h2, l1 + l2, loc='upper left', fontsize='small', ncol=2)
+    h1, l1 = h1[:max_legend//2]+h1[-max_legend//2:], l1[:max_legend//2]+l1[-max_legend//2:]
+  # ax1.legend(h1 + h2, l1 + l2, loc='upper left', fontsize='small', ncol=2)
   ax1.legend(h1, l1, loc='upper right', fontsize='small', ncol=2)
 
   fig.tight_layout()
@@ -173,6 +204,8 @@ if __name__ == "__main__":
   if len(sys.argv) != 4:
     print(f"Usage: {sys.argv[0]} <loop-model-and-optimizer.tar> <trace_file> <output.pdf>")
     sys.exit(1)
+
+  print(" ".join(sys.argv))
 
   model_path = sys.argv[1]
   trace_path = sys.argv[2]
@@ -194,8 +227,9 @@ if __name__ == "__main__":
     model.eval()
     logits = compute_logits(model, trace_tuple)
 
-  good_traces, passive_sizes, selected_logits = replay_journal(journal, num2idx, logits)
+  good_traces, passive_sizes, selected_logits, branch_steps, refuted_step = replay_journal(journal, num2idx, logits)
   print(f"Replayed {len(passive_sizes)} selection steps, tracking {len(good_traces)} good clauses")
 
-  plot_passive_evolution(good_traces, passive_sizes, selected_logits, output_path)
+  plot_passive_evolution(good_traces, passive_sizes, selected_logits, branch_steps, refuted_step, output_path)
   print(f"Saved plot to {output_path}")
+  print()
