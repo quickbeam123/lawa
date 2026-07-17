@@ -13,8 +13,8 @@ import sys, os, glob, torch
 import inf_common as IC
 import hyperparams as HP
 
-def eval_clauses_embeddings_and_logits(nn, clause_features, gage_embeds, gweight_embeds):
-  """Like nn.eval_clauses_logits, but returns both the pre-logit embeddings and logits."""
+def eval_clauses_embeddings(nn, clause_features, gage_embeds, gweight_embeds):
+  """Like nn.eval_clauses_logits, but returns the pre-logit embeddings only."""
   feature_parts = []
   if HP.USE_SIMPLE_FEATURES:
     feature_parts.append(clause_features)
@@ -31,13 +31,10 @@ def eval_clauses_embeddings_and_logits(nn, clause_features, gage_embeds, gweight
   layers = list(nn.clause_valuator.children())
   for layer in layers[:-1]:
     features = layer(features)
-  embeddings = features  # shape [N, INTERAL_SIZE]
-
-  logits = layers[-1](embeddings).squeeze(-1)  # shape [N]
-  return embeddings, logits
+  return features  # shape [N, INTERAL_SIZE]
 
 def compute_embeddings(model, trace_tuple):
-  """Run model forward on a trace and return (embeddings, logits)."""
+  """Run model forward on a trace and return embeddings."""
   (static_features, simple_features_stacked, journal, num_good_selections,
    num2idx, gnn_data, gage_data, gweight_data) = trace_tuple[:8]
 
@@ -65,10 +62,10 @@ def compute_embeddings(model, trace_tuple):
     gweight_symbol_embeds, nn.gweight_var_embed, gweight_data, nn.gweight_term_combine, False
   ) if HP.USE_GWEIGHT else None
 
-  embeddings, logits = eval_clauses_embeddings_and_logits(
+  embeddings = eval_clauses_embeddings(
     nn, simple_features_stacked, gage_features, gweight_features
   )
-  return embeddings, logits
+  return embeddings
 
 if __name__ == "__main__":
   if len(sys.argv) != 4:
@@ -93,18 +90,21 @@ if __name__ == "__main__":
     sys.exit(1)
   print(f"Found {len(trace_files)} trace files in {traces_folder}")
 
+  # Extract the final layer weight once from the model (Linear(INTERAL_SIZE, 1, bias=False))
+  final_layer = list(model.clause_valuator.children())[-1]
+  final_weight = final_layer.weight.detach().clone()  # shape [1, INTERAL_SIZE]
+  print(f"Final layer weight shape: {final_weight.shape}")
+
   results = []
   with torch.no_grad():
     for i, trace_path in enumerate(trace_files):
       trace_tuple = torch.load(trace_path, weights_only=False)
       num2idx = trace_tuple[4]
-      journal = trace_tuple[2]
 
-      embeddings, logits = compute_embeddings(model, trace_tuple)
+      embeddings = compute_embeddings(model, trace_tuple)
 
       results.append({
         "embeddings": embeddings,  # [N, INTERAL_SIZE]
-        "logits": logits,          # [N]
         "trace_file": os.path.basename(trace_path),
         "num_clauses": len(num2idx),
       })
@@ -112,5 +112,9 @@ if __name__ == "__main__":
       print(f"  [{i+1}/{len(trace_files)}] {os.path.basename(trace_path)}: "
             f"{len(num2idx)} clauses, embedding shape {embeddings.shape}")
 
-  torch.save(results, output_path)
+  output = {
+    "final_weight": final_weight,  # [1, INTERAL_SIZE] — logits = embeddings @ final_weight.T
+    "traces": results,
+  }
+  torch.save(output, output_path)
   print(f"Saved {len(results)} trace embeddings to {output_path}")
