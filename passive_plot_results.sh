@@ -2,8 +2,8 @@
 
 #!/bin/bash
 
-MODEL=~/jar2026/split42_boostScale/loop24/loop-model.tar
-TRACE_DIR=~/jar2026/split42_boostScale/traces
+MODEL=~/jar2026/seed42_nd_noSplitB/loop1/loop-model.tar
+TRACE_DIR=~/jar2026/seed42_nd_noSplitBB/traces
 OUT_DIR=trace_plots
 
 mkdir -p "$OUT_DIR"
