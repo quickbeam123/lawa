@@ -30,38 +30,29 @@ if __name__ == "__main__":
   all_traces = data["traces"]
   print(f"Loaded {len(all_traces)} traces, final_weight shape {final_weight.shape}")
 
-  # Sample a random subset of traces
+  # Fit PCA on ALL traces so the coordinate system is stable
+  all_arrays = [t["embeddings"].numpy() for t in all_traces]
+  all_embeddings = np.concatenate(all_arrays, axis=0)
+  print(f"Fitting PCA on {all_embeddings.shape[0]} clauses across all {len(all_traces)} traces, dim {all_embeddings.shape[1]}")
+
+  pca = PCA(n_components=3)
+  pca.fit(all_embeddings)
+  print(f"PCA explained variance ratios: {pca.explained_variance_ratio_}")
+
+  # Sample a random subset of traces for display
   if num_traces >= len(all_traces):
     selected = all_traces
   else:
     selected = random.sample(all_traces, num_traces)
   print(f"Selected {len(selected)} traces for visualization")
 
-  # Collect all embeddings into one numpy array, tracking trace boundaries
-  arrays = []
-  trace_labels = []
-  for t in selected:
-    emb = t["embeddings"].numpy()  # [N_i, D]
-    arrays.append(emb)
-    trace_labels.extend([t["trace_file"]] * emb.shape[0])
-  all_embeddings = np.concatenate(arrays, axis=0)  # [total_clauses, D]
-  print(f"Total clauses for PCA: {all_embeddings.shape[0]}, embedding dim: {all_embeddings.shape[1]}")
-
-  # 3D PCA
-  pca = PCA(n_components=3)
-  coords = pca.fit_transform(all_embeddings)  # [total_clauses, 3]
-  print(f"PCA explained variance ratios: {pca.explained_variance_ratio_}")
-
-  # Compute logits for hover info: logit = embedding @ final_weight.T
-  logits = (all_embeddings @ final_weight.T).squeeze(-1)  # [total_clauses]
-
   # Build plotly figure, one scatter trace per problem trace
   fig = go.Figure()
-  offset = 0
+  total_points = 0
   for t in selected:
-    n = t["embeddings"].shape[0]
-    xyz = coords[offset:offset+n]
-    lg = logits[offset:offset+n]
+    emb = t["embeddings"].numpy()
+    xyz = pca.transform(emb)
+    lg = (emb @ final_weight.T).squeeze(-1)
     fig.add_trace(go.Scatter3d(
       x=xyz[:, 0], y=xyz[:, 1], z=xyz[:, 2],
       mode='markers',
@@ -70,10 +61,10 @@ if __name__ == "__main__":
       hovertemplate="logit: %{customdata:.3f}<extra>%{fullData.name}</extra>",
       customdata=lg,
     ))
-    offset += n
+    total_points += emb.shape[0]
 
   fig.update_layout(
-    title=f"Clause embeddings — 3D PCA ({len(selected)} traces, {all_embeddings.shape[0]} points)",
+    title=f"Clause embeddings — 3D PCA ({len(selected)} traces, {total_points} points)",
     scene=dict(
       xaxis_title=f"PC1 ({pca.explained_variance_ratio_[0]:.1%})",
       yaxis_title=f"PC2 ({pca.explained_variance_ratio_[1]:.1%})",
