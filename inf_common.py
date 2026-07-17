@@ -36,6 +36,8 @@ def default_defaultdict_of_list():
 EVENT_ADD = 0
 EVENT_REM = 1
 EVENT_SEL = 2
+EVENT_AVATAR_BRANCH = 3
+EVENT_AVATAR_REFUTED = 4
 
 def get_conv():
   return torch_geometric.nn.SAGEConv(
@@ -878,6 +880,10 @@ def trace_good_for_learning(trace_file_path,logfile=None):
   num_selections = 0
   num_good_selections = 0
   for tag,cl_num in journal:
+    if tag in [EVENT_AVATAR_BRANCH, EVENT_AVATAR_REFUTED]:
+      newjournal.append((tag,cl_num,False))
+      continue
+
     if tag == EVENT_ADD:
       assert cl_num not in passive
       passive.add(cl_num)
@@ -1063,6 +1069,9 @@ class LearningModel(torch.nn.Module):
     dist_to_good = 0.0
 
     for tag,cl_num,isGood in journal:
+      if tag in [EVENT_AVATAR_BRANCH, EVENT_AVATAR_REFUTED]:
+        continue
+
       if cl_num not in num2idx:
         # ignoring clauses we never even had to evaluate in the run
         continue
