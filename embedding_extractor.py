@@ -65,7 +65,9 @@ def compute_embeddings(model, trace_tuple):
   embeddings = eval_clauses_embeddings(
     nn, simple_features_stacked, gage_features, gweight_features
   )
-  return embeddings
+  ages = simple_features_stacked[:, 0]
+  weights = simple_features_stacked[:, 1]
+  return embeddings, ages, weights
 
 if __name__ == "__main__":
   if len(sys.argv) != 4:
@@ -101,10 +103,12 @@ if __name__ == "__main__":
       trace_tuple = torch.load(trace_path, weights_only=False)
       num2idx = trace_tuple[4]
 
-      embeddings = compute_embeddings(model, trace_tuple)
+      embeddings, ages, weights = compute_embeddings(model, trace_tuple)
 
       results.append({
         "embeddings": embeddings,  # [N, INTERAL_SIZE]
+        "ages": ages,              # [N]
+        "weights": weights,        # [N]
         "trace_file": os.path.basename(trace_path),
         "num_clauses": len(num2idx),
       })

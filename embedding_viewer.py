@@ -19,7 +19,7 @@ import plotly.graph_objects as go
 #   "pca"        — plain 3D PCA on raw embeddings
 #   "logit_null" — X = logit direction, Y/Z = 2D PCA of null space
 #   "null"       — 3D PCA on null space only (logit direction removed)
-MODE = "null"
+MODE = "logit_null"
 
 if __name__ == "__main__":
   if len(sys.argv) < 3 or len(sys.argv) > 4:
@@ -117,13 +117,16 @@ if __name__ == "__main__":
     emb = t["embeddings"].numpy()
     x_vals, yz_vals = project(emb)
     lg = (emb @ final_weight.T).squeeze(-1)
+    ages = t["ages"].numpy()
+    weights = t["weights"].numpy()
+    hover_data = np.column_stack([lg, ages, weights])  # [N, 3]
     fig.add_trace(go.Scatter3d(
       x=x_vals, y=yz_vals[:, 0], z=yz_vals[:, 1],
       mode='markers',
       marker=dict(size=2, opacity=0.6),
       name=t["trace_file"],
-      hovertemplate="logit: %{customdata:.3f}<extra>%{fullData.name}</extra>",
-      customdata=lg,
+      hovertemplate="logit: %{customdata[0]:.3f}, age: %{customdata[1]:.1f}, weight: %{customdata[2]:.1f}<extra>%{fullData.name}</extra>",
+      customdata=hover_data,
     ))
     total_points += emb.shape[0]
 
