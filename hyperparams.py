@@ -173,6 +173,8 @@ MAX_TRAINS_PER_TRACE = 1000
 
 LABEL_SMOOTHING = 0.0
 
+ENTROPY_REGULAZATION = 0.0
+
 ONLY_LEARN_FROM_EVER_SELECTED = False
 
 # traces bigger than these will be considered "failed" (and not learned from)

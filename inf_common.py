@@ -1105,6 +1105,12 @@ class LearningModel(torch.nn.Module):
             passive_good_t.unsqueeze(0),
             label_smoothing=HP.LABEL_SMOOTHING)
 
+          if HP.ENTROPY_REGULAZATION > 0.0 and len(passive_l) > 1:
+            log_probs = torch.nn.functional.log_softmax(gathered_logits, dim=0)
+            # entropy normalized to <0,1> by its maximum, log(num of available clauses)
+            normalized_entropy = -(log_probs.exp() * log_probs).sum() / math.log(len(passive_l))
+            good_action_reward_loss -= HP.ENTROPY_REGULAZATION * normalized_entropy
+
           num_good_steps += 1
 
       passive.remove(idx)
