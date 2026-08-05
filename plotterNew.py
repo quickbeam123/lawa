@@ -14,7 +14,8 @@ from collections import defaultdict
 import ast
 import matplotlib.pyplot as plt
 
-PAPER = False
+PAPER = True
+TALL_PLOT = False
 
 def load_py_assignments(path):
   with open(path, "r") as f:
@@ -323,13 +324,23 @@ if __name__ == "__main__":
   from matplotlib.ticker import MaxNLocator
 
   if PAPER:
-    fig, ax1 = plt.subplots(figsize=(3.2,3))
+    if TALL_PLOT:
+      fig, ax1 = plt.subplots(figsize=(3.5,4))
+
+      if False: # skip the first color
+        next(ax1._get_lines.prop_cycler)
+    else:
+      fig, ax1 = plt.subplots(figsize=(3.5,3))
   else:
     fig, ax1 = plt.subplots(figsize=(6,5))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
+  RENAMINGS = {"nd" : "base"}
+
   for exper_dir,data in expers.items():
+    if exper_dir in RENAMINGS:
+      exper_dir = RENAMINGS[exper_dir]
     print(exper_dir)
     col = next(color_cycle)['color']
 
@@ -370,13 +381,15 @@ if __name__ == "__main__":
   ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
 
   # ax1.set_xlim(xmin=0,xmax=24)
-  ax1.set_ylim(ymin=0.5)
+  if TALL_PLOT:
+    # ax1.set_ylim(ymin=0.43,ymax=0.72)
+    ax1.set_ylim(ymin=0.49,ymax=0.72)
   ax1.axhline(y=0.5314, color='gray', linestyle='--', linewidth=0.5) # ~/jar2026/seed4?_nd test performance
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"success rate")
 
-  plt.legend(handles = handles, loc='lower right') # loc = 'best' is rumored to be unpredictable
+  plt.legend(handles = handles, loc='best') # loc = 'best' is rumored to be unpredictable
   plt.savefig("current_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
   plt.close(fig)
 
