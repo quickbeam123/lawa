@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 
 PAPER = True
 TALL_PLOT = False
+TWO_COL_LEGEND = False
+SKIP_FIRST_COLOR = False
 
 def load_py_assignments(path):
   with open(path, "r") as f:
@@ -54,7 +56,7 @@ def diff_dicts(ref, other):
 # even with "train" the subsequent onces are not "full"
 # (so computing fractions would be tricky!)
 # EXPERS_TO_CONSIDER = lambda i : True
-EXPERS_TO_CONSIDER = lambda i : lambda i : i == 0
+EXPERS_TO_CONSIDER = lambda i : (i == 0)
 
 def rowwise_mean(lol):
   """Mean of each row in a (possibly ragged) list of lists."""
@@ -327,16 +329,16 @@ if __name__ == "__main__":
     if TALL_PLOT:
       fig, ax1 = plt.subplots(figsize=(3.5,4))
 
-      if False: # skip the first color
+      if SKIP_FIRST_COLOR:
         next(ax1._get_lines.prop_cycler)
     else:
-      fig, ax1 = plt.subplots(figsize=(3.5,3))
+      fig, ax1 = plt.subplots(figsize=(3.5,3.2))
   else:
     fig, ax1 = plt.subplots(figsize=(6,5))
   color_cycle = ax1._get_lines.prop_cycler
   handles = []
 
-  RENAMINGS = {"nd" : "base"}
+  RENAMINGS = {"nd2" : "base", "k0": "k=0", "noScale_noCumul_noPerf5_noShuf" : "$-$shuffling", "noScale_noCumul_noPerf5" : "$-$reruns", "noScale_noCumul" : "$-$cumul", "noScale" : "$-$adapt"}
 
   for exper_dir,data in expers.items():
     if exper_dir in RENAMINGS:
@@ -383,13 +385,20 @@ if __name__ == "__main__":
   # ax1.set_xlim(xmin=0,xmax=24)
   if TALL_PLOT:
     # ax1.set_ylim(ymin=0.43,ymax=0.72)
-    ax1.set_ylim(ymin=0.49,ymax=0.72)
-  ax1.axhline(y=0.5314, color='gray', linestyle='--', linewidth=0.5) # ~/jar2026/seed4?_nd test performance
+    ax1.set_ylim(ymin=0.49,ymax=0.70)
+    ax1.set_yticks([0.50, 0.55, 0.60 ,0.65, 0.70])
+  elif PAPER:
+    ax1.set_ylim(ymin=0.52,ymax=0.70)
+    ax1.set_yticks([0.55, 0.60 ,0.65, 0.70])
+  ax1.axhline(y=0.5309, color='gray', linestyle='--', linewidth=0.5) # ~/jar2026/seed4?_nd2 test performance
 
   plt.xlabel("improvement loop iteration")
   plt.ylabel(f"success rate")
 
-  plt.legend(handles = handles, loc='best') # loc = 'best' is rumored to be unpredictable
+  if TWO_COL_LEGEND:
+    plt.legend(handles = handles, loc="lower right", ncol=2, columnspacing=0.8) # loc = 'best' is rumored to be unpredictable
+  else:
+    plt.legend(handles = handles, loc="lower right")
   plt.savefig("current_plot.pdf".format("+".join(os.path.basename(dir) for dir in sys.argv[1:])),format="pdf", bbox_inches="tight")
   plt.close(fig)
 
