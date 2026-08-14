@@ -55,8 +55,10 @@ if __name__ == "__main__":
   chainies = 0
   covered = set()
   all_loops = set()
+  truly_hard = set() # the "shorts", i.e. the distinguished subset of the hard problems
 
   additions = defaultdict(int)
+  additions_truly_hard = defaultdict(int)
   problem_solutions = defaultdict(dict) # prob -> {loop: instructions}
 
   for exper_dir in sys.argv[1:]:
@@ -184,6 +186,8 @@ if __name__ == "__main__":
                     unknowns += 1
                   if short:
                     shorts += 1
+                    truly_hard.add(prob)
+                    additions_truly_hard[loop] += 1
                   assert unknown <= short, (prob,info)
 
                   logic = info[1][:3]
@@ -253,130 +257,170 @@ if __name__ == "__main__":
   print("Chainies:",chainies)
 
   print(additions)
+  print(additions_truly_hard)
 
   import matplotlib.pyplot as plt
-  from matplotlib.backends.backend_pdf import PdfPages
   from matplotlib.ticker import MaxNLocator
 
-  with PdfPages("checkTheBang.pdf") as pdf:
-    X_TICKS = list(range(0, 51, 5))
+  # To get all the plots as pages of a single pdf instead, wrap the code below in
+  #   from matplotlib.backends.backend_pdf import PdfPages
+  #   with PdfPages("checkTheBang.pdf") as pdf:
+  #     ...
+  # and replace each fig.savefig(...) by pdf.savefig(fig).
 
-    def unify_x(ax):
-      ax.set_xticks(X_TICKS)
-      ax.set_xlim(-0.5, 50.5)
+  X_TICKS = list(range(0, 51, 5))
 
-    xs = sorted(additions)
-    ys = [additions[x] for x in xs]
+  # "hard" (rating > 0.99) and, drawn in front of it as a narrower bar in a
+  # lighter shade of the same hue, its distinguished subset "truly hard" (the shorts)
+  C_HARD = "#4269a3"
+  C_TRULY_HARD = "#6da7ec"
+  C_LOST = "#e34948"
+  C_LOST_TRULY_HARD = "#fa938c"
+  W_HARD = 0.7
+  W_TRULY_HARD = 0.38
 
-    fig, ax = plt.subplots(figsize=(8,4))
-    ax.bar(xs, ys, color="#4269a3", width=0.7)
-    ax.set_xlabel("loop")
-    ax.set_ylabel("newly solved")
-    ax.set_title("Newly solved problems of rating > 0.99 per loop")
-    unify_x(ax)
-    ax.grid(axis="y", color="0.9", linewidth=0.8)
-    ax.set_axisbelow(True)
-    for spine in ["top","right"]:
-      ax.spines[spine].set_visible(False)
-    fig.tight_layout()
-    pdf.savefig(fig)
-    plt.close(fig)
+  def unify_x(ax):
+    ax.set_xticks(X_TICKS)
+    ax.set_xlim(-0.5, 50.5)
 
-    solved_per_loop = defaultdict(int)
-    for prob, loop_instrs in problem_solutions.items():
-      for loop in loop_instrs:
-        solved_per_loop[loop] += 1
+  xs = sorted(additions)
+  ys = [additions[x] for x in xs]
+  ys_th = [additions_truly_hard[x] for x in xs]
 
-    xs2 = sorted(solved_per_loop)
-    ys2 = [solved_per_loop[x] for x in xs2]
-    print("solved_per_loop",ys2)
+  fig, ax = plt.subplots(figsize=(8,4))
+  ax.bar(xs, ys, color=C_HARD, width=W_HARD, label="hard")
+  ax.bar(xs, ys_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard")
+  ax.set_xlabel("iteration")
+  ax.set_ylabel("newly solved")
+  ax.set_title("Newly solved hard problems per iteration")
+  unify_x(ax)
+  ax.grid(axis="y", color="0.9", linewidth=0.8)
+  ax.set_axisbelow(True)
+  ax.legend(frameon=False)
+  for spine in ["top","right"]:
+    ax.spines[spine].set_visible(False)
+  fig.tight_layout()
+  fig.savefig("checkTheBang_newly_solved.pdf")
+  plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(8,4))
-    ax.bar(xs2, ys2, color="#4269a3", width=0.7)
-    ax.set_xlabel("loop")
-    ax.set_ylabel("solved")
-    ax.set_title("Problems of rating > 0.99 solved per loop")
-    unify_x(ax)
-    ax.grid(axis="y", color="0.9", linewidth=0.8)
-    ax.set_axisbelow(True)
-    for spine in ["top","right"]:
-      ax.spines[spine].set_visible(False)
-    fig.tight_layout()
-    pdf.savefig(fig)
-    plt.close(fig)
+  solved_per_loop = defaultdict(int)
+  solved_per_loop_truly_hard = defaultdict(int)
+  for prob, loop_instrs in problem_solutions.items():
+    for loop in loop_instrs:
+      solved_per_loop[loop] += 1
+      if prob in truly_hard:
+        solved_per_loop_truly_hard[loop] += 1
 
-    solved_sets = defaultdict(set)
-    for prob, loop_instrs in problem_solutions.items():
-      for loop in loop_instrs:
-        solved_sets[loop].add(prob)
+  xs2 = sorted(solved_per_loop)
+  ys2 = [solved_per_loop[x] for x in xs2]
+  ys2_th = [solved_per_loop_truly_hard[x] for x in xs2]
+  print("solved_per_loop",ys2)
+  print("solved_per_loop_truly_hard",ys2_th)
 
-    xs3 = sorted(all_loops)
-    added3 = []
-    lost3 = []
-    prev_solved = set()
-    for x in xs3:
-      cur_solved = solved_sets[x]
-      added3.append(len(cur_solved - prev_solved))
-      lost3.append(-len(prev_solved - cur_solved))
-      prev_solved = cur_solved
+  fig, ax = plt.subplots(figsize=(8,4))
+  ax.bar(xs2, ys2, color=C_HARD, width=W_HARD, label="hard")
+  ax.bar(xs2, ys2_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard")
+  ax.set_xlabel("iteration")
+  ax.set_ylabel("solved")
+  ax.set_title("Hard problems solved per loop")
+  unify_x(ax)
+  ax.grid(axis="y", color="0.9", linewidth=0.8)
+  ax.set_axisbelow(True)
+  ax.legend(frameon=False)
+  for spine in ["top","right"]:
+    ax.spines[spine].set_visible(False)
+  fig.tight_layout()
+  fig.savefig("checkTheBang_solved_per_iteration.pdf")
+  plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(8,4))
-    ax.bar(xs3, added3, color="#4269a3", width=0.7, label="added")
-    ax.bar(xs3, lost3, color="#e34948", width=0.7, label="lost")
-    ax.axhline(0, color="#c3c2b7", linewidth=0.8)
-    ax.set_xlabel("loop")
-    ax.set_ylabel("problems (vs. previous loop)")
-    ax.set_title("Problems of rating > 0.99 added/lost vs. previous loop")
-    unify_x(ax)
-    ax.grid(axis="y", color="0.9", linewidth=0.8)
-    ax.set_axisbelow(True)
-    ax.legend(frameon=False)
-    for spine in ["top","right"]:
-      ax.spines[spine].set_visible(False)
-    fig.tight_layout()
-    pdf.savefig(fig)
-    plt.close(fig)
+  solved_sets = defaultdict(set)
+  for prob, loop_instrs in problem_solutions.items():
+    for loop in loop_instrs:
+      solved_sets[loop].add(prob)
 
-    solve_counts = defaultdict(int)
-    for prob, loop_instrs in problem_solutions.items():
-      solve_counts[len(loop_instrs)] += 1
+  xs3 = sorted(all_loops)
+  added3 = []
+  lost3 = []
+  added3_th = []
+  lost3_th = []
+  prev_solved = set()
+  for x in xs3:
+    cur_solved = solved_sets[x]
+    added3.append(len(cur_solved - prev_solved))
+    lost3.append(-len(prev_solved - cur_solved))
+    added3_th.append(len((cur_solved - prev_solved) & truly_hard))
+    lost3_th.append(-len((prev_solved - cur_solved) & truly_hard))
+    prev_solved = cur_solved
 
-    xs4 = list(range(1, max(solve_counts) + 1))
-    ys4 = [solve_counts[x] for x in xs4]
+  print("added3",added3)
+  print("added3_truly_hard",added3_th)
+  print("lost3",lost3)
+  print("lost3_truly_hard",lost3_th)
 
-    fig, ax = plt.subplots(figsize=(8,4))
-    ax.bar(xs4, ys4, color="#4269a3", width=0.7)
-    ax.set_xlabel("number of loops solved in")
-    ax.set_ylabel("number of problems")
-    ax.set_title("Problems of rating > 0.99 by number of solving loops")
-    unify_x(ax)
-    ax.grid(axis="y", color="0.9", linewidth=0.8)
-    ax.set_axisbelow(True)
-    for spine in ["top","right"]:
-      ax.spines[spine].set_visible(False)
-    fig.tight_layout()
-    pdf.savefig(fig)
-    plt.close(fig)
+  fig, ax = plt.subplots(figsize=(8,4))
+  ax.bar(xs3, added3, color=C_HARD, width=W_HARD, label="added")
+  ax.bar(xs3, added3_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard added")
+  ax.bar(xs3, lost3, color=C_LOST, width=W_HARD, label="lost")
+  ax.bar(xs3, lost3_th, color=C_LOST_TRULY_HARD, width=W_TRULY_HARD, label="truly hard lost")
+  ax.axhline(0, color="#c3c2b7", linewidth=0.8)
+  ax.set_xlabel("iteration")
+  ax.set_ylabel("problems (vs. previous loop)")
+  ax.set_title("Hard problems added/lost wrt the previous iteration")
+  unify_x(ax)
+  ax.grid(axis="y", color="0.9", linewidth=0.8)
+  ax.set_axisbelow(True)
+  ax.legend(frameon=False, ncol=2)
+  for spine in ["top","right"]:
+    ax.spines[spine].set_visible(False)
+  fig.tight_layout()
+  fig.savefig("checkTheBang_added_lost.pdf")
+  plt.close(fig)
 
-    '''
-    fig, ax = plt.subplots(figsize=(10,6))
-    problem_solutions_list = list(problem_solutions.items())
-    # random.shuffle(problem_solutions_list)
-    for prob, loop_instrs in problem_solutions_list:
-      loops = sorted(loop_instrs)
-      instrs = [loop_instrs[l] for l in loops]
-      ax.plot(loops, instrs, "-o", color="#4269a3", alpha=0.25,
-              linewidth=0.6, markersize=3)
-    ax.set_xlabel("loop")
-    ax.set_ylabel("instructions at solve")
-    ax.set_title("Per-problem solve instructions across loops (rating > 0.99)")
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.grid(axis="y", color="0.9", linewidth=0.8)
-    ax.set_axisbelow(True)
-    for spine in ["top","right"]:
-      ax.spines[spine].set_visible(False)
-    fig.tight_layout()
-    pdf.savefig(fig)
-    plt.close(fig)
-    '''
-  
+  solve_counts = defaultdict(int)
+  solve_counts_truly_hard = defaultdict(int)
+  for prob, loop_instrs in problem_solutions.items():
+    solve_counts[len(loop_instrs)] += 1
+    if prob in truly_hard:
+      solve_counts_truly_hard[len(loop_instrs)] += 1
+
+  xs4 = list(range(1, max(solve_counts) + 1))
+  ys4 = [solve_counts[x] for x in xs4]
+  ys4_th = [solve_counts_truly_hard[x] for x in xs4]
+
+  fig, ax = plt.subplots(figsize=(8,4))
+  ax.bar(xs4, ys4, color=C_HARD, width=W_HARD, label="hard")
+  ax.bar(xs4, ys4_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard")
+  ax.set_xlabel("number of iterations solved in")
+  ax.set_ylabel("number of problems")
+  ax.set_title("Hard problems by number of solving iterations")
+  unify_x(ax)
+  ax.grid(axis="y", color="0.9", linewidth=0.8)
+  ax.set_axisbelow(True)
+  ax.legend(frameon=False)
+  for spine in ["top","right"]:
+    ax.spines[spine].set_visible(False)
+  fig.tight_layout()
+  fig.savefig("checkTheBang_solve_counts.pdf")
+  plt.close(fig)
+
+  '''
+  fig, ax = plt.subplots(figsize=(10,6))
+  problem_solutions_list = list(problem_solutions.items())
+  # random.shuffle(problem_solutions_list)
+  for prob, loop_instrs in problem_solutions_list:
+    loops = sorted(loop_instrs)
+    instrs = [loop_instrs[l] for l in loops]
+    ax.plot(loops, instrs, "-o", color="#4269a3", alpha=0.25,
+            linewidth=0.6, markersize=3)
+  ax.set_xlabel("loop")
+  ax.set_ylabel("instructions at solve")
+  ax.set_title("Per-problem solve instructions across loops (rating > 0.99)")
+  ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+  ax.grid(axis="y", color="0.9", linewidth=0.8)
+  ax.set_axisbelow(True)
+  for spine in ["top","right"]:
+    ax.spines[spine].set_visible(False)
+  fig.tight_layout()
+  fig.savefig("checkTheBang_per_problem_instrs.pdf")
+  plt.close(fig)
+  '''
