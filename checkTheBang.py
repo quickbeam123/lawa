@@ -287,12 +287,12 @@ if __name__ == "__main__":
   ys = [additions[x] for x in xs]
   ys_th = [additions_truly_hard[x] for x in xs]
 
-  fig, ax = plt.subplots(figsize=(8,4))
+  fig, ax = plt.subplots(figsize=(7,2.5))
   ax.bar(xs, ys, color=C_HARD, width=W_HARD, label="hard")
   ax.bar(xs, ys_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard")
   ax.set_xlabel("iteration")
   ax.set_ylabel("newly solved")
-  ax.set_title("Newly solved hard problems per iteration")
+  ax.set_title("Newly solved hard problems per iteration (wrt all previous iterations)")
   unify_x(ax)
   ax.grid(axis="y", color="0.9", linewidth=0.8)
   ax.set_axisbelow(True)
@@ -317,12 +317,12 @@ if __name__ == "__main__":
   print("solved_per_loop",ys2)
   print("solved_per_loop_truly_hard",ys2_th)
 
-  fig, ax = plt.subplots(figsize=(8,4))
+  fig, ax = plt.subplots(figsize=(7,2.5))
   ax.bar(xs2, ys2, color=C_HARD, width=W_HARD, label="hard")
   ax.bar(xs2, ys2_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard")
   ax.set_xlabel("iteration")
   ax.set_ylabel("solved")
-  ax.set_title("Hard problems solved per loop")
+  ax.set_title("Hard problems solved per iteration")
   unify_x(ax)
   ax.grid(axis="y", color="0.9", linewidth=0.8)
   ax.set_axisbelow(True)
@@ -357,7 +357,7 @@ if __name__ == "__main__":
   print("lost3",lost3)
   print("lost3_truly_hard",lost3_th)
 
-  fig, ax = plt.subplots(figsize=(8,4))
+  fig, ax = plt.subplots(figsize=(7,2.5))
   ax.bar(xs3, added3, color=C_HARD, width=W_HARD, label="added")
   ax.bar(xs3, added3_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard added")
   ax.bar(xs3, lost3, color=C_LOST, width=W_HARD, label="lost")
@@ -387,7 +387,7 @@ if __name__ == "__main__":
   ys4 = [solve_counts[x] for x in xs4]
   ys4_th = [solve_counts_truly_hard[x] for x in xs4]
 
-  fig, ax = plt.subplots(figsize=(8,4))
+  fig, ax = plt.subplots(figsize=(7,2.5))
   ax.bar(xs4, ys4, color=C_HARD, width=W_HARD, label="hard")
   ax.bar(xs4, ys4_th, color=C_TRULY_HARD, width=W_TRULY_HARD, label="truly hard")
   ax.set_xlabel("number of iterations solved in")
