@@ -536,6 +536,9 @@ def stage_perf_gather(ctx):
           break
         seed = rng.randint(1,0x7fffff) # temperatures can be same (repeated), so let's have a new seed per temp
 
+        # the 0-th run is the official one (no shuffling, no augmentation); the remaining ones are (on demand) collecting more data using randomness
+        official_run = (i == 0)
+
         # print(i,"for",ilim)
 
         # will change for the gathering job (but note that "-t something" is always the first option pair via a convention in run_lawa_vampire)
@@ -547,11 +550,12 @@ def stage_perf_gather(ctx):
         else:
           saturation_algorithm = f"-sa {HP.SATURATION_ALGORITHM}"
 
-        if HP.AUGMENT_TRAINING and mission == "train":
+        if HP.AUGMENT_TRAINING and mission == "train" and not official_run:
           opts1_base += HP.AUGMENT_TRAINING
 
         # will stay the same
-        opts2_base = f" {HP.SHUFFLING_OPTIONS} {saturation_algorithm} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
+        shuffling = "" if official_run else HP.SHUFFLING_OPTIONS
+        opts2_base = f" {shuffling} {saturation_algorithm} -ncf {HP.NUM_CLAUSE_FEATURES} -npf {HP.NUM_PROBLEM_FEATURES}"
 
         if not HP.IMITATE or ctx.loop > 1:
           opts2_base += f" -npcc on -ncem {script_model_file_path}"

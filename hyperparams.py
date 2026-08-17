@@ -34,6 +34,7 @@ RANDOM_SEED: Final[int] = 42 # TODO: don't forget about this one when starting a
 VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10742"
 
 SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
+# note: in elooper, these don't apply to the 0-th perform (the official run) and thus not to the test eval either
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
 # only if RANDOMIZED_STRATEGIES is None does the SATURATION_ALGORITHM below kick in!
