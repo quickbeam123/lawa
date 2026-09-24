@@ -12,6 +12,8 @@ import workers as W
 
 from multiprocessing import Pool
 
+from tqdm import tqdm
+
 class ProbSolve:
   def __init__(self):
     self.succ = 0
@@ -42,20 +44,21 @@ if __name__ == "__main__":
   vampire = "./vampire_rel_mtpa-gnn-2026_10736"
   ilim = 16000
   syntax = "tptp"
-  base_strat = f"-npcc on -ncem /home/sudamar2/jar2026/seed42_nd_noSplitC/loop28/script-model.pt -{option} {{}}"
+  base_strat = f"-npcc on -ncem /home/sudamar2/jar2026/seed42_nd_noSplitC/loop31/script-model.pt -{option} {{}}"
   shuffle_opts = "-si on -rtra on"
-  prob_name = "Problems/SCT/SCT114+1.p"
+  prob_name = "Problems/CSR/CSR162+1.p"
   prob_name_short = prob_name.split("/")[-1]
-  width = 200
+  width = 130
 
   tasks = []
   for val_iter in range(0,width):
     val = val_iter / 100
-    for _ in range(40): # for now just one sample per iter
+    for _ in range(400): # for now just one sample per iter
       tasks.append((val,random.randint(1,0x7ffffffff)))
 
   pool = Pool(processes=128)
-  results = pool.map(prepare_one, tasks, chunksize = 1)
+  results = list(tqdm(pool.imap_unordered(prepare_one, tasks, chunksize = 1),
+                      total = len(tasks), smoothing = 0, unit = "run"))
 
   buckets = defaultdict(list)
   probsolve = defaultdict(ProbSolve)
@@ -65,9 +68,7 @@ if __name__ == "__main__":
 
   for val,seed,result,instructions in results:
     assert result != "sat", f"Found saturation for {val} {seed}"
-    print(val,seed,result,instructions)
-
-    # instructions = math.log(instructions*1000000,10)
+    # print(val,seed,result,instructions)
 
     if result is not None:
       Xs.append(val)
@@ -77,7 +78,13 @@ if __name__ == "__main__":
     probsolve[val].add(result)
 
   fig, ax1 = plt.subplots(figsize=(12, 6))
-  hb = plt.hexbin(Xs,Ys,reduce_C_function=np.sum, bins='log',linewidths=0.1,gridsize=(width,50))
+  # yscale='log' bins in log space *and* puts the result on a genuine log axis,
+  # so the hexagons stay hexagons and the ticks come out as 10^k
+  # dividing both counts by the same factor scales the hexagon area by factor^2
+  # while keeping their shape; 2 -> four times the area
+  coarsen = 2
+  hb = plt.hexbin(Xs,Ys,bins='log',yscale='log',linewidths=0.1,
+                  gridsize=(width//coarsen,50//coarsen))
   cb = fig.colorbar(hb, ax=ax1)
   cb.set_label('numhits')
 
@@ -85,7 +92,7 @@ if __name__ == "__main__":
 
   for val,iter_list in buckets.items():
     x = val
-    y = np.mean(iter_list)
+    y = np.exp(np.mean(np.log(iter_list)))  # geometric mean: the "middle" on a log axis
     z = np.std(iter_list)
     p = probsolve[val].prob()
 
@@ -112,7 +119,7 @@ if __name__ == "__main__":
   fig.tight_layout()  # otherwise the right y-label is slightly clipped
 
   ax1.set_xlabel(f'{option}')
-  ax1.set_ylabel(r'$\log_{10}(\mathrm{instructions})$')
+  ax1.set_ylabel('instructions [M]')
 
   plt.subplots_adjust(bottom=0.2,left=0.2)
 
