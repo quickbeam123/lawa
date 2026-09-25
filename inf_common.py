@@ -1103,19 +1103,16 @@ class LearningModel(torch.nn.Module):
           # computing the loss
           passive_l = sorted(passive)
           passive_t = torch.tensor(passive_l, dtype=torch.long)
-          c = 1/len(passive_good)
-          passive_good_l = [c if idx in passive_good else 0.0 for idx in passive_l]
-          passive_good_t = torch.tensor(passive_good_l, dtype=logits.dtype)
+          passive_good_mask = torch.tensor([idx in passive_good for idx in passive_l], dtype=torch.bool)
 
           gathered_logits = logits[passive_t]
+          log_probs = torch.nn.functional.log_softmax(gathered_logits, dim=0)
 
-          good_action_reward_loss += torch.nn.functional.cross_entropy(
-            gathered_logits.unsqueeze(0),
-            passive_good_t.unsqueeze(0),
-            label_smoothing=HP.LABEL_SMOOTHING)
+          # -log pi(G): the log-probability of selecting *some* good clause (any one will do),
+          # as opposed to CE against the uniform-over-good target (which wants each good clause to get 1/|G| of the mass)
+          good_action_reward_loss -= torch.logsumexp(log_probs[passive_good_mask], dim=0)
 
           if HP.ENTROPY_REGULAZATION > 0.0 and len(passive_l) > 1:
-            log_probs = torch.nn.functional.log_softmax(gathered_logits, dim=0)
             # entropy normalized to <0,1> by its maximum, log(num of available clauses)
             normalized_entropy = -(log_probs.exp() * log_probs).sum() / math.log(len(passive_l))
             good_action_reward_loss -= HP.ENTROPY_REGULAZATION * normalized_entropy
