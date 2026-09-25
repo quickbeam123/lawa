@@ -31,9 +31,9 @@ SCRATCH = "/home/sudamar2/scratch" # used to be: "/scratch/sudamar2/" # add /rai
 
 RANDOM_SEED: Final[int] = 42 # TODO: don't forget about this one when starting an "indepenent rerun"!
 
-VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10742"
+VAMPIRE_EXECUTABLE = "./vampire_rel_mtpa-gnn-2026_10761"
 
-SHUFFLING_OPTIONS = "-si on -rtra on" # set to empty for no shuffling
+SHUFFLING_OPTIONS = "-si on -rtra on -rpr on -rsi on" # set to empty for no shuffling
 # note: in elooper, these don't apply to the 0-th perform (the official run) and thus not to the test eval either
 
 RANDOMIZED_STRATEGIES = None # set to a sampler file like ""samplerFOL.txt"" if you want random strategies
@@ -75,7 +75,7 @@ CUM_MAX_STRENGTH = 2.0
 # - along similar lines we also used to play with different temperatures (but temp 0.0 on Vampire side, is simply the best)
 INITIAL_NUM_PERFORMS = 6
 NUM_PERFORMS = 6
-MAX_TRACES_TO_KEEP = 1 # should be at least 1!
+MAX_TRACES_TO_KEEP = 3 # should be at least 1!
 # setting the above to different values makes sense when running in "snake"-mode (then, e.g., INITIAL_NUM_PERFORMS = 135 , NUM_PERFORMS = 45, MAX_TRACES_TO_KEEP = 3)
 
 USE_SPECIAL = True
