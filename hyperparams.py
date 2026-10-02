@@ -174,6 +174,11 @@ MAX_TRAINS_PER_TRACE = 1000
 
 LABEL_SMOOTHING = 0.0
 
+# in the loss (only), shift the logits of bad clauses by COST_ALPHA * log(1 + num of their descendants in the trace)
+# 0.0 = off (plain CE), 1.0 = a clause responsible for c-times more work should end up log(c) further back
+COST_ALPHA = 0.0
+COST_SKETCH_K = 32 # number of random ranks in the (linear-time) descendant count estimator
+
 ENTROPY_REGULAZATION = 0.0
 
 ONLY_LEARN_FROM_EVER_SELECTED = False

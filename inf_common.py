@@ -665,6 +665,44 @@ def gweight_stats(terms):
   # print("gweight_stats",widths)
   return len(widths),max(widths.values(),default=0)
 
+def descendant_log_costs(gnn_init_clause_nums, gage_infers, good_units, cl_nums_ordered):
+  """
+    For every clause in cl_nums_ordered, log(1 + the number of its (distinct) descendants), zero for good clauses.
+
+    Exact distinct-descendant counting is not linear on a DAG, so we estimate it with Cohen's reachability sketch:
+    each clause gets K random Exp(1) ranks and, going from the deepest layer up, each clause receives
+    the coordinate-wise minimum of the ranks over all its descendants. For N descendants, (K-1)/sum(minima)
+    is an unbiased estimate of N (relative error ~ 1/sqrt(K)).
+  """
+  K = HP.COST_SKETCH_K
+  cl2id = {cn: i for i, cn in enumerate(gnn_init_clause_nums)}
+  layers = [0]*len(gnn_init_clause_nums)
+  edges_by_layer = defaultdict(list) # layer of the child -> [(parent_id, child_id)]
+  for (cl_num,_inf_rule,parents) in gage_infers:
+    c_id = len(layers)
+    p_ids = {cl2id[p] for p in parents}
+    layer = 1 + max((layers[p_id] for p_id in p_ids), default=0)
+    cl2id[cl_num] = c_id
+    layers.append(layer)
+    if p_ids:
+      edges_by_layer[layer].extend((p_id, c_id) for p_id in p_ids)
+
+  gen = torch.Generator().manual_seed(42)
+  ranks = torch.empty(len(layers), K).exponential_(generator=gen)
+  below = torch.full((len(layers), K), math.inf) # min over the strict descendants
+
+  # all children of a clause live in deeper layers, so a child's "below" is final by the time it gets pushed to its parents
+  for layer in sorted(edges_by_layer, reverse=True):
+    p_ids, c_ids = torch.tensor(edges_by_layer[layer]).T
+    sketch = torch.minimum(ranks[c_ids], below[c_ids])
+    below.scatter_reduce_(0, p_ids.unsqueeze(1).expand(-1, K), sketch, reduce="amin")
+
+  log_costs = torch.log1p((K-1) / below.sum(dim=1)) # no descendants: sum is inf, so the estimate is 0
+
+  log_costs = log_costs[torch.tensor([cl2id[cn] for cn in cl_nums_ordered], dtype=torch.long)]
+  log_costs[torch.tensor([cn in good_units for cn in cl_nums_ordered], dtype=torch.bool)] = 0.0
+  return log_costs
+
 
 def precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered):
   """Build index tensors for vectorized gage tree processing.
@@ -935,8 +973,10 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     gage_data = precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered) if HP.USE_GAGE else None
     gweight_data = precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered) if HP.USE_GWEIGHT else None
 
+    log_costs = descendant_log_costs(gnn_init_clause_nums, gage_infers, good_units, cl_nums_ordered)
+
     to_save = (static_features, simple_features_stacked, newjournal, num_good_selections,
-                num2idx, gnn_data, gage_data, gweight_data)
+                num2idx, gnn_data, gage_data, gweight_data, log_costs)
     torch.save(to_save, trace_file_path)
 
   return num_good_selections, passes_limits, (gage_h,gage_w), (gweight_h,gweight_w), num_selections
@@ -961,7 +1001,7 @@ class LearningModel(torch.nn.Module):
 
   def forward(self):
     (static_features, simple_features_stacked, journal, num_good_selections,
-     num2idx, gnn_data, gage_data, gweight_data) = self.trace_tuple[:8]
+     num2idx, gnn_data, gage_data, gweight_data, log_costs) = self.trace_tuple
 
     if self.verbose:
       print("Box:",len(num2idx))
@@ -1047,8 +1087,9 @@ class LearningModel(torch.nn.Module):
 
           gathered_logits = logits[passive_t]
 
+          # bad clauses responsible for a lot of work (many descendants) get pushed back harder (by COST_ALPHA*log_cost at the optimum)
           good_action_reward_loss += torch.nn.functional.cross_entropy(
-            gathered_logits.unsqueeze(0),
+            (gathered_logits + HP.COST_ALPHA * log_costs[passive_t]).unsqueeze(0),
             passive_good_t.unsqueeze(0),
             label_smoothing=HP.LABEL_SMOOTHING)
 
