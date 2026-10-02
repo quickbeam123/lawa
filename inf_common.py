@@ -665,9 +665,10 @@ def gweight_stats(terms):
   # print("gweight_stats",widths)
   return len(widths),max(widths.values(),default=0)
 
-def descendant_log_costs(gnn_init_clause_nums, gage_infers, good_units, cl_nums_ordered):
+def descendant_log_costs(gnn_init_clause_nums, gage_infers, good_units, selected_units, cl_nums_ordered):
   """
     For every clause in cl_nums_ordered, log(1 + the number of its (distinct) descendants), zero for good clauses.
+    With HP.COST_IMPUTE_UNSELECTED, never selected bad clauses get the mean of the selected bad ones instead.
 
     Exact distinct-descendant counting is not linear on a DAG, so we estimate it with Cohen's reachability sketch:
     each clause gets K random Exp(1) ranks and, going from the deepest layer up, each clause receives
@@ -700,7 +701,17 @@ def descendant_log_costs(gnn_init_clause_nums, gage_infers, good_units, cl_nums_
   log_costs = torch.log1p((K-1) / below.sum(dim=1)) # no descendants: sum is inf, so the estimate is 0
 
   log_costs = log_costs[torch.tensor([cl2id[cn] for cn in cl_nums_ordered], dtype=torch.long)]
-  log_costs[torch.tensor([cn in good_units for cn in cl_nums_ordered], dtype=torch.bool)] = 0.0
+  good_mask = torch.tensor([cn in good_units for cn in cl_nums_ordered], dtype=torch.bool)
+  log_costs[good_mask] = 0.0
+
+  if HP.COST_IMPUTE_UNSELECTED:
+    # a never selected clause did not get to generate inferences, so its cost is censored (mostly 0);
+    # let it look like an average selected bad clause of this trace, so that only the actual fertility differentiates
+    selected_mask = torch.tensor([cn in selected_units for cn in cl_nums_ordered], dtype=torch.bool)
+    selected_bad_mask = selected_mask & ~good_mask
+    if selected_bad_mask.any():
+      log_costs[~selected_mask & ~good_mask] = log_costs[selected_bad_mask].mean()
+
   return log_costs
 
 
@@ -904,8 +915,8 @@ def trace_good_for_learning(trace_file_path,logfile=None):
    gage_infers,gweight_terms,gweight_clauses) = torch.load(trace_file_path,weights_only=False)
 
   good_units = set(proof_units)
+  selected_units = {cl_num for tag,cl_num in journal if tag == EVENT_SEL}
   if HP.ONLY_LEARN_FROM_EVER_SELECTED:
-    selected_units = {cl_num for tag,cl_num in journal if tag == EVENT_SEL}
     good_units &= selected_units
 
   # scan the journal and check if there are any selections with a good clause in passive at that time
@@ -973,7 +984,7 @@ def trace_good_for_learning(trace_file_path,logfile=None):
     gage_data = precompute_gage_indices(gnn_init_clause_nums, gage_infers, cl_nums_ordered) if HP.USE_GAGE else None
     gweight_data = precompute_gweight_indices(gweight_terms, gweight_clauses, cl_nums_ordered) if HP.USE_GWEIGHT else None
 
-    log_costs = descendant_log_costs(gnn_init_clause_nums, gage_infers, good_units, cl_nums_ordered)
+    log_costs = descendant_log_costs(gnn_init_clause_nums, gage_infers, good_units, selected_units, cl_nums_ordered)
 
     to_save = (static_features, simple_features_stacked, newjournal, num_good_selections,
                 num2idx, gnn_data, gage_data, gweight_data, log_costs)

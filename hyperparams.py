@@ -178,6 +178,9 @@ LABEL_SMOOTHING = 0.0
 # 0.0 = off (plain CE), 1.0 = a clause responsible for c-times more work should end up log(c) further back
 COST_ALPHA = 0.0
 COST_SKETCH_K = 32 # number of random ranks in the (linear-time) descendant count estimator
+# never selected clauses have censored costs (mostly 0, as they never generated inferences);
+# if True, they get the mean log_cost of the selected bad clauses of the same trace
+COST_IMPUTE_UNSELECTED = False
 
 ENTROPY_REGULAZATION = 0.0
 
